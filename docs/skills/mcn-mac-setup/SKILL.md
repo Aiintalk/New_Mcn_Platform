@@ -1,144 +1,141 @@
 ---
 name: mcn-mac-setup
-description: Mac 本地环境搭建 skill，用于将 MCN Platform（https://github.com/Aiintalk/New_Mcn_Platform）克隆并运行在 Mac 上。当用户提到"Mac 启动"、"本地部署"、"搭建 MCN 环境"、"Mac 跑起来"等时触发。流程：检查环境 → 评估安装时间 → 用户确认 → 执行安装 → 启动服务。
+description: 自动完成 MCN Platform 的 Mac 本地环境搭建与启动。当用户说"帮我把 MCN 跑起来"、"本地启动 MCN"、"搭建 MCN 环境"、"Mac 部署"等时触发。AI 自动执行所有检查和安装步骤，无需用户手动运行命令。
 ---
 
-# MCN Platform Mac 环境搭建
+# MCN Platform Mac 自动搭建
 
-## 流程概览
-
-**必须按以下顺序执行，不得跳步：**
-
-1. 检查本地环境
-2. 输出缺失项 + 预计安装时间，等待用户确认
-3. 用户确认后安装缺失依赖
-4. 克隆代码（如未克隆）
-5. 配置环境变量
-6. 执行数据库迁移
-7. 启动后端 + 前端
+仓库地址：https://github.com/Aiintalk/New_Mcn_Platform.git
+本地目录：`~/New_Mcn_Platform`
 
 ---
 
-## 第 1 步 — 检查本地环境
+## 执行流程
 
-并行运行以下检查命令，收集结果后一次性汇报：
+### 阶段一 — 并行检查所有环境（立即执行，无需询问）
+
+同时运行以下所有检查：
 
 ```bash
-# Homebrew
-which brew && brew --version | head -1
+# 1. 代码仓库
+ls ~/New_Mcn_Platform 2>/dev/null && echo "REPO_EXISTS" || echo "REPO_MISSING"
 
-# Python 3.10+
-python3 --version 2>/dev/null || echo "NOT FOUND"
-which python3.10 2>/dev/null || echo "python3.10 NOT FOUND"
+# 2. Homebrew
+brew --version 2>/dev/null | head -1 || echo "BREW_MISSING"
 
-# Node.js 18+
-node --version 2>/dev/null || echo "NOT FOUND"
+# 3. Python
+python3.10 --version 2>/dev/null || python3 --version 2>/dev/null || echo "PYTHON_MISSING"
 
-# PostgreSQL
-psql --version 2>/dev/null || echo "NOT FOUND"
-brew services list | grep postgresql 2>/dev/null || echo "pg service unknown"
+# 4. Node.js
+node --version 2>/dev/null || echo "NODE_MISSING"
 
-# Git
-git --version 2>/dev/null || echo "NOT FOUND"
+# 5. PostgreSQL
+psql --version 2>/dev/null || echo "PG_MISSING"
+brew services list 2>/dev/null | grep postgresql || echo "PG_SERVICE_UNKNOWN"
 
-# 项目目录
-ls ~/New_Mcn_Platform 2>/dev/null && echo "REPO EXISTS" || echo "REPO NOT FOUND"
+# 6. Git
+git --version 2>/dev/null || echo "GIT_MISSING"
 ```
 
 ---
 
-## 第 2 步 — 评估并告知用户
+### 阶段二 — 汇报检查结果，评估下载时间
 
-根据检查结果，生成缺失项清单和预计时间，格式如下：
+根据检查结果，按以下格式向用户汇报：
 
 ```
-环境检查结果：
+环境检查完成：
 
-已安装：
-✅ Git 2.x
-✅ Node.js 22.x
+代码仓库：
+  ✅ 已存在 ~/New_Mcn_Platform（无需下载）
+  或
+  ⬇️ 未找到，需要从 GitHub 克隆（网络正常约 1-2 分钟）
 
-需要安装：
-❌ Homebrew（约 5 分钟）
-❌ Python 3.10（约 3 分钟）
-❌ PostgreSQL 15（约 2 分钟）
+运行环境：
+  ✅ Git 2.x
+  ✅ Node.js 22.x
+  ✅ Python 3.11
+  ✅ PostgreSQL 15（服务运行中）
+  或对缺失项显示：
+  ❌ Homebrew（未安装，约 5 分钟）
+  ❌ Python 3.10（未安装，约 3 分钟）
+  ❌ PostgreSQL 15（未安装，约 2 分钟）
 
-预计总时间：约 10 分钟
-网络状况会影响实际时间。
+预计总耗时：约 X 分钟（网络状况会影响实际时间）
+全部就绪，无需安装任何依赖。（如果全部已装）
 
-确认后开始安装？
+需要安装缺失依赖并启动服务吗？
 ```
 
-**等待用户明确回复"确认"或"开始"后再继续，不得自动跳过。**
+**等待用户确认后再继续。**
 
 ---
 
-## 第 3 步 — 安装缺失依赖
+### 阶段三 — 用户确认后执行（按需）
 
-按缺失项逐一安装，安装完成后输出确认：
+#### 3a. 安装缺失依赖（只安装缺失的，已有的跳过）
 
 ```bash
-# 安装 Homebrew（如缺失）
+# Homebrew（缺失时）
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
-# 安装 Python 3.10（如缺失）
+# Python 3.10（缺失时）
 brew install python@3.10
 
-# 安装 Node.js（如缺失）
+# Node.js（缺失时）
 brew install node
 
-# 安装 PostgreSQL 15（如缺失）
+# PostgreSQL 15（缺失时）
 brew install postgresql@15
 echo 'export PATH="/opt/homebrew/opt/postgresql@15/bin:$PATH"' >> ~/.zshrc
 source ~/.zshrc
 brew services start postgresql@15
 ```
 
----
-
-## 第 4 步 — 克隆代码
+#### 3b. 克隆代码（仓库不存在时）
 
 ```bash
 cd ~
 git clone https://github.com/Aiintalk/New_Mcn_Platform.git
-cd New_Mcn_Platform
 ```
 
-如目录已存在则跳过克隆，进入目录后执行 `git pull` 更新。
+仓库已存在时执行：
+```bash
+cd ~/New_Mcn_Platform
+git pull
+```
 
----
-
-## 第 5 步 — 配置后端环境变量
+#### 3c. 检查并配置 .env（首次）
 
 ```bash
 cd ~/New_Mcn_Platform/backend
-cp .env.example .env
+[ -f .env ] && echo "ENV_EXISTS" || cp .env.example .env && echo "ENV_CREATED"
 ```
 
-**提示用户编辑 `.env`，必填项：**
+如果是首次创建 `.env`，提示用户填写以下必填项后再继续：
 
 | 字段 | 说明 |
 |------|------|
 | `DATABASE_URL` | `postgresql+asyncpg://mcn_user:密码@localhost:5432/mcn_db` |
-| `JWT_SECRET` | 随机 32 位字符串（可用 `openssl rand -hex 32` 生成） |
-| `ENCRYPTION_KEY` | 另一个 32 位字符串 |
+| `JWT_SECRET` | `openssl rand -hex 32` 生成 |
+| `ENCRYPTION_KEY` | `openssl rand -hex 16` 生成 |
 | `INITIAL_ADMIN_PASSWORD` | 自定义管理员密码 |
 
-`LLM_API_KEY` 和 `TIKHUB_API_KEY` 可先填 `placeholder`，后台配置。
+`LLM_API_KEY` / `TIKHUB_API_KEY` 可先填 `placeholder`。
 
----
-
-## 第 6 步 — 创建数据库 + 执行迁移
+#### 3d. 创建数据库（首次，库不存在时）
 
 ```bash
-# 创建数据库用户和库
-psql postgres << 'EOF'
-CREATE USER mcn_user WITH PASSWORD '与.env一致的密码';
+psql postgres -c "\l" | grep mcn_db || psql postgres << 'EOF'
+CREATE USER mcn_user WITH PASSWORD 'mcn_password';
 CREATE DATABASE mcn_db OWNER mcn_user;
 GRANT ALL PRIVILEGES ON DATABASE mcn_db TO mcn_user;
 EOF
+```
 
-# 执行迁移（001~007）
+#### 3e. 执行数据库迁移（首次）
+
+```bash
 cd ~/New_Mcn_Platform/backend
 for f in migrations/001_init.sql \
           migrations/002_kols_add_owner.sql \
@@ -148,33 +145,51 @@ for f in migrations/001_init.sql \
           migrations/006_kol_intake.sql \
           migrations/007_kol_intake_operator_sessions.sql; do
   echo "执行 $f ..."
-  PGPASSWORD=密码 psql -h localhost -U mcn_user -d mcn_db -f $f
+  PGPASSWORD=mcn_password psql -h localhost -U mcn_user -d mcn_db -f $f
 done
+```
+
+#### 3f. 安装 Python 依赖（首次或 requirements.txt 有更新）
+
+```bash
+cd ~/New_Mcn_Platform/backend
+[ -d .venv ] || python3.10 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+#### 3g. 安装前端依赖（首次或 package.json 有更新）
+
+```bash
+cd ~/New_Mcn_Platform/frontend
+[ -f .env ] || (cp .env.example .env && echo "VITE_API_BASE_URL=http://localhost:8000" > .env)
+npm install
 ```
 
 ---
 
-## 第 7 步 — 启动服务
+### 阶段四 — 询问是否启动服务
 
-**后端（终端 1）：**
-```bash
-cd ~/New_Mcn_Platform/backend
-python3.10 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
+完成所有安装后询问：
+
+```
+环境准备完毕！是否现在启动服务？
+（需要两个终端窗口分别运行后端和前端）
 ```
 
-**前端（终端 2）：**
+用户确认后输出启动命令，**提示用户在两个终端分别执行**（不要自动后台执行，避免进程管理问题）：
+
+**终端 1 — 后端：**
 ```bash
-cd ~/New_Mcn_Platform/frontend
-cp .env.example .env
-# .env 内容：VITE_API_BASE_URL=http://localhost:8000
-npm install
-npm run dev
+cd ~/New_Mcn_Platform/backend && source .venv/bin/activate && uvicorn app.main:app --reload --port 8000
 ```
 
-浏览器打开 `http://localhost:5173`，用管理员账号登录。
+**终端 2 — 前端：**
+```bash
+cd ~/New_Mcn_Platform/frontend && npm run dev
+```
+
+启动后告知：浏览器打开 `http://localhost:5173`，用管理员账号登录。
 
 ---
 
@@ -183,7 +198,7 @@ npm run dev
 | 问题 | 解法 |
 |------|------|
 | `psql: command not found` | `export PATH="/opt/homebrew/opt/postgresql@15/bin:$PATH"` |
-| PostgreSQL 连接拒绝 | `brew services start postgresql@15` |
-| pip install 失败 | 确认虚拟环境已激活：`source .venv/bin/activate` |
-| 端口 8000 被占用 | `lsof -i :8000` 找到进程 kill 掉 |
+| PostgreSQL 连接被拒绝 | `brew services start postgresql@15` |
+| pip install 失败 | 确认已激活虚拟环境：`source .venv/bin/activate` |
+| 端口 8000 被占用 | `lsof -i :8000 \| grep LISTEN` 找到 PID 后 `kill <PID>` |
 | Apple Silicon (M1/M2/M3) | Homebrew 路径是 `/opt/homebrew`，Intel 是 `/usr/local` |
