@@ -1,0 +1,15 @@
+@import './styles/variables.css';
+@import './styles/admin.css';
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  background: var(--bg-page);
+  color: var(--gray-800);
+}
