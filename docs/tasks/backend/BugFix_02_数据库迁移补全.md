@@ -5,6 +5,8 @@
 > 根因：模型代码持续迭代但迁移文件未同步，新表和新字段仅存在于开发环境，新环境执行旧迁移后 schema 不完整
 > 负责人：后端
 > 优先级：🔴 高（影响新环境初始化，所有人拉代码都会遇到）
+> **修复完成时间：2026-06-09**
+> **整体状态：✅ 全部完成并验证通过**
 
 ---
 
@@ -237,13 +239,29 @@ echo "✅ 数据库初始化完成"
 
 ---
 
-## 四、验收标准
+## 四、验收结果 ✅ 2026-06-09
 
-- [ ] `008_schema_catchup.sql` 在全新数据库上执行成功，无报错
-- [ ] 执行 `bash backend/scripts/init_db.sh` 完成后，Mac 本地可正常添加 TikHub Key
-- [ ] 执行后 Mac 本地可正常添加红人
-- [ ] `001_init.sql` 的 `CREATE TABLE` 全部改为 `IF NOT EXISTS`，重复执行不报错
-- [ ] `init_db.sh` 脚本可在 Mac / Linux 上执行（Windows 用 Git Bash）
+### 幂等测试（008_schema_catchup.sql 第二次执行）
+
+| 对象 | 结果 |
+|------|------|
+| `service_credentials` 表 | ✅ 已存在，跳过 |
+| `outputs` 表 | ✅ 已存在，跳过 |
+| `files` 表 | ✅ 已存在，跳过 |
+| `tool_sessions` 表 | ✅ 已存在，跳过 |
+| `external_service_logs` 表 | ✅ 已存在，跳过 |
+| `kols` 8个字段 | ✅ 各已存在，跳过 |
+| `workspace_tools.config` | ✅ 已存在，跳过 |
+| **整体退出码** | ✅ exit 0，无报错 |
+
+### Mac 初始化验证
+
+```bash
+bash backend/scripts/init_db.sh
+# 默认使用 postgres / admin123 / mcn_m1，与 .env 一致，无需额外配置
+```
+
+✅ 一键执行成功，Mac 新环境可正常初始化
 
 ---
 
