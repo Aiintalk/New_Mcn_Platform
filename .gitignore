@@ -28,6 +28,9 @@ logs/
 # 报告文件（运行时生成，不提交）
 backend/reports/
 
+# 本地种子数据（含 API Key，禁止提交）
+backend/seed_local.sql
+
 # IDE
 .vscode/
 .idea/

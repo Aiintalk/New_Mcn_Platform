@@ -153,6 +153,7 @@ async def list_keys(
             "base_url":        r.base_url,
             "status":          r.status,
             "active_requests": r.active_requests,
+            "concurrency":     r.active_requests,
             "max_concurrent":  r.max_concurrent,
             "max_users":       r.max_users,
             "last_tested_at":  r.last_tested_at.isoformat() if r.last_tested_at else None,
@@ -564,7 +565,7 @@ async def ai_stats(
                 "provider":   r.provider,
                 "requests":   int(r.requests),
                 "tokens":     int(r.tokens),
-                "percentage": round(int(r.tokens) / total_tokens, 4) if total_tokens else 0,
+                "pct": round(int(r.tokens) / total_tokens * 100) if total_tokens else 0,
             }
             for r in model_rows
         ],

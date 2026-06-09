@@ -133,7 +133,7 @@ CREATE INDEX idx_kol_intake_submissions_link ON kol_intake_submissions(link_id);
 INSERT INTO workspace_tools (tool_code, tool_name, category, description, status, tags, sort_order)
 VALUES (
     'kol-intake',
-    '红人入驻问卷',
+    '红人信息采集',
     '红人管理',
     '运营生成一次性链接 → AI 对话式采集博主信息 → 生成入驻评估报告',
     'dev',

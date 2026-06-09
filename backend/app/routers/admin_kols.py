@@ -195,15 +195,7 @@ async def create_kol(
     await db.commit()
     await db.refresh(kol)
 
-    # 异步尝试 TikHub 拉取（失败不阻断）
-    tikhub_result = await fetch_tikhub_for_kol(kol, db)
-    # 刷新 kol 以获取 TikHub 更新后的字段
-    await db.refresh(kol)
-
-    return success_response(
-        data={**_kol_to_dict(kol), "tikhub": tikhub_result},
-        message="红人创建成功",
-    )
+    return success_response(data=_kol_to_dict(kol), message="红人创建成功")
 
 
 # ---------------------------------------------------------------------------

@@ -58,7 +58,7 @@ def _pagination(total: int, page: int, page_size: int) -> dict:
 class CreateCredentialRequest(BaseModel):
     provider: str
     label: str
-    secret: str
+    api_key: str
     weight: int = 1
     quota_limit: int | None = None
     config: dict | None = None
@@ -113,8 +113,8 @@ async def create_credential(
     request: Request,
     current_user: User = Depends(require_admin),
 ):
-    secret_enc = body.secret  # Sprint 3: store plaintext; encryption added in Sprint 4
-    secret_tail = body.secret[-4:] if len(body.secret) >= 4 else body.secret
+    secret_enc = body.api_key  # Sprint 3: store plaintext; encryption added in Sprint 4
+    secret_tail = body.api_key[-4:] if len(body.api_key) >= 4 else body.api_key
 
     async with AsyncSessionLocal() as session:
         cred = ServiceCredential(
@@ -236,3 +236,76 @@ async def delete_credential(
         await session.commit()
 
     return success_response(data=None, message="密钥已删除")
+
+
+# ---------------------------------------------------------------------------
+# POST /api/admin/config/credentials/{credential_id}/enable
+# POST /api/admin/config/credentials/{credential_id}/disable
+# ---------------------------------------------------------------------------
+
+@router.post("/admin/config/credentials/{credential_id}/enable", response_model=ApiResponse)
+async def enable_credential(
+    credential_id: int,
+    request: Request,
+    current_user: User = Depends(require_admin),
+):
+    async with AsyncSessionLocal() as session:
+        cred = (await session.execute(
+            select(ServiceCredential).where(ServiceCredential.id == credential_id)
+        )).scalar_one_or_none()
+        if cred is None:
+            return error_response(ErrorCode.RESOURCE_NOT_FOUND, "密钥不存在")
+
+        await session.execute(
+            update(ServiceCredential)
+            .where(ServiceCredential.id == credential_id)
+            .values(status="enabled")
+        )
+        session.add(OperationLog(
+            user_id=current_user.id,
+            username=current_user.username,
+            role=current_user.role,
+            action="enable_credential",
+            target_type="credential",
+            target_id=credential_id,
+            ip=_get_ip(request),
+            user_agent=request.headers.get("user-agent"),
+        ))
+        await session.commit()
+        await session.refresh(cred)
+
+    return success_response(data=_cred_to_dict(cred), message="密钥已启用")
+
+
+@router.post("/admin/config/credentials/{credential_id}/disable", response_model=ApiResponse)
+async def disable_credential(
+    credential_id: int,
+    request: Request,
+    current_user: User = Depends(require_admin),
+):
+    async with AsyncSessionLocal() as session:
+        cred = (await session.execute(
+            select(ServiceCredential).where(ServiceCredential.id == credential_id)
+        )).scalar_one_or_none()
+        if cred is None:
+            return error_response(ErrorCode.RESOURCE_NOT_FOUND, "密钥不存在")
+
+        await session.execute(
+            update(ServiceCredential)
+            .where(ServiceCredential.id == credential_id)
+            .values(status="disabled")
+        )
+        session.add(OperationLog(
+            user_id=current_user.id,
+            username=current_user.username,
+            role=current_user.role,
+            action="disable_credential",
+            target_type="credential",
+            target_id=credential_id,
+            ip=_get_ip(request),
+            user_agent=request.headers.get("user-agent"),
+        ))
+        await session.commit()
+        await session.refresh(cred)
+
+    return success_response(data=_cred_to_dict(cred), message="密钥已停用")
