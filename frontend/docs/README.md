@@ -1,0 +1,150 @@
+# 前端文档目录
+
+> 本目录存放前端相关的所有文档。开发前端时，不出 `frontend/` 目录即可找到全部所需内容。
+
+---
+
+## 前端架构
+
+```
+frontend/
+├── src/                               # 源码
+│   ├── api/                           # API 调用层
+│   │   ├── request.ts                 #   基础封装（get/post/patch/put/del + 拦截器）
+│   │   ├── auth.ts                    #   登录、改密码
+│   │   ├── users.ts                   #   用户管理
+│   │   ├── kols.ts                    #   红人管理
+│   │   ├── credentials.ts             #   AI 密钥管理
+│   │   ├── workspace.ts              #   工作空间配置
+│   │   ├── intake.ts                  #   入驻问卷（运营端）
+│   │   ├── intakeDirect.ts            #   入驻问卷（运营直发）
+│   │   ├── homepage.ts                #   运营首页数据
+│   │   ├── tasks.ts                   #   任务管理
+│   │   ├── outputs.ts                 #   产出管理
+│   │   ├── files.ts                   #   文件上传下载
+│   │   ├── logs.ts                    #   日志查看
+│   │   ├── system.ts                  #   系统状态
+│   │   ├── ai.ts                      #   AI 服务管理
+│   │   └── tikhub.ts                  #   TikHub 管理
+│   ├── layouts/                       # 布局组件
+│   │   ├── AdminLayout.tsx            #   管理端布局（左侧菜单 + 内容区）
+│   │   ├── OperatorLayout.tsx         #   运营端布局（左侧菜单 + 内容区）
+│   │   └── AuthLayout.tsx             #   登录/注册页布局
+│   ├── pages/                         # 页面组件
+│   │   ├── admin/                     #   管理端（12 个页面）
+│   │   │   ├── KolsPage.tsx           #     红人管理
+│   │   │   ├── UsersPage.tsx          #     用户管理
+│   │   │   ├── AiManagementPage.tsx   #     AI 密钥/模型管理
+│   │   │   ├── ServiceConfigPage.tsx  #     工具配置（功能配置卡片）
+│   │   │   ├── WorkspaceConfigPage.tsx #    工作空间配置
+│   │   │   ├── AdminIntakePage.tsx    #     入驻问卷管理
+│   │   │   ├── AdminTasksPage.tsx     #     任务管理
+│   │   │   ├── AdminOutputsPage.tsx   #     产出管理
+│   │   │   ├── AdminDashboardPage.tsx #     管理端仪表盘
+│   │   │   ├── ExternalLogsPage.tsx   #     外部服务日志
+│   │   │   ├── OperationLogsPage.tsx  #     操作日志
+│   │   │   └── ServiceStatusPage.tsx  #     服务状态
+│   │   ├── operator/                  #   运营端（7 个页面）
+│   │   │   ├── HomePage.tsx           #     首页（统计卡片 + 趋势图）
+│   │   │   ├── OperatorIntakePage.tsx #     入驻问卷列表
+│   │   │   ├── OperatorIntakeChatPage.tsx #  运营直发对话
+│   │   │   ├── TasksPage.tsx          #     任务中心
+│   │   │   ├── OutputsPage.tsx        #     产出中心
+│   │   │   ├── WorkspacePage.tsx      #     创作中心
+│   │   │   └── PersonaWriterPage.tsx  #     人设定位（Sprint3 新增）
+│   │   ├── auth/                      #   登录/改密码
+│   │   │   ├── LoginPage.tsx
+│   │   │   └── ChangePasswordPage.tsx
+│   │   └── intake/                    #   公开页
+│   │       └── IntakePage.tsx         #     博主填写问卷
+│   ├── routes/                        # 路由守卫
+│   │   ├── ProtectedRoute.tsx         #   已登录 + 已改密检查
+│   │   └── AdminRoute.tsx             #   admin 角色检查
+│   ├── store/                         # Zustand 状态管理
+│   │   └── authStore.ts               #   认证状态（token / user / isAuthenticated）
+│   ├── styles/                        # 全局样式
+│   │   ├── variables.css              #   CSS 变量（品牌色、字号、间距）
+│   │   └── admin.css                  #   管理端/运营端共享样式
+│   ├── types/                         # TypeScript 类型定义（12 个模块）
+│   │   ├── api.ts                     #   ApiResponse<T> / PagedData<T>
+│   │   ├── user.ts                    #   UserInfo
+│   │   ├── kol.ts                     #   KolInfo
+│   │   ├── intake.ts                  #   Intake 相关
+│   │   ├── credential.ts             #   凭证相关
+│   │   ├── workspace.ts              #   工作空间相关
+│   │   └── ...                        #   task / output / log / file / system
+│   ├── __tests__/                     # 测试代码（71 个用例，全部通过）
+│   │   ├── unit/                      #   单元测试
+│   │   │   ├── api/                   #     API 层测试（6 个文件）
+│   │   │   │   ├── request.test.ts    #       request 封装
+│   │   │   │   ├── users.test.ts      #       用户管理 API
+│   │   │   │   ├── workspace.test.ts  #       工作空间 API
+│   │   │   │   ├── tasks.test.ts      #       任务管理 API
+│   │   │   │   ├── outputs.test.ts    #       产出管理 API
+│   │   │   │   ├── intake.test.ts     #       入驻问卷 API（18 个用例）
+│   │   │   │   └── homepage.test.ts   #       运营首页 API
+│   │   │   └── store/authStore.test.ts #      authStore 测试
+│   │   └── components/                #   组件测试
+│   │       └── pages/LoginPage.test.tsx #     登录页测试
+│   ├── test/setup.ts                  # 测试环境 setup（matchMedia mock）
+│   ├── App.tsx                        # 路由定义
+│   └── main.tsx                       # 入口
+│
+├── docs/                              # ===== 本目录 =====
+│   ├── README.md                      #   本文件（架构 + 文档索引）
+│   ├── 前端规范.md                      #   前端唯一规范文档
+│   ├── base/                          #   前端基础文档
+│   │   └── MCN_M1_Base_Frontend.md    #     前端架构 + 页面 + 路由规范
+│   ├── tests/                         #   测试报告
+│   │   ├── MCN_Frontend_Test_Task_M1M2.md              #  前端测试任务单
+│   │   └── MCN_Frontend_Test_Fix_Report_2026-06-11.md  #  前端测试修复报告
+│   └── tasks/                         #   任务单 + 验收文档（23 个）
+│       ├── M1_Sprint0.md ~ Sprint4.md           #  M1 各 Sprint
+│       ├── M1_Sprint5_TikHub_独立池化.md         #  TikHub 独立池化
+│       ├── M2_Sprint1_kol_intake.md             #  入驻问卷主任务
+│       ├── M2_Sprint1_kol_intake_*.md           #  入驻问卷系列（14 个）
+│       ├── M2_Sprint2_operator_homepage*.md     #  首页系列（3 个）
+│       └── M2_Sprint3_persona_positioning.md    #  人设定位
+│
+├── vitest.config.ts                   # Vitest 测试配置
+├── vite.config.ts                     # Vite 构建配置
+├── package.json                       # 依赖 + 脚本
+└── tsconfig.json                      # TypeScript 配置
+```
+
+---
+
+## 文档存储结构
+
+```
+frontend/docs/
+├── 前端规范.md    前端唯一规范文档（设计 Token / CSS 组件 / 路由 / 改动纪律）
+│                → 所有前端开发开始前必读
+├── base/        前端基础文档
+│                → MCN_M1_Base_Frontend.md：页面清单、路由结构、组件规范
+└── tasks/       任务单 + 验收文档
+                 → 新功能、BugFix、优化都放这里
+                 → 迭代按 vN 递增新建，不覆盖原文档
+                 → 验收文档与任务单同目录，文件名带「开发验收」
+```
+
+### 命名规范
+
+```
+任务文档：    Mx_Sprintxx_{功能名}[_vN[_迭代类型]]
+验收文档：    Mx_Sprintxx_前端任务_开发验收_{功能名}_vN.md
+```
+
+- **迭代类型**（v2 起）：`新增功能` / `修改需求` / `修复Bug`
+- **版本号**：一条线累加（v1 → v2 → v3），不重复
+
+---
+
+## 关键约定
+
+- 所有 API 调用走 `src/api/request.ts`，禁止裸用 fetch
+- 所有样式值引用 CSS 变量，禁止硬编码
+- 运营端新功能入口放「创作中心」
+- 管理端新配置放「工具配置」→「功能配置」
+- 页面组件命名：`XxxPage.tsx`，放 `src/pages/{角色}/`
+- 测试运行：`npx vitest run --coverage`

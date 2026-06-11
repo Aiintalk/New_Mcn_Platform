@@ -50,13 +50,13 @@
 
 - [ ] 所有接口响应使用统一格式：`{ success, code, message, data }`
 - [ ] 字段命名使用 `snake_case`
-- [ ] 接口有对应的 Pydantic Request / Response schema
+- [ ] 接口有对应的 Pydantic Request / Response schema（定义在 router 文件内，不单独建 schemas/ 文件）
 - [ ] 接口已在 `MCN_M1_Base_API.md` 或 `MCN_M2_Base_API.md` 中登记
 - [ ] HTTP 方法语义正确（GET 不改写数据、DELETE 走软删）
 
 ### 4.2 数据库操作
 
-- [ ] 使用 SQLAlchemy ORM，无裸 SQL 字符串（migration 文件除外）
+- [ ] 使用 SQLAlchemy ORM，复杂查询允许参数化的 `text()` SQL，禁止字符串拼接 SQL
 - [ ] 软删除表不物理删除，使用 `deleted_at` 或 `is_active=false`
 - [ ] 涉及 operator 权限的查询包含数据隔离过滤
 - [ ] 批量操作有事务保护
@@ -93,7 +93,7 @@
 
 ### 5.2 接口调用
 
-- [ ] 所有接口调用通过统一的 `request` 封装（axios instance）
+- [ ] 所有接口调用通过统一的 `request` 封装（`request.ts`，基于 fetch）
 - [ ] 不直接调用 AI / TikHub / OSS / ASR，必须走后端代理
 - [ ] 接口错误有统一的 toast/notification 提示
 
@@ -113,14 +113,14 @@
 
 - [ ] 组件不超过 300 行（超过需拆分）
 - [ ] 无 `console.log` 调试语句
-- [ ] 样式使用 CSS 变量（`var(--primary-color)` 等），不硬编码颜色
+- [ ] 样式使用 CSS 变量（`var(--brand)` 等），不硬编码颜色
 - [ ] 无魔法数字，提取为命名常量
 
 ---
 
 ## 6. 数据库 Migration 审核要点
 
-- [ ] migration 文件有 `upgrade()` 和 `downgrade()`
+- [ ] migration 是纯 SQL 文件（如 `001_init.sql`），非 Alembic，无 `upgrade()`/`downgrade()`
 - [ ] 新字段有合理的默认值，不破坏现有数据
 - [ ] 新增索引不影响写入性能（超大表需离线索引）
 - [ ] 对应的表文档（`MCN_M1_Base_Database.md` 或 `MCN_M2_Base_Database.md`）已同步更新

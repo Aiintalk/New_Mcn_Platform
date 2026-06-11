@@ -7,7 +7,7 @@ MCN 红人孵化管理平台，支持多用户、多并发场景，集成 AI 能
 | 端 | 技术 |
 |----|------|
 | 后端 | Python 3.10 · FastAPI · SQLAlchemy (asyncpg) · PostgreSQL 15 |
-| 前端 | React 18 · Vite · TypeScript · Ant Design 5.x |
+| 前端 | React 19 · Vite 8 · TypeScript 6 · Ant Design 5.x · Zustand 5 |
 | 部署 | Nginx · PM2 · Ubuntu |
 
 ## 功能模块
@@ -21,32 +21,85 @@ MCN 红人孵化管理平台，支持多用户、多并发场景，集成 AI 能
 
 ## 目录结构
 
+> 原则：文档跟着代码走（就近原则）。开发某端时，不出该端目录即可找到所有相关文档。
+
 ```
 mcn-platform/
-├── backend/          # FastAPI 后端
-│   ├── app/
-│   │   ├── routers/  # API 路由
-│   │   ├── models/   # 数据库模型
-│   │   ├── services/ # 业务逻辑
-│   │   ├── adapters/ # 外部服务适配器（AI、TikHub、OSS）
-│   │   └── core/     # 配置、数据库、安全
-│   ├── migrations/   # SQL 迁移脚本（001~007）
-│   └── tests/        # 测试用例
-├── frontend/         # React 前端
-│   └── src/
-│       ├── pages/    # 页面组件
-│       ├── api/      # API 调用层
-│       ├── store/    # Zustand 状态管理
-│       └── types/    # TypeScript 类型定义
-├── deploy/           # 部署配置（Nginx）
-└── docs/             # 项目文档和任务单
+├── CLAUDE.md                          ← Claude Code 项目规范（自动加载）
+├── README.md                          ← 本文件
+│
+├── backend/                           ← 后端（FastAPI）
+│   ├── app/                           #   源码
+│   │   ├── adapters/                  #     外部服务适配器（AI、TikHub、OSS、ASR）
+│   │   ├── core/                      #     配置、数据库、安全、响应封装
+│   │   ├── middlewares/               #     JWT 鉴权中间件
+│   │   ├── models/                    #     SQLAlchemy ORM 模型（12 个）
+│   │   ├── routers/                   #     API 路由（按角色分文件，18 个）
+│   │   ├── schemas/                   #     Pydantic schema
+│   │   └── services/                  #     业务逻辑服务
+│   ├── docs/                          #   后端文档
+│   │   ├── README.md                  #     架构说明 + 文档索引
+│   │   ├── base/                      #     接口契约 + 数据库契约
+│   │   ├── tasks/                     #     任务单 + 验收文档（21 个）
+│   │   └── tests/                     #     测试报告 + 测试任务
+│   ├── tests/                         #   测试代码
+│   │   ├── unit/                      #     单元测试
+│   │   ├── integration/               #     集成测试
+│   │   ├── e2e/                       #     端到端测试
+│   │   ├── concurrent/                #     并发隔离测试
+│   │   └── intake/                    #     入驻问卷专项测试
+│   ├── migrations/                    #   SQL 迁移脚本（001 ~ 012）
+│   └── scripts/                       #   工具脚本（init_db.sh、run_coverage.py）
+│
+├── frontend/                          ← 前端（React + Vite）
+│   ├── src/                           #   源码
+│   │   ├── api/                       #     API 调用层（16 个模块）
+│   │   ├── layouts/                   #     布局组件（Admin / Operator / Auth）
+│   │   ├── pages/                     #     页面组件（admin 12 个 / operator 7 个 / auth 2 个 / intake 1 个）
+│   │   ├── routes/                    #     路由守卫
+│   │   ├── store/                     #     Zustand 状态管理
+│   │   ├── styles/                    #     CSS 变量 + 全局样式
+│   │   ├── types/                     #     TypeScript 类型定义（12 个模块）
+│   │   └── __tests__/                 #     前端测试
+│   ├── docs/                          #   前端文档
+│   │   ├── README.md                  #     架构说明 + 文档索引
+│   │   ├── 前端规范.md                  #     前端唯一规范文档
+│   │   ├── base/                      #     前端基础文档
+│   │   └── tasks/                     #     任务单 + 验收文档（23 个）
+│   ├── vitest.config.ts               #   Vitest 测试配置
+│   └── vite.config.ts                 #   Vite 构建配置
+│
+├── deploy/                            ← 运维部署
+│   ├── docs/                          #   运维文档
+│   │   ├── README.md                  #     部署架构说明 + 文档索引
+│   │   └── tasks/                     #     任务单 + 验收文档（6 个）
+│   ├── scripts/                       #   启停脚本、健康检查
+│   └── nginx/                         #   Nginx 配置
+│
+└── docs/                              ← 跨端共享文档
+    ├── design/                        #   设计方案（系统设计、UI 规范、部署评估）
+    ├── standards/                     #   编码标准、测试策略、Code Review 标准
+    ├── base/                          #   跨端契约（验收标准、权限定义）
+    ├── pm/                            #   PM 状态文档
+    └── tests/                         #   跨端测试报告
 ```
+
+### 文档组织规则
+
+| 目录 | 内容 | 说明 |
+|------|------|------|
+| `backend/docs/` | 后端全部文档 | 接口契约、数据库契约、任务单、测试报告 |
+| `frontend/docs/` | 前端全部文档 | 前端规范、任务单 |
+| `deploy/docs/` | 运维全部文档 | 部署任务单 |
+| `docs/` | 跨端共享 | 设计方案、编码标准、PM 状态 |
+
+每个端的 `docs/README.md` 都有该端完整的架构说明和文档索引。
 
 ## 快速开始
 
 ### 环境要求
 
-- Python 3.10+
+- Python 3.11+（asyncpg 在 Windows 上需要 3.11，不支持 3.14+）
 - Node.js 18+
 - PostgreSQL 15+
 
@@ -66,9 +119,8 @@ pip install -r requirements.txt
 cp .env.example .env
 # 编辑 .env，填写数据库连接、JWT_SECRET 等
 
-# 执行数据库迁移
-psql -U postgres -d mcn_db -f migrations/001_init.sql
-# ... 依次执行到 007
+# 一键初始化数据库（Mac/Linux）
+bash scripts/init_db.sh   # 默认 postgres/admin123/mcn_m1
 
 # 启动服务
 uvicorn app.main:app --reload --port 8000
@@ -93,19 +145,47 @@ npm run dev
 npm run build
 ```
 
-## 部署
-
-参考 `docs/tasks/deploy/M2_测试服首次部署.md`，支持 PM2 + Nginx 生产部署。
-
 ## 测试
+
+### 后端测试
 
 ```bash
 cd backend
-source .venv/bin/activate
+source .venv/bin/activate  # Windows: .venv311\Scripts\activate
 
-# 功能测试 + 并发测试
-pytest tests/intake/ -v
+# 只跑单元测试（不需要数据库）
+pytest tests/unit/ -v
+
+# 只跑集成测试（需要 PostgreSQL mcn_test 库）
+pytest tests/integration/ -v
+
+# 单元 + 集成（覆盖率门禁范围）
+pytest tests/unit/ tests/integration/ -v --cov=app --cov-report=term-missing
+
+# 覆盖率门禁（分层达标检查）
+python scripts/run_coverage.py --gate
 ```
+
+> **注意**：`tests/intake/` 和 `tests/concurrent/` 是 E2E 级别测试，需要真实运行的服务器，不纳入 CI 覆盖率统计。
+
+### 前端测试
+
+```bash
+cd frontend
+
+# 运行测试
+npx vitest run
+
+# 运行测试 + 覆盖率
+npx vitest run --coverage
+
+# 监听模式
+npx vitest
+```
+
+## 部署
+
+参考 `deploy/docs/tasks/M2_测试服首次部署.md`，支持 PM2 + Nginx 生产部署。
 
 ## 环境变量说明
 
