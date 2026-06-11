@@ -1,12 +1,12 @@
 # MCN Platform
 
-MCN 红人孵化管理平台，支持多用户、多并发场景，集成 AI 能力、TikHub 数据抓取、红人入驻问卷等核心功能模块。
+MCN 红人孵化管理平台，支持多用户、多并发场景，集成 AI 能力、TikHub 数据抓取、红人入驻问卷、人格定位等核心功能模块。
 
 ## 技术栈
 
 | 端 | 技术 |
 |----|------|
-| 后端 | Python 3.10 · FastAPI · SQLAlchemy (asyncpg) · PostgreSQL 15 |
+| 后端 | Python 3.11 · FastAPI · SQLAlchemy (asyncpg) · PostgreSQL 15 |
 | 前端 | React 19 · Vite 8 · TypeScript 6 · Ant Design 5.x · Zustand 5 |
 | 部署 | Nginx · PM2 · Ubuntu |
 
@@ -14,8 +14,10 @@ MCN 红人孵化管理平台，支持多用户、多并发场景，集成 AI 能
 
 - **用户管理**：管理员 / 运营角色，JWT 鉴权，密码策略
 - **红人管理（KOL）**：TikHub 数据抓取，粉丝画像，红人档案
-- **AI 服务**：多服务商 Key 池，并发调度，模型管理，使用统计
+- **AI 服务**：多服务商 Key 池（云雾/硅基流动/GLM），并发调度，僵尸锁自动清理，模型管理，使用统计
+- **TikHub 管理**：独立 Key 池，端点统计，用户排行，调用日志
 - **红人入驻问卷**：运营生成分享链接 → 红人填写 24 道题 → AI 生成入驻报告 → 下载 Word/PDF
+- **人格定位**：抖音号解析 + 文件上传 → AI 生成人格档案 + 内容规划 → 导出 Word → 历史管理
 - **运营首页**：数据概览，产出趋势，常用工具
 - **产出中心**：AI 产出记录，入驻报告管理，分享链接管理
 
@@ -33,8 +35,8 @@ mcn-platform/
 │   │   ├── adapters/                  #     外部服务适配器（AI、TikHub、OSS、ASR）
 │   │   ├── core/                      #     配置、数据库、安全、响应封装
 │   │   ├── middlewares/               #     JWT 鉴权中间件
-│   │   ├── models/                    #     SQLAlchemy ORM 模型（12 个）
-│   │   ├── routers/                   #     API 路由（按角色分文件，18 个）
+│   │   ├── models/                    #     SQLAlchemy ORM 模型（15 个）
+│   │   ├── routers/                   #     API 路由（按角色分文件，20 个）
 │   │   ├── schemas/                   #     Pydantic schema
 │   │   └── services/                  #     业务逻辑服务
 │   ├── docs/                          #   后端文档
@@ -55,11 +57,11 @@ mcn-platform/
 │   ├── src/                           #   源码
 │   │   ├── api/                       #     API 调用层（16 个模块）
 │   │   ├── layouts/                   #     布局组件（Admin / Operator / Auth）
-│   │   ├── pages/                     #     页面组件（admin 12 个 / operator 7 个 / auth 2 个 / intake 1 个）
+│   │   ├── pages/                     #     页面组件（admin 12 个 / operator 8 个 / auth 2 个 / intake 1 个）
 │   │   ├── routes/                    #     路由守卫
 │   │   ├── store/                     #     Zustand 状态管理
 │   │   ├── styles/                    #     CSS 变量 + 全局样式
-│   │   ├── types/                     #     TypeScript 类型定义（12 个模块）
+│   │   ├── types/                     #     TypeScript 类型定义（13 个模块）
 │   │   └── __tests__/                 #     前端测试
 │   ├── docs/                          #   前端文档
 │   │   ├── README.md                  #     架构说明 + 文档索引
