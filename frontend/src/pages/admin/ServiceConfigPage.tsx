@@ -3,7 +3,9 @@ import { Modal, Form, Input, Select, Tabs, Popconfirm, message } from 'antd';
 import { EyeOutlined, EyeInvisibleOutlined } from '@ant-design/icons';
 import { getCredentials, createCredential, updateCredential, deleteCredential, enableCredential, disableCredential } from '../../api/credentials';
 import { testAiKey, testAiModel, getAiStats, getAiKeys, createAiKey, updateAiKey, deleteAiKey, getAiModels, createAiModel, deleteAiModel, updateAiModel } from '../../api/ai';
+import { getTikHubStats, getTikHubKeys, createTikHubKey, updateTikHubKey, deleteTikHubKey, testTikHubKey, enableTikHubKey, disableTikHubKey, getTikHubEndpoints, getTikHubUsers } from '../../api/tikhub';
 import type { AiStatsResponse, AiKeyRecord, AiModelItem, ByModelItem, TokenTrendItem, CreateAiModelRequest } from '../../api/ai';
+import type { TikHubStatsResponse, TikHubKey, TikHubEndpointDetail, TikHubUserRank } from '../../api/tikhub';
 import type { ServiceCredential, CreateCredentialRequest, UpdateCredentialRequest } from '../../types/credential';
 import type { PagedData } from '../../types/api';
 
@@ -192,6 +194,328 @@ function LineChart({ data }: { data: TokenTrendItem[] }) {
           <span style={{ width: 18, height: 2, background: '#FF7A45', borderRadius: 1, display: 'inline-block' }} />输出 Token
         </span>
       </div>
+    </div>
+  );
+}
+
+// ── TikHub DonutChart (SVG) ──────────────────────────────────────────────────
+function TikHubDonutChart({ data }: { data: { endpoint: string; percentage: number; calls: number }[] }) {
+  const r = 48; const cx = 64; const cy = 64;
+  const circ = 2 * Math.PI * r;
+  let cum = 0;
+  const segs = data.map((item, i) => {
+    const dash = (item.percentage / 100) * circ;
+    const rot = (cum / 100) * 360 - 90;
+    cum += item.percentage;
+    return { dash, rot, color: CHART_COLORS[i % CHART_COLORS.length], ...item };
+  });
+  return (
+    <div style={{ display: 'flex', gap: 20, alignItems: 'center' }}>
+      <svg width={128} height={128} viewBox="0 0 128 128" style={{ flexShrink: 0 }}>
+        {segs.map((s, i) => (
+          <circle key={i} cx={cx} cy={cy} r={r} fill="none" stroke={s.color} strokeWidth={16}
+            strokeDasharray={`${s.dash} ${circ - s.dash}`} transform={`rotate(${s.rot} ${cx} ${cy})`} />
+        ))}
+        <circle cx={cx} cy={cy} r={r - 16} fill="white" />
+        <text x={cx} y={cy - 5} textAnchor="middle" fontSize={20} fontWeight={700} fill="#1d1d1f">{data.length}</text>
+        <text x={cx} y={cy + 14} textAnchor="middle" fontSize={11} fill="#a8a29e">接口</text>
+      </svg>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        {data.map((item, i) => (
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: CHART_COLORS[i % CHART_COLORS.length], flexShrink: 0, display: 'inline-block' }} />
+            <span style={{ flex: 1, fontSize: 12, color: 'var(--gray-700)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.endpoint}</span>
+            <span style={{ fontSize: 12, fontWeight: 600, width: 38, textAlign: 'right' }}>{item.percentage}%</span>
+            <span style={{ fontSize: 11, color: 'var(--gray-400)', width: 44, textAlign: 'right' }}>{item.calls}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── TikHub LineChart (SVG) ───────────────────────────────────────────────────
+function TikHubLineChart({ data }: { data: { date: string; calls: number }[] }) {
+  if (data.length < 2) return <div style={{ fontSize: 12, color: 'var(--gray-400)', textAlign: 'center', padding: 20 }}>数据不足，至少需要 2 天</div>;
+  const W = 360; const H = 130; const pL = 42; const pR = 8; const pT = 10; const pB = 26;
+  const cW = W - pL - pR; const cH = H - pT - pB;
+  const maxVal = Math.max(...data.map(d => d.calls));
+  const n = data.length;
+  const xP = (i: number) => pL + (i / (n - 1)) * cW;
+  const yP = (v: number) => pT + cH - (v / maxVal) * cH;
+  const pts = data.map((d, i) => `${xP(i)},${yP(d.calls)}`).join(' ');
+  const yTicks = [0, 0.5, 1].map(r => ({ v: maxVal * r, y: yP(maxVal * r) }));
+  return (
+    <div>
+      <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display: 'block' }}>
+        {yTicks.map((t, i) => (
+          <g key={i}>
+            <line x1={pL} y1={t.y} x2={W - pR} y2={t.y} stroke="#f5f5f4" strokeWidth={1} />
+            <text x={pL - 4} y={t.y + 4} textAnchor="end" fontSize={9} fill="#a8a29e">{Math.round(t.v)}</text>
+          </g>
+        ))}
+        <polyline points={pts} fill="none" stroke="#52C41A" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+        {data.map((d, i) => (
+          <g key={i}>
+            <circle cx={xP(i)} cy={yP(d.calls)} r={3} fill="#52C41A" />
+            <text x={xP(i)} y={H - 6} textAnchor="middle" fontSize={9} fill="#a8a29e">{d.date}</text>
+          </g>
+        ))}
+      </svg>
+    </div>
+  );
+}
+
+// ── TikHubConfigTab ──────────────────────────────────────────────────────────
+function TikHubConfigTab() {
+  const [stats, setStats] = useState<TikHubStatsResponse | null>(null);
+  const [statsLoading, setStatsLoading] = useState(false);
+  const [keys, setKeys] = useState<TikHubKey[]>([]);
+  const [keysLoading, setKeysLoading] = useState(false);
+  const [testingId, setTestingId] = useState<number | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
+  const [addForm] = Form.useForm<{ label: string; api_key: string; base_url: string; max_concurrent: number; max_users: number }>();
+  const [editKey, setEditKey] = useState<TikHubKey | null>(null);
+  const [editForm] = Form.useForm<{ label: string; max_concurrent: number; max_users: number }>();
+  const [activePanel, setActivePanel] = useState<'keys' | 'endpoints' | 'users'>('keys');
+  const [endpoints, setEndpoints] = useState<TikHubEndpointDetail[]>([]);
+  const [users, setUsers] = useState<TikHubUserRank[]>([]);
+
+  function reloadStats() {
+    setStatsLoading(true);
+    getTikHubStats().then(setStats).catch(() => message.error('加载统计失败')).finally(() => setStatsLoading(false));
+  }
+  function reloadKeys() {
+    setKeysLoading(true);
+    getTikHubKeys().then(setKeys).catch(() => message.error('加载 Key 列表失败')).finally(() => setKeysLoading(false));
+  }
+  function reloadEndpoints() {
+    getTikHubEndpoints().then(setEndpoints).catch(() => {});
+  }
+  function reloadUsers() {
+    getTikHubUsers().then(setUsers).catch(() => {});
+  }
+
+  useEffect(() => { reloadStats(); reloadKeys(); }, []);
+
+  useEffect(() => {
+    if (activePanel === 'endpoints' && endpoints.length === 0) reloadEndpoints();
+    if (activePanel === 'users' && users.length === 0) reloadUsers();
+  }, [activePanel]);
+
+  async function handleAdd(v: { label: string; api_key: string; base_url: string; max_concurrent: number; max_users: number }) {
+    try { await createTikHubKey(v); message.success('Key 已添加'); setAddOpen(false); addForm.resetFields(); reloadKeys(); reloadStats(); }
+    catch (e: unknown) { message.error(e instanceof Error ? e.message : '添加失败'); }
+  }
+  async function handleEdit(v: { label: string; max_concurrent: number; max_users: number }) {
+    if (!editKey) return;
+    try { await updateTikHubKey(editKey.id, v); message.success('更新成功'); setEditKey(null); editForm.resetFields(); reloadKeys(); }
+    catch (e: unknown) { message.error(e instanceof Error ? e.message : '更新失败'); }
+  }
+  async function handleTest(id: number) {
+    setTestingId(id);
+    try {
+      const r = await testTikHubKey(id);
+      if (r.status === 'ok') { message.success(`连通正常 ${r.latency_ms}ms`); reloadKeys(); }
+      else { message.error(`测试失败: ${r.error ?? '未知错误'}`); }
+    } catch { message.error('测试请求失败'); }
+    finally { setTestingId(null); }
+  }
+  async function handleDelete(id: number) {
+    try { await deleteTikHubKey(id); message.success('已删除'); reloadKeys(); reloadStats(); }
+    catch (e: unknown) { message.error(e instanceof Error ? e.message : '删除失败'); }
+  }
+  async function handleToggle(k: TikHubKey) {
+    try {
+      if (k.status === 'active') await disableTikHubKey(k.id);
+      else await enableTikHubKey(k.id);
+      message.success('操作成功'); reloadKeys(); reloadStats();
+    } catch (e: unknown) { message.error(e instanceof Error ? e.message : '操作失败'); }
+  }
+  function openEdit(k: TikHubKey) {
+    editForm.setFieldsValue({ label: k.label, max_concurrent: k.max_concurrent, max_users: k.max_users });
+    setEditKey(k);
+  }
+
+  const ov = stats?.overview;
+  const statCards = [
+    { label: '总调用', value: ov?.total_calls?.toLocaleString() ?? '0', color: '#4096FF' },
+    { label: '今日调用', value: ov?.today_calls?.toLocaleString() ?? '0', color: '#52C41A' },
+    { label: '平均延迟', value: ov?.avg_latency_ms != null ? `${ov.avg_latency_ms}ms` : '—', color: '#FF7A45' },
+    { label: '活跃 Key', value: ov ? `${ov.active_keys} / ${ov.total_keys}` : '—', color: '#9254DE' },
+  ];
+
+  return (
+    <div>
+      {/* Stat cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 20 }}>
+        {statCards.map((c, i) => (
+          <div key={i} style={{ background: 'var(--bg-card)', borderRadius: 8, padding: '16px 20px' }}>
+            <div style={{ fontSize: 12, color: 'var(--gray-500)', marginBottom: 4 }}>{c.label}</div>
+            <div style={{ fontSize: 24, fontWeight: 700, color: c.color }}>{statsLoading ? '...' : c.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Charts row */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 20 }}>
+        <div style={{ background: 'var(--bg-card)', borderRadius: 8, padding: 20 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12 }}>接口分布</div>
+          {(stats?.endpoints?.length ?? 0) > 0 ? <TikHubDonutChart data={stats!.endpoints} /> : <div style={{ fontSize: 12, color: 'var(--gray-400)' }}>暂无数据</div>}
+        </div>
+        <div style={{ background: 'var(--bg-card)', borderRadius: 8, padding: 20 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12 }}>近 7 天趋势</div>
+          {(stats?.trend?.length ?? 0) >= 2 ? <TikHubLineChart data={stats!.trend} /> : <div style={{ fontSize: 12, color: 'var(--gray-400)' }}>暂无数据</div>}
+        </div>
+      </div>
+
+      {/* Sub-tabs */}
+      <div style={{ display: 'flex', gap: 0, borderBottom: '2px solid var(--border)', marginBottom: 16 }}>
+        {([
+          { key: 'keys' as const, label: 'Key 管理' },
+          { key: 'endpoints' as const, label: '接口统计' },
+          { key: 'users' as const, label: '用户排行' },
+        ]).map(tab => (
+          <div key={tab.key} onClick={() => setActivePanel(tab.key)}
+            style={{ padding: '10px 24px', cursor: 'pointer', fontSize: 14, fontWeight: 600,
+              color: activePanel === tab.key ? 'var(--brand)' : 'var(--text-secondary)',
+              borderBottom: activePanel === tab.key ? '2px solid var(--brand)' : 'none', marginBottom: -2 }}>
+            {tab.label}
+          </div>
+        ))}
+        <div style={{ flex: 1 }} />
+        {activePanel === 'keys' && (
+          <button className="btn btn-primary btn-sm" style={{ alignSelf: 'center' }}
+            onClick={() => { addForm.resetFields(); addForm.setFieldsValue({ base_url: 'https://api.tikhub.io', max_concurrent: 5, max_users: 10 }); setAddOpen(true); }}>+ 新增 Key</button>
+        )}
+      </div>
+
+      {/* Key Management */}
+      {activePanel === 'keys' && (
+        keysLoading ? <div className="empty-state"><div className="empty-state-text">加载中...</div></div>
+        : keys.length === 0 ? <div className="empty-state"><div className="empty-state-text">暂无 TikHub Key</div></div>
+        : <div style={{ background: 'var(--bg-card)', borderRadius: 8, overflow: 'hidden' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                  {['#', '标签', 'API Key', '状态', '并发', '今日', '累计', '上次测试', '操作'].map(h => (
+                    <th key={h} style={{ padding: '10px 12px', textAlign: h === '操作' ? 'right' : 'left', color: 'var(--gray-500)', fontWeight: 500, fontSize: 12 }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {keys.map((k, idx) => (
+                  <tr key={k.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                    <td style={{ padding: '10px 12px', color: 'var(--gray-400)' }}>{idx + 1}</td>
+                    <td style={{ padding: '10px 12px' }}>{k.label || '—'}</td>
+                    <td style={{ padding: '10px 12px', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{k.api_key}</td>
+                    <td style={{ padding: '10px 12px' }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12 }}>
+                        <span style={{ width: 7, height: 7, borderRadius: '50%', display: 'inline-block', background: k.status === 'active' ? 'var(--success)' : 'var(--gray-300)' }} />
+                        {k.status === 'active' ? '启用' : '停用'}
+                      </span>
+                    </td>
+                    <td style={{ padding: '10px 12px' }}>{k.active_requests}/{k.max_concurrent}</td>
+                    <td style={{ padding: '10px 12px' }}>{k.today_calls}</td>
+                    <td style={{ padding: '10px 12px', fontWeight: 600 }}>{k.total_calls}</td>
+                    <td style={{ padding: '10px 12px', color: 'var(--gray-500)', fontSize: 12 }}>
+                      {k.last_tested_at ? `${fmtTime(k.last_tested_at)}${k.last_latency_ms != null ? ` · ${k.last_latency_ms}ms` : ''}` : '—'}
+                    </td>
+                    <td style={{ padding: '10px 12px' }}>
+                      <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                        <button className="btn btn-ghost btn-sm" disabled={testingId === k.id} onClick={() => handleTest(k.id)}>
+                          {testingId === k.id ? '测试中...' : '测试'}
+                        </button>
+                        <button className="btn btn-ghost btn-sm" onClick={() => openEdit(k)}>编辑</button>
+                        <Popconfirm title={k.status === 'active' ? '确认停用？' : '确认启用？'} okText="确认" cancelText="取消" onConfirm={() => handleToggle(k)}>
+                          <button className="btn btn-ghost btn-sm">{k.status === 'active' ? '停用' : '启用'}</button>
+                        </Popconfirm>
+                        <Popconfirm title="确认删除？" okText="删除" cancelText="取消" okButtonProps={{ danger: true }} onConfirm={() => handleDelete(k.id)}>
+                          <button className="btn btn-danger-ghost btn-sm">删除</button>
+                        </Popconfirm>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+      )}
+
+      {/* Endpoint Stats */}
+      {activePanel === 'endpoints' && (
+        endpoints.length === 0 ? <div className="empty-state"><div className="empty-state-text">暂无接口统计数据</div></div>
+        : <div style={{ background: 'var(--bg-card)', borderRadius: 8, overflow: 'hidden' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                  {['接口', '平台', '调用次数', '占比', '平均延迟', '成功率'].map(h => (
+                    <th key={h} style={{ padding: '10px 12px', textAlign: 'left', color: 'var(--gray-500)', fontWeight: 500, fontSize: 12 }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {endpoints.map((ep, i) => (
+                  <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
+                    <td style={{ padding: '10px 12px' }}>{ep.endpoint}</td>
+                    <td style={{ padding: '10px 12px', color: 'var(--gray-500)' }}>{ep.platform || '—'}</td>
+                    <td style={{ padding: '10px 12px', fontWeight: 600 }}>{ep.calls}</td>
+                    <td style={{ padding: '10px 12px' }}>{ep.percentage}%</td>
+                    <td style={{ padding: '10px 12px' }}>{ep.avg_latency_ms != null ? `${ep.avg_latency_ms}ms` : '—'}</td>
+                    <td style={{ padding: '10px 12px' }}>{ep.success_rate != null ? `${(ep.success_rate * 100).toFixed(1)}%` : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+      )}
+
+      {/* User Ranking */}
+      {activePanel === 'users' && (
+        users.length === 0 ? <div className="empty-state"><div className="empty-state-text">暂无用户调用数据</div></div>
+        : <div style={{ background: 'var(--bg-card)', borderRadius: 8, overflow: 'hidden' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                  {['排名', '用户', '角色', '调用次数', '最近调用'].map(h => (
+                    <th key={h} style={{ padding: '10px 12px', textAlign: 'left', color: 'var(--gray-500)', fontWeight: 500, fontSize: 12 }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {users.map((u, i) => (
+                  <tr key={u.user_id} style={{ borderBottom: '1px solid var(--border)' }}>
+                    <td style={{ padding: '10px 12px', color: 'var(--gray-400)' }}>{i + 1}</td>
+                    <td style={{ padding: '10px 12px' }}>{u.username || `user_${u.user_id}`}</td>
+                    <td style={{ padding: '10px 12px' }}><span className="badge badge-gray">{u.role}</span></td>
+                    <td style={{ padding: '10px 12px', fontWeight: 600 }}>{u.calls}</td>
+                    <td style={{ padding: '10px 12px', color: 'var(--gray-500)', fontSize: 12 }}>{fmtTime(u.last_called_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+      )}
+
+      {/* Add Key Modal */}
+      <Modal title="新增 TikHub Key" open={addOpen} onCancel={() => { setAddOpen(false); addForm.resetFields(); }} onOk={() => addForm.submit()} okText="创建" cancelText="取消">
+        <Form form={addForm} layout="vertical" onFinish={handleAdd} style={{ marginTop: 16 }}>
+          <Form.Item label="标签" name="label"><Input placeholder="如 tikhub-main" /></Form.Item>
+          <Form.Item label="API Key" name="api_key" rules={[{ required: true, message: '请输入 API Key' }]}><Input.Password placeholder="sk-..." /></Form.Item>
+          <Form.Item label="Base URL" name="base_url"><Input placeholder="https://api.tikhub.io" /></Form.Item>
+          <Form.Item label="最大并发" name="max_concurrent"><Input type="number" min={1} max={50} /></Form.Item>
+          <Form.Item label="最大用户数" name="max_users"><Input type="number" min={1} max={100} /></Form.Item>
+        </Form>
+      </Modal>
+
+      {/* Edit Key Modal */}
+      <Modal title="编辑 TikHub Key" open={!!editKey} onCancel={() => { setEditKey(null); editForm.resetFields(); }} onOk={() => editForm.submit()} okText="保存" cancelText="取消">
+        <Form form={editForm} layout="vertical" onFinish={handleEdit} style={{ marginTop: 16 }}>
+          <Form.Item label="标签" name="label"><Input /></Form.Item>
+          <Form.Item label="最大并发" name="max_concurrent"><Input type="number" min={1} max={50} /></Form.Item>
+          <Form.Item label="最大用户数" name="max_users"><Input type="number" min={1} max={100} /></Form.Item>
+        </Form>
+      </Modal>
     </div>
   );
 }
@@ -732,7 +1056,7 @@ export default function ServiceConfigPage() {
   const [editForm] = Form.useForm<UpdateCredentialRequest>();
 
   const load = useCallback(() => {
-    if (provider === 'ai') return;
+    if (provider === 'ai' || provider === 'tikhub') return;
     setLoading(true);
     getCredentials(provider || undefined)
       .then(setData)
@@ -807,7 +1131,7 @@ export default function ServiceConfigPage() {
           <h1 className="page-title">服务配置</h1>
           <p className="page-desc">管理 AI / TikHub / OSS / ASR 等外部服务的 API Key</p>
         </div>
-        {provider !== 'ai' && (
+        {provider !== 'ai' && provider !== 'tikhub' && (
           <div className="page-actions">
             <button className="btn btn-primary" onClick={openCreate}>+ 新增 Key</button>
           </div>
@@ -824,8 +1148,8 @@ export default function ServiceConfigPage() {
           />
         </div>
 
-        {/* Non-AI content stays inside the card */}
-        {provider !== 'ai' && (
+        {/* Non-AI/TikHub content stays inside the card */}
+        {provider !== 'ai' && provider !== 'tikhub' && (
           <>
             <div className="filter-bar" style={{ paddingTop: 0 }}>
               <span className="filter-count">共 {total} 条</span>
@@ -864,6 +1188,9 @@ export default function ServiceConfigPage() {
 
       {/* AI tab content rendered outside the tabs card */}
       {provider === 'ai' && <AiConfigTab />}
+
+      {/* TikHub tab content */}
+      {provider === 'tikhub' && <TikHubConfigTab />}
 
       {/* Modals for non-AI providers */}
       <Modal title="新增 Key" open={createOpen} onCancel={() => { setCreateOpen(false); createForm.resetFields(); }} onOk={() => createForm.submit()} okText="创建" cancelText="取消" confirmLoading={formLoading}>

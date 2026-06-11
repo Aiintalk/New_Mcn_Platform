@@ -9,6 +9,7 @@ import ChangePasswordPage from './pages/auth/ChangePasswordPage';
 import HomePage from './pages/operator/HomePage';
 import WorkspacePage from './pages/operator/WorkspacePage';
 import PersonaWriterPage from './pages/operator/PersonaWriterPage';
+import PersonaPage from './pages/operator/PersonaPage';
 import OperatorIntakePage from './pages/operator/OperatorIntakePage';
 import OperatorIntakeChatPage from './pages/operator/OperatorIntakeChatPage';
 import TasksPage from './pages/operator/TasksPage';
@@ -71,6 +72,7 @@ export default function App() {
             <Route path="/" element={<HomePage />} />
             <Route path="/workspace" element={<WorkspacePage />} />
             <Route path="/workspace/persona-writer" element={<PersonaWriterPage />} />
+            <Route path="/workspace/persona-positioning" element={<PersonaPage />} />
             <Route path="/workspace/kol-intake" element={<OperatorIntakePage />} />
             <Route path="/workspace/kol-intake/chat" element={<OperatorIntakeChatPage />} />
             <Route path="/tasks" element={<TasksPage />} />

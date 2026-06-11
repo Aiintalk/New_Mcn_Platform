@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Modal, Popconfirm, Tabs, message } from 'antd';
-import { getOutputs, deleteOutput } from '../../api/outputs';
+import { getOutputs, getOutput, deleteOutput } from '../../api/outputs';
 import { getIntakeLinks } from '../../api/intake';
 import { getDirectSessions } from '../../api/intakeDirect';
 import type { DirectSession } from '../../api/intakeDirect';
@@ -121,7 +121,7 @@ export default function OutputsPage() {
                   <td style={{color:'var(--gray-500)',fontSize:12}}>{o.word_count??'—'}</td>
                   <td style={{color:'var(--gray-400)',fontSize:12}}>{new Date(o.created_at).toLocaleString('zh-CN')}</td>
                   <td className="col-actions">
-                    <button className="btn btn-ghost btn-sm" onClick={() => setPreview(o)}>预览</button>
+                    <button className="btn btn-ghost btn-sm" onClick={() => { setPreview(o); getOutput(o.id).then(detail => setPreview(detail)).catch(() => {}); }}>预览</button>
                     <Popconfirm title="确认删除该产出？" okText="删除" cancelText="取消" okButtonProps={{danger:true}} onConfirm={() => handleDelete(o.id)}>
                       <button className="btn btn-danger-ghost btn-sm">删除</button>
                     </Popconfirm>
