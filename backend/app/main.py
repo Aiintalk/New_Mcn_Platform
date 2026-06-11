@@ -25,6 +25,8 @@ from app.routers.operator_intake import router as operator_intake_router
 from app.routers.operator_homepage import router as operator_homepage_router
 from app.routers.admin_intake import router as admin_intake_router
 from app.routers.operator_intake_direct import router as operator_intake_direct_router
+from app.routers.persona import router as persona_router
+from app.routers.admin_tikhub import router as admin_tikhub_router
 
 
 @asynccontextmanager
@@ -99,3 +101,5 @@ app.include_router(operator_intake_router, prefix="/api")
 app.include_router(operator_homepage_router, prefix="/api")
 app.include_router(admin_intake_router, prefix="/api")
 app.include_router(operator_intake_direct_router, prefix="/api")
+app.include_router(persona_router)
+app.include_router(admin_tikhub_router, prefix="/api")

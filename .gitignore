@@ -7,10 +7,12 @@
 __pycache__/
 *.py[cod]
 .venv/
+.venv311/
 venv/
 .pytest_cache/
 htmlcov/
 .coverage
+.coverage_baseline.json
 
 # Node
 node_modules/
@@ -30,6 +32,15 @@ backend/reports/
 
 # 本地种子数据（含 API Key，禁止提交）
 backend/seed_local.sql
+
+# 运行时生成的文件（不提交）
+backend/storage/
+
+# Claude Code 本地配置（不提交）
+.claude/
+
+# 本地 skill 文件（不提交）
+frontend/.od-skills/
 
 # IDE
 .vscode/

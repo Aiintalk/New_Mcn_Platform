@@ -10,5 +10,8 @@ httpx
 oss2>=2.18.0
 python-docx==1.2.0
 reportlab==4.5.1
+pypdf
+python-multipart
 pytest>=8.0
 pytest-asyncio>=0.23
+pytest-cov>=5.0

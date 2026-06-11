@@ -13,6 +13,7 @@ from app.models.kol_intake import (
     KolIntakeLink,
     KolIntakeSubmission,
 )
+from app.models.persona_report import PersonaReport
 
 __all__ = [
     "User",
@@ -30,4 +31,5 @@ __all__ = [
     "KolIntakeConfig",
     "KolIntakeLink",
     "KolIntakeSubmission",
+    "PersonaReport",
 ]
