@@ -25,6 +25,11 @@ async def _get_key_and_url(db: AsyncSession) -> tuple[int, str, str]:
     return credential.id, api_key, base_url
 
 
+# ---------------------------------------------------------------------------
+# 基础 API
+# ---------------------------------------------------------------------------
+
+
 async def get_user_profile(sec_user_id: str, db: AsyncSession) -> dict:
     """
     获取抖音用户基础信息。
@@ -143,127 +148,6 @@ async def get_live_room_products(
         raise RuntimeError(f"TikHub get_live_room_products failed: {e}") from e
 
 
-async def resolve_sec_user_id(input_str: str, db: AsyncSession) -> dict:
-    """
-    智能解析输入：支持抖音号（unique_id）、主页链接、分享链接。
-    返回: {"sec_user_id": str, "nickname": str | None}
-    """
-    cred_id, api_key, base_url = await _get_key_and_url(db)
-    trimmed = input_str.strip()
-    has_url = "http" in trimmed
-
-    try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            if has_url:
-                # 链接 → 用 get_sec_user_id 解析
-                response = await client.get(
-                    f"{base_url}/api/v1/douyin/web/get_sec_user_id",
-                    params={"url": trimmed},
-                    headers={"Authorization": f"Bearer {api_key}"},
-                )
-                response.raise_for_status()
-                raw = response.json()
-                await report_success(cred_id, db)
-                # TikHub get_sec_user_id returns data as a plain string
-                sec_uid = raw.get("data")
-                if not sec_uid or not isinstance(sec_uid, str):
-                    raise RuntimeError("无法从链接中提取用户ID")
-                return {"sec_user_id": sec_uid, "nickname": None}
-            else:
-                # 抖音号 → 用 handler_user_profile_v2 查询
-                response = await client.get(
-                    f"{base_url}/api/v1/douyin/app/v3/handler_user_profile_v2",
-                    params={"unique_id": trimmed},
-                    headers={"Authorization": f"Bearer {api_key}"},
-                )
-                response.raise_for_status()
-                raw = response.json()
-                await report_success(cred_id, db)
-                user_data = (raw.get("data") or {}).get("user_info") or (raw.get("data") or {}).get("user") or {}
-                sec_uid = user_data.get("sec_uid")
-                nickname = user_data.get("nickname")
-                if not sec_uid:
-                    raise RuntimeError(f"未找到抖音号「{trimmed}」对应的账号")
-                return {"sec_user_id": sec_uid, "nickname": nickname}
-    except Exception as e:
-        await report_failure(cred_id, db)
-        raise RuntimeError(f"TikHub resolve_sec_user_id failed: {e}") from e
-
-
-async def fetch_user_videos(sec_user_id: str, db: AsyncSession, max_pages: int = 10) -> list[dict]:
-    """
-    拉取用户全部作品（翻页，最多 max_pages 页）。
-    返回: [{"desc": str, "digg_count": int, "create_time": int, "aweme_id": str}, ...]
-    """
-    cred_id, api_key, base_url = await _get_key_and_url(db)
-    all_videos = []
-    cursor = "0"
-    has_more = True
-
-    try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            for page in range(max_pages):
-                if not has_more:
-                    break
-                response = await client.get(
-                    f"{base_url}/api/v1/douyin/web/fetch_user_post_videos",
-                    params={"sec_user_id": sec_user_id, "max_cursor": cursor, "count": 20},
-                    headers={"Authorization": f"Bearer {api_key}"},
-                )
-                response.raise_for_status()
-                raw = response.json()
-                await report_success(cred_id, db)
-
-                data = raw.get("data") or {}
-                video_list = data.get("aweme_list") or []
-                for item in video_list:
-                    all_videos.append({
-                        "desc": item.get("desc") or "",
-                        "digg_count": (item.get("statistics") or {}).get("digg_count") or 0,
-                        "create_time": item.get("create_time") or 0,
-                        "aweme_id": item.get("aweme_id") or "",
-                    })
-
-                has_more = data.get("has_more") in (1, True)
-                cursor = str(data.get("max_cursor") or "0")
-                if not video_list:
-                    break
-
-        return all_videos
-    except Exception as e:
-        await report_failure(cred_id, db)
-        raise RuntimeError(f"TikHub fetch_user_videos failed: {e}") from e
-
-
-def get_top10(videos: list[dict]) -> list[dict]:
-    """按点赞排序取 TOP10"""
-    return sorted(videos, key=lambda v: v.get("digg_count", 0), reverse=True)[:10]
-
-
-def get_recent30days(videos: list[dict]) -> list[dict]:
-    """过滤最近 30 天的视频"""
-    import time
-    thirty_days_ago = time.time() - 30 * 24 * 60 * 60
-    recent = [v for v in videos if v.get("create_time", 0) >= thirty_days_ago]
-    return sorted(recent, key=lambda v: v.get("create_time", 0), reverse=True)
-
-
-def format_videos(videos: list[dict], label: str) -> str:
-    """格式化视频列表为文本（用于 AI Prompt）"""
-    if not videos:
-        return f"{label}：无数据"
-    from datetime import datetime, timezone
-    lines = []
-    for i, v in enumerate(videos):
-        ts = v.get("create_time", 0)
-        dt = datetime.fromtimestamp(ts, tz=timezone.utc) if ts else None
-        date_str = dt.strftime("%Y-%m-%d") if dt else "未知日期"
-        digg = v.get("digg_count", 0)
-        likes = f"{digg / 10000:.1f}万" if digg >= 10000 else str(digg)
-        lines.append(f"---\n第{i + 1}条 | {date_str} | 点赞 {likes}\n{v.get('desc', '')}")
-    return "\n\n".join(lines)
-
-
 async def test_connection(db: AsyncSession) -> dict:
     """
     测试 TikHub 连通性（用已知测试 sec_user_id 验证）。
@@ -291,7 +175,9 @@ async def test_connection(db: AsyncSession) -> dict:
         }
 
 
-# ── 人格定位功能新增方法 ──────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# 用户解析 + 视频拉取（供 benchmark / persona 共用）
+# ---------------------------------------------------------------------------
 
 
 def _extract_douyin_url(text: str) -> str | None:
@@ -416,6 +302,43 @@ async def fetch_user_videos(
     except Exception as e:
         await report_failure(cred_id, db)
         raise RuntimeError(f"TikHub fetch_user_videos failed: {e}") from e
+
+
+# ---------------------------------------------------------------------------
+# 视频筛选 + 格式化（benchmark 专用）
+# ---------------------------------------------------------------------------
+
+
+def get_top10(videos: list[dict]) -> list[dict]:
+    """按点赞排序取 TOP10"""
+    return sorted(videos, key=lambda v: v.get("digg_count", 0), reverse=True)[:10]
+
+
+def get_recent30days(videos: list[dict]) -> list[dict]:
+    """过滤最近 30 天的视频"""
+    thirty_days_ago = time.time() - 30 * 24 * 60 * 60
+    recent = [v for v in videos if v.get("create_time", 0) >= thirty_days_ago]
+    return sorted(recent, key=lambda v: v.get("create_time", 0), reverse=True)
+
+
+def format_videos(videos: list[dict], label: str) -> str:
+    """格式化视频列表为文本（用于 AI Prompt）"""
+    if not videos:
+        return f"{label}：无数据"
+    lines = []
+    for i, v in enumerate(videos):
+        ts = v.get("create_time", 0)
+        dt = datetime.fromtimestamp(ts, tz=timezone.utc) if ts else None
+        date_str = dt.strftime("%Y-%m-%d") if dt else "未知日期"
+        digg = v.get("digg_count", 0)
+        likes = f"{digg / 10000:.1f}万" if digg >= 10000 else str(digg)
+        lines.append(f"---\n第{i + 1}条 | {date_str} | 点赞 {likes}\n{v.get('desc', '')}")
+    return "\n\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# 视频筛选 + 格式化（persona 专用）
+# ---------------------------------------------------------------------------
 
 
 def get_top10_videos(videos: list[dict]) -> list[dict]:
