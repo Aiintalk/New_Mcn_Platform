@@ -1,6 +1,6 @@
 # MCN_PM_Agent — 项目记忆与当前状态（M2）
 
-> 最后更新：2026-06-08  
+> 最后更新：2026-06-12  
 > 更新角色：MCN_PM_Agent  
 > 上一份文档：`docs/pm/PM_记忆与状态.md`（M1 阶段，已归档）
 
@@ -9,7 +9,8 @@
 ## 一、项目基本信息
 
 - **项目名**：MCN Information System Platform
-- **当前阶段**：M2 阶段进行中
+- **当前阶段**：M2 阶段 — Sprint 3 完成
+- **GitHub**：https://github.com/Aiintalk/New_Mcn_Platform
 - **工作目录**：`D:\2026年工作\AI相关\AI工具箱新架构方案\mcn-platform\`
 - **后端**：`backend/`（FastAPI + PostgreSQL）
 - **前端**：`frontend/`（React + Vite + TypeScript + Ant Design 5.x）
@@ -20,134 +21,93 @@
 - **psql 路径**：`D:\ProtgreSQL\bin\psql.exe`
 - **后端地址**：`http://localhost:8000`（uvicorn）
 - **前端地址**：`http://localhost:5173`（Vite）
-- **测试账号**：admin / testop（operator，密码 Operator@123）
+- **测试账号**：admin / Admin@123456
 
 ---
 
-## 二、团队职责与协作方式
+## 二、M2 阶段（当前）
 
-| 角色 | 职责 |
-|------|------|
-| 产品负责人（用户） | 提出需求、最终决策 |
-| PM（Claude） | 拆解需求、出任务单、字段对齐、归档文档、验收把关 |
-| 前端开发 | 执行前端任务单，使用 Claude Code 实现，自查后回传 PM |
-| 后端开发 | 执行后端任务单，使用 Claude Code 实现，自查后回传 PM |
-| 运维 | 执行运维任务单（SQL 迁移、依赖安装、服务重启等） |
-
-**工作流：** PM 出任务单 → 各端执行 → 回传结果 → PM 验收 → 进入下一轮
-
-**关键注意：** 前后端字段名必须对齐（曾多次出现 status 值、字段名不一致问题）。
-
----
-
-## 三、M1 阶段（全部完成，已归档）
-
-| Sprint | 内容 | 状态 |
-|--------|------|------|
-| Sprint 0-1 | 基础架构、用户管理、JWT 登录 | ✅ 完成 |
-| Sprint 2 | 红人管理（KOL）含 TikHub 抓取、粉丝画像 | ✅ 完成 |
-| Sprint 3 | 服务配置（Key Pool、TikHub、基础 AI 接入） | ✅ 完成 |
-| Sprint 4 | AI 服务模块（多服务商 Key 池、并发调度、模型管理、使用统计） | ✅ 完成 |
-
----
-
-## 四、M2 阶段（当前）
-
-### M2 Sprint 1 — 红人入驻问卷（kol-intake）
+### M2 Sprint 1 — 红人入驻问卷（kol-intake） ✅ 完成
 
 **核心流程：** 运营生成链接 → 博主打开链接 → AI 多轮对话（24 道题）→ 生成报告 → 下载 docx/PDF
 
 | 端 | 状态 | 备注 |
 |----|------|------|
-| 后端 | ✅ 完成 | 21 个接口，reportlab 生成 PDF |
-| 运维 | ✅ 完成 | 006 迁移已执行，python-docx 1.2.0 + reportlab 4.5.1；⚠️ 需手动重启后端 |
-| 前端 | ⏳ 等设计稿 | 任务单已写好，设计稿完成后即可下发 |
-
-**新增数据库表（4张）：**
-- `kol_intake_questions`
-- `kol_intake_configs`
-- `kol_intake_links`
-- `kol_intake_submissions`
-
-**关键技术点：**
-- AI 对话模型：haiku，max_tokens=300
-- 报告生成模型：opus，extended thinking budget=6000
-- 链接下架逻辑：下架只阻止新建链接，已有链接继续可用
-- workspace_tools 已注册 kol-intake（status='dev'）
-
-**完成后待办（运营后台配置）：**
-管理员登录后台「服务配置 → 问卷配置 → AI 配置」填写两段 Prompt：
-- `conversation_bridge` 对话 Prompt
-- `report_generation` 报告 Prompt
-- Prompt 内容详见：`docs/pm/M2_Sprint1_kol_intake_完整流程.md` 4.1、4.2 节
+| 后端 | ✅ 完成 | 23 个接口 |
+| 运维 | ✅ 完成 | 006+007 迁移已执行 |
+| 前端 | ✅ 完成 | 入驻问卷+运营直发+报告展示+下载 |
 
 ---
 
-### M2 Sprint 2 — 运营端首页重设计
+### M2 Sprint 2 — 运营端首页重设计 ✅ 完成
 
 | 端 | 状态 |
 |----|------|
-| 后端 | ✅ 完成（新增 operator_homepage.py） |
-| 前端 | ✅ 完成（recharts 折线图 + 环形图，常用工具 6 个） |
-
-**新增接口：**
-- `GET /api/operator/homepage/stats` — 4 卡片数据 + 工具占比 + 常用工具
-- `GET /api/operator/homepage/trend` — 最近 7 天产出折线图
-
-**字段说明（供后续参考）：**
-- outputs / task_jobs 用户关联字段为 `created_by`（非 operator_id）
-- `week_token_usage` 固定返回 null（task_jobs 无 token 字段）
-- `last_login_at` 字段在 users 表中存在
-
-**运营端导航栏（已更新）：**
-概览 / 创作中心 / 任务中心 / 产出中心
+| 后端 | ✅ 完成 |
+| 前端 | ✅ 完成（recharts 折线图 + 环形图 + 常用工具） |
 
 ---
 
-## 五、当前卡点与下一步
+### M2 Sprint 3 — 人格定位（persona-positioning） ✅ 完成
+
+**核心流程：** 抖音号解析/文件上传 → 选择对标达人 → AI 生成人格档案+内容规划 → 导出 Word → 历史管理
+
+| 端 | 状态 | 备注 |
+|----|------|------|
+| 后端 10 个接口 | ✅ 完成 | `app/routers/persona.py` |
+| TikHub 管理端 10 个接口 | ✅ 完成 | `app/routers/admin_tikhub.py` |
+| 前端三步向导 | ✅ 完成 | `PersonaPage.tsx` |
+| TikHub 管理页面 | ✅ 完成 | `ServiceConfigPage.tsx` TikHubConfigTab |
+| AI 流式适配器 | ✅ 完成 | 僵尸锁自动清理（360s） |
+| 自动化测试 | ✅ 221/221 + 71/71 | |
+| 手工测试 | ✅ 完成 | 6 个 Bug 全部修复并验证 |
+| 代码提交 | ✅ 已推送 | 6 个 commit → GitHub main |
+
+**新增数据库表（3张）：**
+- `persona_reports` — 人格定位报告（迁移 009）
+- `tikhub_credentials` — TikHub 独立 Key 池（迁移 010）
+- `tikhub_call_logs` — TikHub 调用日志（迁移 011）
+
+**Bug 修复记录（6 个）：**
+1. 抖音分享链接解析失败（URL提取+短链+TikHub响应格式）
+2. 前端下载地址错误（API vs FETCH_BASE 路径拆分）
+3. 历史记录抽屉不渲染（移到组件最外层）
+4. SSE 断连空报告标 ready（空内容保护）
+5. 历史记录点击无反应（loadHistoryDetail 加 setStep(3)）
+6. 产出中心预览为空（调详情接口获取 content）
+
+---
+
+## 三、当前卡点与下一步
 
 | 卡点 | 处理方式 |
 |------|---------|
-| kol-intake 前端等设计稿 | 设计稿完成后，PM 补充设计稿路径，下发前端任务单 |
-| kol-intake Prompt 未配置 | 后端+运维完成后，运营进后台手动填写两段 Prompt |
+| 测试任务单结果列为空 | 仅第一章执行完毕，需补充执行 |
+| 并发测试 4/4 失败 | 本地环境问题，需在测试服验证 |
+| M2 Base_API / Base_Database 未补全 | Sprint3 接口和表已补充 |
 
 **下一步优先级：**
-1. 等设计稿 → 下发 kol-intake 前端任务单
-2. 规划 M2 Sprint 3（待产品确认下一个功能模块）
+1. 规划 M2 Sprint 4（待产品确认下一个功能模块）
+2. 补充测试任务单执行结果
+3. 测试服部署并验证并发测试
 
 ---
 
-## 六、文档索引
+## 四、文档索引
 
-### PM 文档
-
-| 文件 | 说明 |
-|------|------|
-| `docs/pm/PM_记忆与状态.md` | M1 阶段 PM 记忆（已归档，含技术决策 D001-D009） |
-| `docs/pm/PM_记忆与状态_M2.md` | 本文件，M2 阶段当前状态 |
-| `docs/pm/M2_Sprint1_kol_intake_完整流程.md` | kol-intake 完整流程 + Prompt 内容 |
-
-### 任务单
+### 任务单（已迁移至各端 docs/ 下）
 
 | 文件 | 说明 | 状态 |
 |------|------|------|
-| `docs/tasks/backend/M2_Sprint1_kol_intake.md` | kol-intake 后端任务单 | ✅ 已执行 |
-| `docs/tasks/deploy/M2_Sprint1_kol_intake.md` | kol-intake 运维任务单 | ✅ 已执行 |
-| `docs/tasks/frontend/M2_Sprint1_kol_intake.md` | kol-intake 前端任务单 | ⏳ 等设计稿 |
-| `docs/tasks/backend/M2_Sprint2_operator_homepage.md` | 首页后端主任务单 | ✅ 已执行 |
-| `docs/tasks/backend/M2_Sprint2_operator_homepage_补充.md` | 首页后端补充任务单 | ✅ 已执行 |
-| `docs/tasks/frontend/M2_Sprint2_operator_homepage.md` | 首页前端主任务单 | ✅ 已执行 |
-| `docs/tasks/frontend/M2_Sprint2_operator_homepage_补充.md` | 首页前端补充任务单 | ✅ 已执行 |
+| `backend/docs/tasks/M2_Sprint3_persona_positioning.md` | 人格定位后端任务单 | ✅ 已执行 |
+| `backend/docs/tasks/M2_Sprint3_后端任务_persona_positioning_v2_修复Bug.md` | 6 个 Bug 修复 | ✅ 已执行 |
+| `frontend/docs/tasks/M2_Sprint3_persona_positioning.md` | 人格定位前端任务单 | ✅ 已执行 |
 
 ### 基础文档
 
 | 文件 | 说明 |
 |------|------|
-| `docs/base/MCN_M1_Base_API_utf8_bom.md` | API 接口规范 |
-| `docs/base/MCN_M1_Base_Database_utf8_bom.md` | 数据库契约 |
-| `docs/base/MCN_M1_Base_Frontend_utf8_bom.md` | 前端规范 |
-| `docs/base/MCN_M1_Base_Permission_utf8_bom.md` | 权限设计 |
-| `docs/base/MCN_M1_Base_Acceptance_utf8_bom.md` | 验收标准 |
-| `docs/onboarding/新同事开发上手指南.md` | 团队成员上手指南 |
-| `docs/design/MCN_系统设计方案.md` | 系统整体设计方案 |
-| `docs/design/MCN_UI_设计规范.md` | UI 设计规范（配色/布局/组件，M2 最新）|
+| `backend/docs/base/MCN_M2_Base_API.md` | M2 API 接口规范（含 Sprint1~3） |
+| `backend/docs/base/MCN_M2_Base_Database.md` | M2 数据库契约（含 Sprint1~3） |
+| `backend/docs/后端开发约定.md` | 后端开发唯一事实源 |
+| `frontend/docs/前端规范.md` | 前端开发唯一事实源 |

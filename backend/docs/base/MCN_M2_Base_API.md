@@ -1,7 +1,7 @@
 # MCN Information System Platform · M2 Base API 说明
 
 > 文档定位：本文件定义 M2 阶段新增的所有 API 接口。M1 接口见 `docs/base/M1/MCN_M1_Base_API.md`。
-> M2 目前包含 Sprint 1（kol-intake 红人入驻问卷）和 Sprint 2（运营首页重设计）。
+> M2 包含 Sprint 1（kol-intake 红人入驻问卷）、Sprint 2（运营首页重设计）、Sprint 3（人格定位 + TikHub 管理）。
 
 ---
 
@@ -21,6 +21,18 @@
 | 分类 | 接口数 | 路由前缀 |
 |------|--------|----------|
 | 运营首页统计 | 2 | `/api/operator/homepage` |
+
+### 1.3 Sprint 3 — 人格定位
+
+| 分类 | 接口数 | 路由前缀 |
+|------|--------|----------|
+| 人格定位运营端 | 10 | `/api/persona` |
+
+### 1.4 Sprint 3 — TikHub 管理
+
+| 分类 | 接口数 | 路由前缀 |
+|------|--------|----------|
+| TikHub 管理端 | 10 | `/api/admin/tikhub` |
 
 ---
 
@@ -338,3 +350,135 @@ Response:
 4. 文件存本地 `backend/storage/intake_reports/`，M2 不走 OSS。
 5. 每次 AI 调用均须写 `ai_call_logs`。
 6. API 修改必须先修改本文档，再改代码。
+
+---
+
+## 9. Sprint 3 — 人格定位接口（persona-positioning）
+
+> 路由文件：`backend/app/routers/persona.py`
+>
+> 权限：`operator` 或 `admin`（`require_operator`）。
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/persona/fetch-douyin` | 解析抖音账号（分享文本→昵称+视频列表） |
+| POST | `/api/persona/parse-file` | 解析上传文件（docx/txt） |
+| POST | `/api/persona/generate` | SSE 流式生成人格档案+内容规划 |
+| POST | `/api/persona/optimize` | SSE 流式优化对话 |
+| POST | `/api/persona/export-word` | 导出 Word 文档 |
+| GET  | `/api/persona/questionnaire-template` | 下载问卷模板 |
+| GET  | `/api/persona/kol-submissions` | KOL 入驻列表（供导入达人资料） |
+| GET  | `/api/persona/reports` | 报告列表（当前用户最近 50 条） |
+| GET  | `/api/persona/reports/{id}` | 报告详情 |
+| DELETE | `/api/persona/reports/{id}` | 软删除报告 |
+
+### POST `/api/persona/fetch-douyin` — 解析抖音账号
+
+Request:
+```json
+{ "douyin_text": "长按复制此条消息... https://v.douyin.com/xxx/" }
+```
+
+Response:
+```json
+{
+  "nickname": "然然",
+  "sec_user_id": "MS4w...",
+  "video_count": 10,
+  "top_videos": [
+    { "desc": "视频描述", "stats": { "digg_count": 1234, "comment_count": 56 } }
+  ]
+}
+```
+
+### POST `/api/persona/generate` — SSE 流式生成
+
+Request:
+```json
+{
+  "douyin_text": "...",
+  "douyin_nickname": "然然",
+  "sec_user_id": "MS4w...",
+  "top_videos": [...],
+  "file_content": "上传文件解析后的文本",
+  "kol_submission_id": null,
+  "additional_info": "补充信息"
+}
+```
+
+Response：SSE `text/event-stream`，逐 chunk 输出 AI 生成内容。
+
+AI 输出用 `===SPLIT===` 分隔两部分：人格档案 + 内容规划。
+
+### POST `/api/persona/optimize` — SSE 流式优化对话
+
+Request:
+```json
+{
+  "report_id": 4,
+  "type": "profile",
+  "messages": [
+    { "role": "user", "content": "让语气更活泼一点" }
+  ]
+}
+```
+
+Response：SSE 流式输出优化后的完整内容。
+
+### POST `/api/persona/export-word` — 导出 Word
+
+Request:
+```json
+{ "report_id": 4, "type": "profile" }
+```
+
+Response：文件流 `Content-Type: application/vnd.openxmlformats-officedocument.wordprocessingml.document`
+
+---
+
+## 10. Sprint 3 — TikHub 管理接口
+
+> 路由文件：`backend/app/routers/admin_tikhub.py`
+>
+> 权限：`admin`（`require_admin`）。
+
+### 10.1 统计
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/admin/tikhub/stats` | 调用统计（总量/今日/平均延迟/活跃 Key 数） |
+
+### 10.2 Key 管理
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/admin/tikhub/keys` | Key 列表（分页） |
+| POST | `/api/admin/tikhub/keys` | 新增 Key |
+| PUT | `/api/admin/tikhub/keys/{id}` | 编辑 Key（标签/备注） |
+| DELETE | `/api/admin/tikhub/keys/{id}` | 删除 Key |
+| POST | `/api/admin/tikhub/keys/{id}/test` | 测试 Key 连通性 |
+| POST | `/api/admin/tikhub/keys/{id}/enable` | 启用 Key |
+| POST | `/api/admin/tikhub/keys/{id}/disable` | 停用 Key |
+
+### 10.3 端点统计
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/admin/tikhub/endpoints` | 各端点调用次数统计 |
+
+### 10.4 用户排行
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/admin/tikhub/users` | 用户调用排行（分页） |
+
+---
+
+## 11. M2 错误码补充（Sprint 3）
+
+| HTTP 状态 | code | 含义 |
+|-----------|------|------|
+| 400 | `AI_MODEL_NOT_CONFIGURED` | 人格定位 AI 模型未配置 |
+| 400 | `REPORT_NOT_READY` | 报告未生成完成 |
+| 400 | `OPTIMIZATION_FAILED` | AI 优化失败 |
+| 404 | `REPORT_NOT_FOUND` | 报告不存在 |
