@@ -134,3 +134,17 @@ class TestMarkdownToDocxBytes:
         assert any(t == "" for t in texts)
         assert any("line one" in t for t in texts)
         assert any("line two" in t for t in texts)
+
+    def test_empty_content_produces_valid_docx(self):
+        """空 content 不应报错，应返回合法 docx（只有标题行）。"""
+        from app.services.word_export import markdown_to_docx_bytes
+        result = markdown_to_docx_bytes(
+            title="Title Only",
+            metadata_lines=[],
+            content="",
+        )
+        assert isinstance(result, bytes)
+        assert len(result) > 0
+        doc = load_doc(result)
+        texts = collect_text(doc)
+        assert any("Title Only" in t for t in texts)
