@@ -51,7 +51,7 @@ mcn-platform/
 │   │   ├── e2e/                       #     端到端测试
 │   │   ├── concurrent/                #     并发隔离测试
 │   │   └── intake/                    #     入驻问卷专项测试
-│   ├── migrations/                    #   SQL 迁移脚本（001 ~ 012）
+│   ├── migrations/                    #   SQL 迁移脚本（001 ~ 013）
 │   └── scripts/                       #   工具脚本（init_db.sh、run_coverage.py）
 │
 ├── frontend/                          ← 前端（React + Vite）

@@ -86,10 +86,10 @@ async def fetch_account(
         if not videos:
             raise HTTPException(status_code=404, detail={"code": "NO_VIDEOS", "message": "未找到该账号的作品"})
 
-        top10 = tikhub_adapter.get_top10(videos)
-        recent30 = tikhub_adapter.get_recent30days(videos)
-        top10_text = tikhub_adapter.format_videos(top10, "全账号点赞TOP10")
-        recent30_text = tikhub_adapter.format_videos(recent30, "最近30天内容")
+        top10 = tikhub_adapter.get_top10_videos(videos)
+        recent30 = tikhub_adapter.get_recent_30day_videos(videos)
+        top10_text = tikhub_adapter.format_videos_text(top10, "全账号点赞TOP10")
+        recent30_text = tikhub_adapter.format_videos_text(recent30, "最近30天内容")
 
         db.add(OperationLog(
             user_id=current_user.id,

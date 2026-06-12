@@ -129,6 +129,40 @@ from app.models.benchmark import BenchmarkConfig, BenchmarkAnalysis
 
 ---
 
+## Bug 7：operator_benchmark 调用旧函数名（tikhub 重构隐患）
+
+**现象：** `operator_benchmark.py` 调用 `get_top10`、`get_recent30days`、`format_videos` 三个旧函数名。当前因旧函数仍在 tikhub.py 中未删除，功能正常，但属于隐患。
+
+**根因：** tikhub.py 重构后保留了两套函数（旧 benchmark 专用 + 新 persona 专用），`operator_benchmark.py` 未同步更新调用。
+
+**修复：**
+```diff
+- top10 = tikhub_adapter.get_top10(videos)
+- recent30 = tikhub_adapter.get_recent30days(videos)
+- top10_text = tikhub_adapter.format_videos(top10, "全账号点赞TOP10")
+- recent30_text = tikhub_adapter.format_videos(recent30, "最近30天内容")
++ top10 = tikhub_adapter.get_top10_videos(videos)
++ recent30 = tikhub_adapter.get_recent_30day_videos(videos)
++ top10_text = tikhub_adapter.format_videos_text(top10, "全账号点赞TOP10")
++ recent30_text = tikhub_adapter.format_videos_text(recent30, "最近30天内容")
+```
+
+**文件：** `backend/app/routers/operator_benchmark.py`
+
+---
+
+## Bug 8：迁移脚本编号冲突
+
+**现象：** benchmark 迁移脚本编号为 `007_benchmark.sql`，与已有的 `007_kol_intake_operator_sessions.sql` 冲突。
+
+**根因：** Sprint 3 开发时 007 已被 Sprint 1 占用，benchmark 迁移应使用 013。
+
+**修复：** `007_benchmark.sql` → `013_benchmark.sql`
+
+**文件：** `backend/migrations/013_benchmark.sql`
+
+---
+
 ## 影响范围
 
 | Bug | 影响范围 | 是否回归 |
