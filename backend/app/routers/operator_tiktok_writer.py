@@ -101,7 +101,7 @@ async def chat(
             except Exception as e:
                 err_str = str(e).lower()
                 is_rate_limit = "429" in err_str or "rate" in err_str
-                if is_rate_limit and i < len(_RETRY_DELAYS):
+                if is_rate_limit and i < len(delays) - 1:
                     continue
                 yield f"\n\n[ERROR] {str(e)}"
                 return
