@@ -1,6 +1,6 @@
 # MCN_PM_Agent — 项目记忆与当前状态（M2）
 
-> 最后更新：2026-06-12（补充 benchmark + 测试修复）
+> 最后更新：2026-06-13（Sprint 4 tiktok-writer 迁移完成）
 > 更新角色：MCN_PM_Agent
 > 上一份文档：`docs/pm/PM_记忆与状态.md`（M1 阶段，已归档）
 
@@ -9,7 +9,7 @@
 ## 一、项目基本信息
 
 - **项目名**：MCN Information System Platform
-- **当前阶段**：M2 阶段 — Sprint 3 完成
+- **当前阶段**：M2 阶段 — Sprint 4 完成
 - **GitHub**：https://github.com/Aiintalk/New_Mcn_Platform
 - **工作目录**：`D:\2026年工作\AI相关\AI工具箱新架构方案\mcn-platform\`
 - **后端**：`backend/`（FastAPI + PostgreSQL）
@@ -78,6 +78,26 @@
 
 ---
 
+### M2 Sprint 4 — TikTok 脚本仿写（tiktok-writer）✅ 完成
+
+**核心流程：** 粘贴文案 + 点赞数（≥10万）→ AI 评估 Opening Hook → AI 分析结构锁定 Opening → AI 仿写 Body（直写 / 提供方向 / 多轮迭代）→ 导出 Word
+
+| 端 | 状态 | 备注 |
+|----|------|------|
+| 后端 3 个接口 | ✅ 完成 | `app/routers/operator_tiktok_writer.py` |
+| 共用 Word 导出服务 | ✅ 完成 | `app/services/word_export.py`（可被其他工具复用） |
+| 前端 5 步页面 | ✅ 完成 | `TiktokWriterPage.tsx` |
+| 前端路由接入 | ✅ 完成 | App.tsx + WorkspacePage.tsx |
+| 自动化测试 | ✅ 317/317 后端 + 69/69 前端 | |
+| 数据库迁移 | ✅ 014 已执行 | workspace_tools 注册 |
+| 工具状态 | ✅ online | 创作中心可见可用 |
+
+**已知遗留：**
+- `persona.test.ts` 和 `authStore.test.ts` 为预存失败，与本 Sprint 无关
+- router 覆盖率 41%（streaming generator 路径），后续补充单元测试
+
+---
+
 ### M2 Sprint 3 — 对标分析助手（benchmark） ✅ 完成
 
 **核心流程：** 抖音号解析 → 自动抓取 TOP10 + 近30天视频 → AI 流式生成人格档案 + 内容规划 → 导出 Word → 历史管理
@@ -117,10 +137,11 @@
 | antd `message` 静态方法警告 | 仅 BenchmarkPage 已修复，其余 25 个文件待批量迁移 |
 
 **下一步优先级：**
-1. 规划 M2 Sprint 4（待产品确认下一个功能模块）
-2. 批量修复 antd `message` 静态方法 → `App.useApp()` hook（25 个文件）
-3. 补充测试任务单执行结果
-4. 测试服部署并验证并发测试
+1. 人工验收 tiktok-writer 功能（浏览器 5 步流程 + AI 真实调用）
+2. 规划 M2 Sprint 5（下一个待迁移工具）
+3. 批量修复 antd `message` 静态方法 → `App.useApp()` hook（25 个文件）
+4. 补充 operator_tiktok_writer.py 单元测试（提升覆盖率至 70%+）
+5. 测试服部署并验证并发测试
 
 ---
 
@@ -130,6 +151,8 @@
 
 | 文件 | 说明 | 状态 |
 |------|------|------|
+| `backend/docs/tasks/M2_Sprint04_后端任务_tiktok-writer_v1.md` | tiktok-writer 后端任务单 | ✅ 已执行 |
+| `frontend/docs/tasks/M2_Sprint04_前端任务_tiktok-writer_v1.md` | tiktok-writer 前端任务单 | ✅ 已执行 |
 | `backend/docs/tasks/M2_Sprint3_persona_positioning.md` | 人格定位后端任务单 | ✅ 已执行 |
 | `backend/docs/tasks/M2_Sprint3_后端任务_persona_positioning_v2_修复Bug.md` | 6 个 Bug 修复 | ✅ 已执行 |
 | `frontend/docs/tasks/M2_Sprint3_persona_positioning.md` | 人格定位前端任务单 | ✅ 已执行 |
@@ -142,6 +165,7 @@
 
 | 文件 | 说明 | 状态 |
 |------|------|------|
+| `backend/docs/tests/M2_Sprint04_测试报告_tiktok-writer_v1.md` | Sprint 4 测试报告（317/317 后端）| ✅ 已完成 |
 | `backend/docs/tests/M2_Sprint3_测试报告.md` | Sprint 3 测试报告（371/371） | ✅ 已完成 |
 
 ### 基础文档
