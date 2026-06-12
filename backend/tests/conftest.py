@@ -35,7 +35,7 @@ from app.models.user import User
 # ---------------------------------------------------------------------------
 TEST_DB_URL = os.getenv(
     "TEST_DB_URL",
-    "postgresql+asyncpg://postgres:admin123@localhost:5432/mcn_test",
+    "postgresql+asyncpg://mcn_user:admin123@localhost:5432/mcn_test",
 )
 
 _pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
