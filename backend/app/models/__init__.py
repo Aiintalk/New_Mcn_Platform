@@ -5,7 +5,7 @@ from app.models.session import ToolSession
 from app.models.task import TaskJob, TaskLog
 from app.models.output import Output
 from app.models.file import File
-from app.models.credential import ServiceCredential
+from app.models.credential import ServiceCredential, AiModel
 from app.models.log import OperationLog, ExternalServiceLog
 from app.models.kol_intake import (
     KolIntakeQuestion,
@@ -16,6 +16,7 @@ from app.models.kol_intake import (
 from app.models.persona_report import PersonaReport
 from app.models.tikhub_credential import TikHubCredential
 from app.models.tikhub_call_log import TikHubCallLog
+from app.models.benchmark import BenchmarkConfig, BenchmarkAnalysis
 
 __all__ = [
     "User",
@@ -27,6 +28,7 @@ __all__ = [
     "Output",
     "File",
     "ServiceCredential",
+    "AiModel",
     "OperationLog",
     "ExternalServiceLog",
     "KolIntakeQuestion",
@@ -36,4 +38,6 @@ __all__ = [
     "PersonaReport",
     "TikHubCredential",
     "TikHubCallLog",
+    "BenchmarkConfig",
+    "BenchmarkAnalysis",
 ]

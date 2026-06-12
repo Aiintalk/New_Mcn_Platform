@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Modal, Popconfirm, message } from 'antd';
-import { adminGetOutputs, adminDeleteOutput } from '../../api/outputs';
+import { adminGetOutputs, adminGetOutput, adminDeleteOutput } from '../../api/outputs';
 import type { Output } from '../../types/output';
 import type { PagedData } from '../../types/api';
 export default function AdminOutputsPage() {
@@ -33,7 +33,10 @@ export default function AdminOutputsPage() {
             <td style={{color:'var(--gray-500)',fontSize:12}}>{o.word_count??'—'}</td>
             <td style={{color:'var(--gray-400)',fontSize:12}}>{new Date(o.created_at).toLocaleString('zh-CN')}</td>
             <td className="col-actions">
-              <button className="btn btn-ghost btn-sm" onClick={() => setPreview(o)}>预览</button>
+              <button className="btn btn-ghost btn-sm" onClick={async () => {
+                try { const detail = await adminGetOutput(o.id); setPreview(detail); }
+                catch { message.error('加载详情失败'); }
+              }}>预览</button>
               <Popconfirm title="确认删除？" okText="删除" cancelText="取消" okButtonProps={{danger:true}} onConfirm={() => handleDelete(o.id)}>
                 <button className="btn btn-danger-ghost btn-sm">删除</button>
               </Popconfirm>
@@ -47,8 +50,26 @@ export default function AdminOutputsPage() {
       </div>
       <Modal title={preview?.title??'产出预览'} open={!!preview} onCancel={()=>setPreview(null)} footer={null} width={700}>
         {preview && <div style={{maxHeight:'60vh',overflowY:'auto',marginTop:16}}>
-          {preview.content ? <pre style={{fontFamily:'var(--font-sans)',fontSize:13,lineHeight:1.8,whiteSpace:'pre-wrap',wordBreak:'break-word'}}>{preview.content}</pre>
-          : <div className="empty-state"><div className="empty-state-text">暂无内容预览</div></div>}
+          {(() => {
+            const cj = preview.content_json as Record<string, string> | undefined;
+            if (cj && (cj.profile || cj.plan)) {
+              return (
+                <div>
+                  {cj.profile && <div style={{marginBottom:16}}>
+                    <h4 style={{fontSize:13,fontWeight:600,marginBottom:8}}>人格档案</h4>
+                    <pre style={{fontFamily:'var(--font-sans)',fontSize:13,lineHeight:1.8,whiteSpace:'pre-wrap',wordBreak:'break-word',background:'var(--gray-50)',padding:16,borderRadius:8}}>{cj.profile}</pre>
+                  </div>}
+                  {cj.plan && <div>
+                    <h4 style={{fontSize:13,fontWeight:600,marginBottom:8}}>内容规划</h4>
+                    <pre style={{fontFamily:'var(--font-sans)',fontSize:13,lineHeight:1.8,whiteSpace:'pre-wrap',wordBreak:'break-word',background:'var(--gray-50)',padding:16,borderRadius:8}}>{cj.plan}</pre>
+                  </div>}
+                </div>
+              );
+            }
+            return preview.content
+              ? <pre style={{fontFamily:'var(--font-sans)',fontSize:13,lineHeight:1.8,whiteSpace:'pre-wrap',wordBreak:'break-word'}}>{preview.content}</pre>
+              : <div className="empty-state"><div className="empty-state-text">暂无内容预览</div></div>;
+          })()}
         </div>}
       </Modal>
     </>

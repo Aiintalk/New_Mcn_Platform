@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     initial_admin_password: str = "Admin@123456"
     encryption_key: str = "change-me-32-chars-encryption-key"
 
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+    model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
 
 settings = Settings()

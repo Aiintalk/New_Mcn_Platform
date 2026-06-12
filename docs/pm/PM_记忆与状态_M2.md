@@ -1,7 +1,7 @@
 # MCN_PM_Agent — 项目记忆与当前状态（M2）
 
-> 最后更新：2026-06-12  
-> 更新角色：MCN_PM_Agent  
+> 最后更新：2026-06-12（补充 benchmark + 测试修复）
+> 更新角色：MCN_PM_Agent
 > 上一份文档：`docs/pm/PM_记忆与状态.md`（M1 阶段，已归档）
 
 ---
@@ -78,6 +78,35 @@
 
 ---
 
+### M2 Sprint 3 — 对标分析助手（benchmark） ✅ 完成
+
+**核心流程：** 抖音号解析 → 自动抓取 TOP10 + 近30天视频 → AI 流式生成人格档案 + 内容规划 → 导出 Word → 历史管理
+
+| 端 | 状态 | 备注 |
+|----|------|------|
+| 后端 operator 4 个接口 | ✅ 完成 | `app/routers/operator_benchmark.py` |
+| 后端 admin 3 个接口 | ✅ 完成 | `app/routers/admin_benchmark.py` |
+| TikHub 适配器扩展 | ✅ 完成 | `resolve_sec_user_id` + `fetch_user_videos` |
+| Word 报告生成 | ✅ 完成 | `app/services/benchmark_report.py` |
+| 前端对标分析页面 | ✅ 完成 | `BenchmarkPage.tsx`（输入/结果双模式 + SSE 流式） |
+| 前端管理配置页 | ✅ 完成 | `BenchmarkConfigTab.tsx`（嵌入工作台配置） |
+| 自动化测试 | ✅ 371/371 | 后端 289 + 前端 82，全部通过 |
+| 前端 UI 修复 | ✅ 完成 | 复制按钮可见性 + antd 废弃 API 修复 |
+
+**新增数据库表（2张）：**
+- `benchmark_configs` — 对标分析配置（迁移 007）
+- `benchmark_analyses` — 对标分析结果（迁移 007）
+
+**前端修复记录（本次会话）：**
+1. 复制按钮颜色过灰（改为 primary 色调）
+2. `destroyOnClose` 废弃警告（6 处改为 `destroyOnHidden`）
+3. antd `message` 静态方法缺 context（改用 `App.useApp()` hook）
+4. tab 按钮 border 属性冲突（拆分为独立属性）
+5. `window.matchMedia` 测试环境缺失（setup.ts 添加 mock）
+6. 模型注册缺失导致集成测试失败（`__init__.py` 补全 Sprint 3 模型）
+
+---
+
 ## 三、当前卡点与下一步
 
 | 卡点 | 处理方式 |
@@ -85,11 +114,13 @@
 | 测试任务单结果列为空 | 仅第一章执行完毕，需补充执行 |
 | 并发测试 4/4 失败 | 本地环境问题，需在测试服验证 |
 | M2 Base_API / Base_Database 未补全 | Sprint3 接口和表已补充 |
+| antd `message` 静态方法警告 | 仅 BenchmarkPage 已修复，其余 25 个文件待批量迁移 |
 
 **下一步优先级：**
 1. 规划 M2 Sprint 4（待产品确认下一个功能模块）
-2. 补充测试任务单执行结果
-3. 测试服部署并验证并发测试
+2. 批量修复 antd `message` 静态方法 → `App.useApp()` hook（25 个文件）
+3. 补充测试任务单执行结果
+4. 测试服部署并验证并发测试
 
 ---
 
@@ -102,6 +133,16 @@
 | `backend/docs/tasks/M2_Sprint3_persona_positioning.md` | 人格定位后端任务单 | ✅ 已执行 |
 | `backend/docs/tasks/M2_Sprint3_后端任务_persona_positioning_v2_修复Bug.md` | 6 个 Bug 修复 | ✅ 已执行 |
 | `frontend/docs/tasks/M2_Sprint3_persona_positioning.md` | 人格定位前端任务单 | ✅ 已执行 |
+| `docs/tasks/backend/M2_Sprint3_benchmark.md` | 对标分析后端任务单 | ✅ 已执行 |
+| `docs/tasks/frontend/M2_Sprint3_benchmark.md` | 对标分析前端任务单 | ✅ 已执行 |
+| `docs/tasks/deploy/M2_Sprint3_benchmark.md` | 对标分析运维任务单 | ✅ 已执行 |
+| `frontend/docs/tasks/M2_Sprint3_前端任务_benchmark_v2_修复Bug.md` | benchmark 前端 + 测试修复（6 个 Bug） | ✅ 已执行 |
+
+### 测试报告
+
+| 文件 | 说明 | 状态 |
+|------|------|------|
+| `backend/docs/tests/M2_Sprint3_测试报告.md` | Sprint 3 测试报告（371/371） | ✅ 已完成 |
 
 ### 基础文档
 

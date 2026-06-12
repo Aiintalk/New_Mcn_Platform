@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { Modal, Form, Input, Select, Popconfirm, Tabs, message } from 'antd';
 import { adminGetTools, adminUpdateTool } from '../../api/workspace';
 import AdminIntakePage from './AdminIntakePage';
+import BenchmarkConfigTab from './BenchmarkConfigTab';
 import type { WorkspaceTool } from '../../types/workspace';
 export default function WorkspaceConfigPage() {
   const [tools, setTools] = useState<WorkspaceTool[]>([]);
@@ -75,6 +76,7 @@ export default function WorkspaceConfigPage() {
         items={[
           { key: 'tools',  label: '工具列表',        children: toolsTab },
           { key: 'intake', label: '红人信息采集助手', children: <AdminIntakePage embedded /> },
+          { key: 'benchmark', label: '对标分析助手', children: <BenchmarkConfigTab /> },
         ]}
       />
     </>

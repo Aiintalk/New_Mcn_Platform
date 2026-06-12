@@ -26,6 +26,7 @@ import ExternalLogsPage from './pages/admin/ExternalLogsPage';
 import OperationLogsPage from './pages/admin/OperationLogsPage';
 import AdminIntakePage from './pages/admin/AdminIntakePage';
 import IntakePage from './pages/intake/IntakePage';
+import BenchmarkPage from './pages/operator/BenchmarkPage';
 
 function Page403() {
   return (
@@ -73,6 +74,7 @@ export default function App() {
             <Route path="/workspace" element={<WorkspacePage />} />
             <Route path="/workspace/persona-writer" element={<PersonaWriterPage />} />
             <Route path="/workspace/persona-positioning" element={<PersonaPage />} />
+            <Route path="/workspace/benchmark" element={<BenchmarkPage />} />
             <Route path="/workspace/kol-intake" element={<OperatorIntakePage />} />
             <Route path="/workspace/kol-intake/chat" element={<OperatorIntakeChatPage />} />
             <Route path="/tasks" element={<TasksPage />} />

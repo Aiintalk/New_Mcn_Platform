@@ -536,7 +536,7 @@ export default function OperatorIntakeChatPage() {
         open={showShareModal}
         onCancel={() => { setShowShareModal(false); setShareLink(null); shareForm.resetFields(); }}
         footer={null}
-        destroyOnClose
+        destroyOnHidden
       >
         {shareLink ? (
           <div style={{ marginTop: 16 }}>

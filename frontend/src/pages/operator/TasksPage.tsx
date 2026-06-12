@@ -223,7 +223,7 @@ export default function TasksPage() {
         onCancel={() => { setSelectedSub(null); setDetailTab('messages'); }}
         footer={null}
         width={680}
-        destroyOnClose
+        destroyOnHidden
       >
         {selectedSub && (
           <>

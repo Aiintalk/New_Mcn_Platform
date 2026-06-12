@@ -355,7 +355,7 @@ export default function AdminIntakePage({ embedded = false }: { embedded?: boole
         okText="保存"
         cancelText="取消"
         width={680}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={configForm} layout="vertical" onFinish={saveConfig} style={{ marginTop: 16 }}>
           <Form.Item label="AI 模型" name="ai_model_id" rules={[{ required: true, message: '请选择模型' }]}>
@@ -399,7 +399,7 @@ export default function AdminIntakePage({ embedded = false }: { embedded?: boole
         onOk={() => qForm.submit()}
         okText="保存"
         cancelText="取消"
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={qForm} layout="vertical" onFinish={saveQuestion} style={{ marginTop: 16 }}>
           <div style={{ display: 'flex', gap: 12 }}>
@@ -443,7 +443,7 @@ export default function AdminIntakePage({ embedded = false }: { embedded?: boole
         onCancel={() => setSelectedAdminSub(null)}
         footer={null}
         width={680}
-        destroyOnClose
+        destroyOnHidden
       >
         {selectedAdminSub && (
           <>

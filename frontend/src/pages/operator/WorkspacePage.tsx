@@ -24,6 +24,7 @@ export default function WorkspacePage() {
     if (t.tool_code === 'kol-intake') navigate('/workspace/kol-intake/chat');
     else if (t.tool_code === 'persona-writer') navigate('/workspace/persona-writer');
     else if (t.tool_code === 'persona-positioning') navigate('/workspace/persona-positioning');
+    else if (t.tool_code === 'benchmark') navigate('/workspace/benchmark');
     else navigate(`/workspace/${t.tool_code}`);
   }
   return (

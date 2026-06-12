@@ -18,6 +18,7 @@ MCN 红人孵化管理平台，支持多用户、多并发场景，集成 AI 能
 - **TikHub 管理**：独立 Key 池，端点统计，用户排行，调用日志
 - **红人入驻问卷**：运营生成分享链接 → 红人填写 24 道题 → AI 生成入驻报告 → 下载 Word/PDF
 - **人格定位**：抖音号解析 + 文件上传 → AI 生成人格档案 + 内容规划 → 导出 Word → 历史管理
+- **对标分析助手**：抖音号解析 → 自动抓取 TOP10/近30天视频 → AI 生成人格档案 + 内容规划 → 导出 Word → 历史管理
 - **运营首页**：数据概览，产出趋势，常用工具
 - **产出中心**：AI 产出记录，入驻报告管理，分享链接管理
 
@@ -35,14 +36,14 @@ mcn-platform/
 │   │   ├── adapters/                  #     外部服务适配器（AI、TikHub、OSS、ASR）
 │   │   ├── core/                      #     配置、数据库、安全、响应封装
 │   │   ├── middlewares/               #     JWT 鉴权中间件
-│   │   ├── models/                    #     SQLAlchemy ORM 模型（15 个）
-│   │   ├── routers/                   #     API 路由（按角色分文件，20 个）
+│   │   ├── models/                    #     SQLAlchemy ORM 模型（14 个文件，21 个模型类）
+│   │   ├── routers/                   #     API 路由（按角色分文件，23 个）
 │   │   ├── schemas/                   #     Pydantic schema
 │   │   └── services/                  #     业务逻辑服务
 │   ├── docs/                          #   后端文档
 │   │   ├── README.md                  #     架构说明 + 文档索引
 │   │   ├── base/                      #     接口契约 + 数据库契约
-│   │   ├── tasks/                     #     任务单 + 验收文档（21 个）
+│   │   ├── tasks/                     #     任务单 + 验收文档（22 个）
 │   │   └── tests/                     #     测试报告 + 测试任务
 │   ├── tests/                         #   测试代码
 │   │   ├── unit/                      #     单元测试
@@ -55,9 +56,9 @@ mcn-platform/
 │
 ├── frontend/                          ← 前端（React + Vite）
 │   ├── src/                           #   源码
-│   │   ├── api/                       #     API 调用层（16 个模块）
+│   │   ├── api/                       #     API 调用层（18 个模块）
 │   │   ├── layouts/                   #     布局组件（Admin / Operator / Auth）
-│   │   ├── pages/                     #     页面组件（admin 12 个 / operator 8 个 / auth 2 个 / intake 1 个）
+│   │   ├── pages/                     #     页面组件（admin 14 个 / operator 9 个 / auth 2 个 / intake 1 个）
 │   │   ├── routes/                    #     路由守卫
 │   │   ├── store/                     #     Zustand 状态管理
 │   │   ├── styles/                    #     CSS 变量 + 全局样式
@@ -67,7 +68,7 @@ mcn-platform/
 │   │   ├── README.md                  #     架构说明 + 文档索引
 │   │   ├── 前端规范.md                  #     前端唯一规范文档
 │   │   ├── base/                      #     前端基础文档
-│   │   └── tasks/                     #     任务单 + 验收文档（23 个）
+│   │   └── tasks/                     #     任务单 + 验收文档（24 个）
 │   ├── vitest.config.ts               #   Vitest 测试配置
 │   └── vite.config.ts                 #   Vite 构建配置
 │
