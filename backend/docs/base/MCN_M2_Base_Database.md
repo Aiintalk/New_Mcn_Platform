@@ -322,3 +322,4 @@ CREATE INDEX idx_tikhub_call_logs_created ON tikhub_call_logs(created_at DESC);
 | `010_tikhub_credentials.sql` | tikhub_credentials 表 | Sprint 3 |
 | `011_tikhub_call_logs.sql` | tikhub_call_logs 表 | Sprint 3 |
 | `012_migrate_tikhub_to_dedicated_pool.sql` | 迁移 TikHub Key 到独立池 | Sprint 3 |
+| `013_benchmark.sql` | benchmark_configs + benchmark_analyses 表 + 初始 Prompt + workspace_tools 注册 | Sprint 3 |

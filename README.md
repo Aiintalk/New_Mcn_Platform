@@ -52,7 +52,7 @@ mcn-platform/
 │   │   ├── concurrent/                #     并发隔离测试
 │   │   └── intake/                    #     入驻问卷专项测试
 │   ├── migrations/                    #   SQL 迁移脚本（001 ~ 013）
-│   └── scripts/                       #   工具脚本（init_db.sh、run_coverage.py）
+│   └── scripts/                       #   工具脚本（init_db.sh、init_test_db.sh、run_coverage.py）
 │
 ├── frontend/                          ← 前端（React + Vite）
 │   ├── src/                           #   源码
@@ -124,6 +124,9 @@ cp .env.example .env
 
 # 一键初始化数据库（Mac/Linux）
 bash scripts/init_db.sh   # 默认 postgres/admin123/mcn_m1
+
+# 一键初始化测试数据库（只需创建空库，表由 conftest.py 自动建删）
+bash scripts/init_test_db.sh   # 默认 postgres/admin123/mcn_test
 
 # 启动服务
 uvicorn app.main:app --reload --port 8000

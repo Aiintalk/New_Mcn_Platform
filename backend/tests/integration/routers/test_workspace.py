@@ -196,3 +196,86 @@ class TestGetWorkspaceTool:
     async def test_get_tool_requires_auth(self, test_client):
         resp = await test_client.get("/api/workspace/tools/any_code")
         assert resp.status_code == 401
+
+
+class TestAdminUpdateTool:
+    """PATCH /api/admin/workspace/tools/{tool_code}"""
+
+    @pytest.mark.asyncio
+    async def test_update_category(
+        self, test_client, admin_headers, admin_user, test_session
+    ):
+        """Admin can update tool category and it persists."""
+        tool = WorkspaceTool(
+            tool_code="cat_test_tool",
+            tool_name="Category Test",
+            category="old_category",
+            status="online",
+            sort_order=0,
+        )
+        test_session.add(tool)
+        await test_session.commit()
+
+        resp = await test_client.patch(
+            "/api/admin/workspace/tools/cat_test_tool",
+            json={"category": "new_category"},
+            headers=admin_headers,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        assert data["data"]["category"] == "new_category"
+
+    @pytest.mark.asyncio
+    async def test_update_tool_name_and_category(
+        self, test_client, admin_headers, admin_user, test_session
+    ):
+        """Multiple fields can be updated at once."""
+        tool = WorkspaceTool(
+            tool_code="multi_field_tool",
+            tool_name="Old Name",
+            category="old_cat",
+            description="old desc",
+            status="online",
+            sort_order=0,
+        )
+        test_session.add(tool)
+        await test_session.commit()
+
+        resp = await test_client.patch(
+            "/api/admin/workspace/tools/multi_field_tool",
+            json={"tool_name": "New Name", "category": "new_cat"},
+            headers=admin_headers,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        assert data["data"]["tool_name"] == "New Name"
+        assert data["data"]["category"] == "new_cat"
+        assert data["data"]["description"] == "old desc"  # unchanged
+
+    @pytest.mark.asyncio
+    async def test_update_nonexistent_tool_returns_not_found(
+        self, test_client, admin_headers, admin_user
+    ):
+        resp = await test_client.patch(
+            "/api/admin/workspace/tools/nonexistent_xyz",
+            json={"category": "anything"},
+            headers=admin_headers,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is False
+        assert data["code"] == ErrorCode.RESOURCE_NOT_FOUND
+
+    @pytest.mark.asyncio
+    async def test_update_requires_admin(
+        self, test_client, operator_headers, operator_user
+    ):
+        """Operator cannot access admin endpoint."""
+        resp = await test_client.patch(
+            "/api/admin/workspace/tools/any_tool",
+            json={"category": "hack"},
+            headers=operator_headers,
+        )
+        assert resp.status_code == 403

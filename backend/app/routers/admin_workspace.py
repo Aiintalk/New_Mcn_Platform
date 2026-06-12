@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 from sqlalchemy import select, update
@@ -37,6 +39,7 @@ def _tool_to_dict(t: WorkspaceTool) -> dict:
 
 class UpdateToolRequest(BaseModel):
     tool_name: str | None = None
+    category: str | None = None
     description: str | None = None
     status: str | None = None
     tags: list | None = None
@@ -91,6 +94,8 @@ async def admin_update_tool(
         values: dict = {}
         if body.tool_name is not None:
             values["tool_name"] = body.tool_name
+        if body.category is not None:
+            values["category"] = body.category
         if body.description is not None:
             values["description"] = body.description
         if body.status is not None:
@@ -103,19 +108,21 @@ async def admin_update_tool(
             values["sort_order"] = body.sort_order
 
         if values:
+            values["updated_at"] = datetime.now(timezone.utc)
             await session.execute(
                 update(WorkspaceTool)
                 .where(WorkspaceTool.tool_code == tool_code)
                 .values(**values)
             )
 
+        log_detail = {k: v for k, v in values.items() if k != "updated_at"}
         log = OperationLog(
             user_id=current_user.id,
             username=current_user.username,
             role=current_user.role,
             action="update_workspace_tool",
             target_type="workspace_tool",
-            detail={"tool_code": tool_code, **values} if values else {"tool_code": tool_code},
+            detail={"tool_code": tool_code, **log_detail} if log_detail else {"tool_code": tool_code},
             ip=_get_ip(request),
             user_agent=request.headers.get("user-agent"),
         )
