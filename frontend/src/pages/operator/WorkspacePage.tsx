@@ -25,6 +25,7 @@ export default function WorkspacePage() {
     else if (t.tool_code === 'persona-writer') navigate('/workspace/persona-writer');
     else if (t.tool_code === 'persona-positioning') navigate('/workspace/persona-positioning');
     else if (t.tool_code === 'benchmark') navigate('/workspace/benchmark');
+    else if (t.tool_code === 'tiktok-writer') navigate('/workspace/tiktok-writer');
     else navigate(`/workspace/${t.tool_code}`);
   }
   return (
