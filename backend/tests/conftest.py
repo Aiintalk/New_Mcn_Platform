@@ -61,6 +61,7 @@ _SESSION_LOCAL_PATCH_TARGETS = [
     "app.routers.persona.AsyncSessionLocal",
     "app.core.seed.AsyncSessionLocal",
     "app.routers.health.AsyncSessionLocal",
+    "app.routers.operator_tiktok_writer.AsyncSessionLocal",
 ]
 
 
