@@ -14,6 +14,8 @@ from app.models.kol_intake import (
     KolIntakeSubmission,
 )
 from app.models.persona_report import PersonaReport
+from app.models.tikhub_credential import TikHubCredential
+from app.models.tikhub_call_log import TikHubCallLog
 
 __all__ = [
     "User",
@@ -32,4 +34,6 @@ __all__ = [
     "KolIntakeLink",
     "KolIntakeSubmission",
     "PersonaReport",
+    "TikHubCredential",
+    "TikHubCallLog",
 ]

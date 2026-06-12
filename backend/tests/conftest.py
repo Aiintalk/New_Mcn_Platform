@@ -27,6 +27,7 @@ from sqlalchemy.pool import NullPool
 
 from app.core.database import Base
 from app.core.security import create_access_token
+import app.models  # noqa: F401 — register all models so Base.metadata.create_all covers every table
 from app.models.user import User
 
 # ---------------------------------------------------------------------------
