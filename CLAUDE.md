@@ -83,6 +83,20 @@ PM 和用户聊 → 产出需求文档 docs/pm/Mx_Sprintxx_xxx_需求文档.md
   ③ 更新 docs/pm/ 的 PM 记忆与状态
 ```
 
+### 交付物清单（每个功能收尾时逐项核对，缺一不算交付完成）
+
+| # | 交付物 | 位置 | 何时产出 |
+|---|--------|------|---------|
+| 1 | 需求文档 | `docs/pm/Mx_Sprintxx_xxx_需求文档.md` | 节点 A |
+| 2 | 任务文档（每端一份） | `{端}/docs/tasks/Mx_Sprintxx_{角色}_{功能}_v1.md` | 节点 B |
+| 3 | 验收文档 | `{端}/docs/tasks/Mx_Sprintxx_{角色}_开发验收_{功能}_v1.md` | 节点 B+ |
+| 4 | 契约更新（若改接口/表） | `backend/docs/base/MCN_M2_Base_API.md` / `Base_Database.md` | 节点 B |
+| 5 | README 更新 | `{端}/docs/README.md` | 收尾 |
+| 6 | PM 记忆与状态 | `docs/pm/PM_记忆与状态_M2.md` | 收尾 |
+| 7 | 测试报告 | `{端}/docs/tests/` 或 `docs/tests/`（跨端） | 节点 B+ |
+
+> ⚠️ subagent 交付代码时必须同时声明这份清单的完成状态。**缺项不得声明"完成"**——PM 签收前逐项核对。这正是 Sprint 4/5 曾出现"代码有但任务文档/验收文档缺失"的教训。
+
 **迭代（开发中加需求/改需求/修 bug）**：同样先产出需求文档（不覆盖原件），再增对应任务文档（vN 递增）。
 
 **铁律：superpowers/subagent 产物都是草稿；只有 PM 按命名+就近归位+签收才算正式落地。**
@@ -168,86 +182,78 @@ npm run dev                                   # 启动
 
 ---
 
-## 十二、强制技能调用规则（每次任务必须严格执行）
+## 十二、⚠️ 开发红线（最易遗漏 Top 7）
 
-> **本节是硬约束，不是建议。** 每个闸门节点未完成前，不得进入下一节点。
-> 违反本节规则 = 流程失效，PM 必须停下来、回到对应节点重走。
+> 以下 7 条是历次开发中**实际被遗漏频率最高**的规则。每次写代码前先扫一遍，写完再对照一遍。
+> 有自动化守卫测试拦截 #1 #2 #3 #6 #7，但 #4 #5 仍需人工把关。
+> - 后端守卫：`backend/tests/integration/test_convention_guard.py`（#1 标准信封、#2 OperationLog、#6 AiCallLog、#7 AsyncSessionLocal 注册）
+> - 前端守卫：`frontend/src/__tests__/unit/api/conventionGuard.test.ts`（#3 裸 fetch 检测）
 
-### 节点与强制技能对照表
+### #1 非流式接口必须返回标准信封
 
-| 节点 | 必须执行的动作 | 闸门：满足后才能进入下一节点 |
-|------|--------------|---------------------------|
-| **-1 启动** | 调用 `Skill: superpowers:using-superpowers` | 确认 superpowers 技能可用 |
-| **0 需求澄清** | 逐条列出假设和疑问；对用户**复述**理解的需求 | 用户用文字明确回复「确认」或「没问题」；**未收到确认不得进入 A** |
-| **A 写开发文档 + 拆分** | 调用 `Skill: superpowers:writing-plans`，产出拆解方案 | 用户**审阅并批准**拆解方案后，才能开始写代码 |
-| **B 开发** | 调用 `Skill: superpowers:test-driven-development`，先写测试 | 测试先红后绿（TDD），不得先写实现再补测试 |
-| **B review** | 调用 `Skill: superpowers:requesting-code-review` | review 通过，该子任务才算完成 |
-| **B+ 验收前** | 调用 `Skill: superpowers:verification-before-completion` | 有可验证证据（测试输出/截图/日志），才能声称"完成" |
-| **B+ 功能测试** | 调用 `Skill: verify`，对真实运行的服务做端到端验证 | verify 结果为 PASS，才能进入文档落地 |
-| **C 文档落地** | 补写需求文档、后端任务单、前端任务单、测试报告；更新 PM 记忆 | PM 逐一确认文档已按命名规范归位，该 Sprint 才算"完成" |
+```python
+# ✅ 正确
+return success_response(data={"items": [...]})
 
-### 调用顺序规则
-
-```
-收到需求
-  ↓
-Skill: superpowers:using-superpowers      ← 必须第一步
-  ↓
-逐条列疑问 + 复述需求 → 等用户文字确认    ← 闸门，不确认不动
-  ↓
-Skill: superpowers:writing-plans          ← 产出计划 → 等用户批准
-  ↓
-Skill: superpowers:test-driven-development ← 每个子任务开发前
-  ↓
-实现代码
-  ↓
-Skill: superpowers:requesting-code-review  ← 每个子任务完成后
-  ↓
-Skill: superpowers:verification-before-completion ← 声称完成前
-  ↓
-Skill: verify                             ← 功能测试，PASS 后才进下一步
-  ↓
-文档落地（PM 归位签收）                   ← 闸门，文档未落地不算完成
+# ❌ 违规（一票否决项）
+return {"items": [...]}
+return {"success": True, "id": "123"}
 ```
 
-### 常见违规模式（禁止）
+**例外**：流式接口（`StreamingResponse`）和文件下载（`Response` 返回二进制）不受此约束。
 
-- ❌ 读完需求文档后直接开始调研代码，跳过 superpowers:using-superpowers
-- ❌ 自己判断"需求已经清楚"，不复述、不等用户确认就开工
-- ❌ 用问三个选择题代替 superpowers:writing-plans 的完整拆分方案
-- ❌ 先写实现代码，再"补"测试（不是 TDD）
-- ❌ 没有 review 直接声称子任务完成
-- ❌ 没有跑验证命令就说"测试通过"
-- ❌ 整体功能开发完成后未做功能测试就声称"完成"
-- ❌ verify PASS 后直接声称完成，不补写文档
+### #2 用户写操作必须写 OperationLog
 
----
+每个 POST / PUT / PATCH / DELETE 接口，在 commit 前必须 `session.add(OperationLog(...))`。
 
-## 十三、功能测试（强制，每次整体功能完成后）
+```python
+db.add(output)
+await db.flush()  # flush 拿 ID
+db.add(OperationLog(
+    user_id=current_user.id, username=current_user.username, role=current_user.role,
+    action="xxx_action", target_type="output", target_id=output.id,
+    detail={...}, ip=_get_ip(request), user_agent=request.headers.get("user-agent"),
+))
+await db.commit()
+```
 
-> **硬约束：** 整体功能开发完成（所有子任务 review 通过、覆盖率达标）后，**必须**调用 `Skill: verify` 进行功能测试，通过后才能声称该功能"完成"。
+**例外**：GET 查询不需要。流式接口在 BackgroundTask 里写。
 
-### 触发时机
+### #3 前端 JSON 调用必须走 request.ts
 
-以下任一情形发生时，必须立即调用 `Skill: verify`：
+```typescript
+// ✅ 正确
+import { get, post, del } from './request';
+export const saveHistory = (body) => post<{ id: string }>('/api/.../history', body);
 
-- 一个完整功能（Sprint / 迁移任务 / 独立模块）的所有后端+前端开发均已完成
-- `superpowers:subagent-driven-development` 所有 Task 全部完成后
-- 用户明确说"测试一下""验证一下""功能测试"
+// ❌ 违规
+const resp = await fetch(url, { ... }); return resp.json();
+```
 
-### 验证范围（最低标准）
+**例外**：流式（`chatStream`）、FormData 上传（`parseFile`）、Blob 下载（`exportWord`）保留原生 fetch，但必须手动解包 `.data`。
 
-| 验证项 | 方法 |
-|--------|------|
-| 后端接口是否注册 | curl `/openapi.json` 确认路径存在 |
-| 未鉴权返回 401 | curl 不带 token |
-| 核心接口正常响应 | 带 token curl，含 happy path |
-| 错误路径返回正确状态码 | 空参数、超限、不支持格式等 |
-| 前端页面可访问、模块无编译错误 | curl Vite 模块，检查是否有 `Failed to resolve` |
-| 数据库写入符合预期 | psql 查 task_jobs / outputs 等相关表 |
+> 🔒 **自动化守卫**：`frontend/src/__tests__/unit/api/conventionGuard.test.ts` 扫描所有 `src/api/*.ts`，发现裸 `fetch()` 无例外指示器（FormData / .blob() / getReader / Promise\<Response\>）即报失败。
 
-### 不可跳过条件
+### #4 改接口/表必须同步更新契约文档
 
-- 不论 pytest 是否全部通过，都必须做功能测试（pytest 是单元/集成，不等于真实运行）
-- 功能测试发现问题 → 修复 → **重新运行** verify，直到 PASS
-- verify 结果必须附在完成声明中（PASS / FAIL / 修复了什么）
+- 新增/修改 API → 同步更新 `backend/docs/base/MCN_M2_Base_API.md`
+- 新增/修改表 → 同步更新 `backend/docs/base/MCN_M2_Base_Database.md`
+- 新增 migration → 在 Base_Database 迁移列表中登记
+
+**不更新契约 = 唯一事实源失真，后续开发全乱。**
+
+### #5 功能完成后必须更新 README
+
+每个端的 `docs/README.md` 中的文件列表、计数、路由清单必须与实际代码一致。
+
+### #6 AiCallLog 由 adapter 层负责（不要在 router 里重复写）
+
+`yunwu.py` 的 `chat()` / `chat_stream()` 在 `finally` 块自动写 `AiCallLog`。router 层不需要、也不应该再写。
+
+> 🔒 **自动化守卫**：`test_convention_guard.py` 扫描所有 router 文件，发现 `AiCallLog(` 即报失败。
+
+### #7 新增 router 必须注册到 conftest.py 的 `_SESSION_LOCAL_PATCH_TARGETS`
+
+如果 router 内部直接 `from app.core.database import AsyncSessionLocal`（用于后台任务/流式），必须在 `tests/conftest.py` 的 patch 列表中注册，否则测试时该 router 会连到生产数据库。
+
+> 🔒 **自动化守卫**：`test_convention_guard.py` 交叉检查 router 文件的 `AsyncSessionLocal` 导入与 conftest.py 的注册列表，未注册即报失败。

@@ -23,7 +23,7 @@ backend/
 │   │   └── seed.py                    #   初始数据填充
 │   ├── middlewares/
 │   │   └── auth.py                    #   JWT 鉴权（get_current_user / require_admin）
-│   ├── models/                        # SQLAlchemy ORM 模型（12 个）
+│   ├── models/                        # SQLAlchemy ORM 模型（15 个）
 │   │   ├── user.py                    #   用户表
 │   │   ├── kol.py                     #   红人表
 │   │   ├── credential.py              #   AI 密钥池表
@@ -31,8 +31,11 @@ backend/
 │   │   ├── kol_intake.py              #   入驻问卷相关表（5 张）
 │   │   ├── tikhub_credential.py       #   TikHub 独立凭证表
 │   │   ├── tikhub_call_log.py         #   TikHub 调用日志表
+│   │   ├── persona_report.py          #   人格定位报告表
+│   │   ├── benchmark.py               #   对标分析配置 + 报告表
+│   │   ├── selling_point.py           #   卖点提取配置表
 │   │   └── ...                        #   log / file / output / session / task
-│   ├── routers/                       # API 路由（按角色分文件）
+│   ├── routers/                       # API 路由（按角色分文件，25 个）
 │   │   ├── auth.py                    #   POST /api/auth/login、/change-password
 │   │   ├── admin_users.py             #   用户管理（admin）
 │   │   ├── admin_kols.py              #   红人管理（admin）
@@ -43,9 +46,15 @@ backend/
 │   │   ├── admin_tikhub.py            #   TikHub 管理（admin）
 │   │   ├── admin_logs.py              #   日志管理（admin）
 │   │   ├── admin_system.py            #   系统管理（admin）
+│   │   ├── admin_benchmark.py         #   对标分析配置（admin）
+│   │   ├── admin_selling_point.py     #   卖点提取配置（admin）
 │   │   ├── operator_homepage.py       #   运营首页数据
 │   │   ├── operator_intake.py         #   入驻问卷（运营端）
 │   │   ├── operator_intake_direct.py  #   运营直发对话
+│   │   ├── operator_benchmark.py      #   对标分析（运营端）
+│   │   ├── operator_tiktok_writer.py  #   TikTok 脚本仿写（运营端）
+│   │   ├── operator_selling_point.py  #   卖点提取器（运营端）
+│   │   ├── persona.py                 #   人格定位（运营端）
 │   │   ├── intake_public.py           #   公开接口（博主填写问卷）
 │   │   ├── health.py                  #   健康检查
 │   │   ├── files.py                   #   文件上传下载
@@ -57,7 +66,11 @@ backend/
 │       ├── credential_selector.py     #   密钥池轮转选择器
 │       ├── intake_report.py           #   入驻报告生成（PDF/DOCX）
 │       ├── kol_scheduler.py           #   红人数据定时任务
-│       └── kol_tikhub.py              #   TikHub 数据抓取
+│       ├── kol_tikhub.py              #   TikHub 数据抓取
+│       ├── file_parser.py             #   文件解析（.docx/.pdf/.txt/.md/.pages）
+│       ├── word_export.py             #   Word 文档导出
+│       ├── benchmark_report.py        #   对标分析报告生成
+│       └── persona_docx.py            #   人格定位报告导出
 │
 ├── docs/                              # ===== 本目录 =====
 │   ├── README.md                      #   本文件（架构 + 文档索引）
@@ -66,13 +79,15 @@ backend/
 │   │   ├── MCN_M1_Base_Database.md    #     M1 阶段数据库契约
 │   │   ├── MCN_M2_Base_API.md         #     M2 阶段 API 契约
 │   │   └── MCN_M2_Base_Database.md    #     M2 阶段数据库契约
-│   ├── tasks/                         #   任务单 + 验收文档（21 个）
+│   ├── tasks/                         #   任务单 + 验收文档（29 个）
 │   │   ├── M1_Sprint0.md ~ Sprint4.md          #  M1 各 Sprint
 │   │   ├── M1_Sprint5_TikHub_独立池化.md        #  TikHub 独立池化
 │   │   ├── M2_Sprint1_kol_intake.md            #  入驻问卷主任务
 │   │   ├── M2_Sprint1_kol_intake_*.md          #  入驻问卷系列补充（10 个）
 │   │   ├── M2_Sprint2_operator_homepage*.md    #  首页系列（3 个）
-│   │   ├── M2_Sprint3_persona_positioning.md   #  人设定位
+│   │   ├── M2_Sprint3_persona_positioning*.md  #  人设定位 + v2 修复
+│   │   ├── M2_Sprint04_后端任务_tiktok-writer*.md     #  TikTok 脚本仿写 v1 + v2 修复
+│   │   ├── M2_Sprint05_后端任务_selling-point-extractor*.md  #  卖点提取器 v1 + v2 修复
 │   │   └── BugFix_*.md                         #  BugFix（3 个）
 │   └── tests/                         #   测试报告 + 测试任务
 │       ├── MCN_M1_Test_Task.md                        #  M1 测试任务
@@ -80,6 +95,9 @@ backend/
 │       ├── MCN_M1_Concurrent_Test_Report.md           #  M1 并发测试报告
 │       ├── M2_Sprint1_kol_intake_测试任务单.md          #  M2 Sprint1 测试任务
 │       ├── M2_Sprint2_homepage_测试任务单.md            #  M2 Sprint2 测试任务
+│       ├── M2_Sprint3_测试报告.md                       #  M2 Sprint3 测试报告（persona + TikHub）
+│       ├── M2_Sprint04_测试报告_tiktok-writer_v1.md     #  M2 Sprint4 测试报告
+│       ├── M2_Sprint05_测试报告_selling-point-extractor_v1.md  #  M2 Sprint5 测试报告
 │       └── MCN_Integration_Test_Fix_Report_2026-06-11.md  #  集成测试修复报告
 │
 ├── tests/                             # 测试代码
@@ -88,13 +106,14 @@ backend/
 │   │   ├── middlewares/               #     auth
 │   │   └── services/                  #     credential_selector / intake_report
 │   ├── integration/                   #   集成测试（需测试数据库 mcn_test）
-│   │   └── routers/                   #     auth / admin_users / credentials / homepage
-│   │                                  #     outputs / tasks / workspace（共 7 个文件，97 个用例）
+│   │   ├── test_convention_guard.py   #     规范守卫（AST 扫描红线 #1 #2）
+│   │   ├── test_credential_pool.py    #     AI 凭证池并发安全（21 条）
+│   │   └── routers/                   #     12 个文件，覆盖全部 router
 │   ├── e2e/                           #   端到端测试（待补充）
 │   ├── concurrent/                    #   并发隔离测试
 │   └── intake/                        #   入驻问卷专项测试
 │
-├── migrations/                        # SQL 迁移脚本（001 ~ 012）
+├── migrations/                        # SQL 迁移脚本（001 ~ 015）
 ├── scripts/                           # 工具脚本
 │   ├── init_db.sh                     #   一键初始化数据库
 │   └── run_coverage.py                #   覆盖率门禁脚本

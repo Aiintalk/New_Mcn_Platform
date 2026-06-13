@@ -1,7 +1,7 @@
 # MCN Information System Platform · M2 Base Database 说明
 
 > 文档定位：本文件定义 M2 阶段新增的数据库表。M1 表定义见 `docs/base/M1/MCN_M1_Base_Database.md`。
-> M2 包含 Sprint 1（kol-intake 4 张表）、Sprint 3（persona 1 张表 + TikHub 2 张表），运营首页复用 M1 已有表，无新增。
+> M2 包含 Sprint 1（kol-intake 4 张表）、Sprint 3（persona 1 张表 + TikHub 2 张表 + benchmark 2 张表）、Sprint 5（selling_point_configs 1 张表），运营首页复用 M1 已有表，无新增。Sprint 4（tiktok-writer）无独立表，复用 outputs + task_jobs。
 
 ---
 
@@ -16,6 +16,11 @@
 | `persona_reports` | 人格定位报告（AI 生成的人格档案+内容规划） | Sprint 3 |
 | `tikhub_credentials` | TikHub 独立 Key 池 | Sprint 3 |
 | `tikhub_call_logs` | TikHub 调用日志 | Sprint 3 |
+| `benchmark_configs` | 对标分析 AI 配置（Prompt + 模型） | Sprint 3 |
+| `benchmark_analyses` | 对标分析记录（账号分析结果） | Sprint 3 |
+| `selling_point_configs` | 卖点提取 AI 配置（Prompt + 模型） | Sprint 5 |
+
+> Sprint 4（tiktok-writer）无独立表，复用 `outputs` 和 `task_jobs`。
 
 ---
 
@@ -322,4 +327,90 @@ CREATE INDEX idx_tikhub_call_logs_created ON tikhub_call_logs(created_at DESC);
 | `010_tikhub_credentials.sql` | tikhub_credentials 表 | Sprint 3 |
 | `011_tikhub_call_logs.sql` | tikhub_call_logs 表 | Sprint 3 |
 | `012_migrate_tikhub_to_dedicated_pool.sql` | 迁移 TikHub Key 到独立池 | Sprint 3 |
-| `013_benchmark.sql` | benchmark_configs + benchmark_analyses 表 + 初始 Prompt + workspace_tools 注册 | Sprint 3 |
+| `013_benchmark.sql` | benchmark_configs + benchmark_analyses 表 + 初始 Prompt + workspace_tools 注册（tool_code=`benchmark`） | Sprint 3 |
+| `014_tiktok_writer.sql` | workspace_tools 注册（tool_code=`tiktok-writer`，status=`dev`） | Sprint 4 |
+| `015_selling_point_extractor.sql` | selling_point_configs 表 + 初始 Prompt + workspace_tools 注册（tool_code=`selling-point-extractor`） | Sprint 5 |
+
+---
+
+## 12. benchmark_configs 对标分析配置表（Sprint 3）
+
+### 12.1 用途
+
+存储对标分析功能的 AI 配置（Prompt + 模型绑定）。管理员在后台维护。
+
+### 12.2 字段说明
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | SERIAL | 是 | 配置 ID |
+| `config_key` | VARCHAR(50) | 是 | 唯一键（目前只有 `analyze`） |
+| `ai_model_id` | INTEGER | 否 | 关联 `ai_models.id`，NULL 时用默认模型 |
+| `system_prompt` | TEXT | 否 | AI 分析提示词 |
+| `is_active` | BOOLEAN | 是 | 是否启用 |
+| `created_at` | TIMESTAMPTZ | 是 | 创建时间 |
+| `updated_at` | TIMESTAMPTZ | 是 | 更新时间（触发器自动更新） |
+
+---
+
+## 13. benchmark_analyses 对标分析记录表（Sprint 3）
+
+### 13.1 用途
+
+存储每次对标分析的输入数据和 AI 生成结果。
+
+### 13.2 字段说明
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | SERIAL | 是 | 记录 ID |
+| `account_name` | VARCHAR(200) | 否 | 对标账号名 |
+| `sec_user_id` | VARCHAR(200) | 否 | TikHub sec_user_id |
+| `top10_content` | TEXT | 否 | TOP10 视频文案 |
+| `recent30_content` | TEXT | 否 | 近 30 天视频文案 |
+| `profile_result` | TEXT | 否 | AI 生成的人格档案 |
+| `plan_result` | TEXT | 否 | AI 生成的内容规划 |
+| `model_used` | VARCHAR(100) | 否 | 使用的模型 ID |
+| `tokens_used` | INTEGER | 否 | token 用量 |
+| `duration_ms` | INTEGER | 否 | 生成耗时（ms） |
+| `status` | VARCHAR(20) | 是 | `pending` / `ready` / `failed` |
+| `created_by` | INTEGER | 是 | 创建者，关联 `users.id` |
+| `created_at` | TIMESTAMPTZ | 是 | 创建时间 |
+| `updated_at` | TIMESTAMPTZ | 是 | 更新时间（触发器自动更新） |
+
+### 13.3 索引
+
+```sql
+CREATE INDEX idx_benchmark_analyses_user ON benchmark_analyses(created_by);
+CREATE INDEX idx_benchmark_analyses_created ON benchmark_analyses(created_at DESC);
+```
+
+---
+
+## 14. selling_point_configs 卖点提取配置表（Sprint 5）
+
+### 14.1 用途
+
+存储卖点提取器的 AI 配置（Prompt + 模型绑定）。管理员在后台「工具配置 → 功能配置」中维护。
+
+### 14.2 字段说明
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | SERIAL | 是 | 配置 ID |
+| `config_key` | VARCHAR(50) | 是 | 唯一键（目前只有 `extract`） |
+| `ai_model_id` | INTEGER | 否 | 关联 `ai_models.id`，NULL 时用默认模型 `claude-sonnet-4-6` |
+| `system_prompt` | TEXT | 否 | AI 卖点提取提示词 |
+| `is_active` | BOOLEAN | 是 | 是否启用 |
+| `created_at` | TIMESTAMPTZ | 是 | 创建时间 |
+| `updated_at` | TIMESTAMPTZ | 是 | 更新时间（触发器自动更新） |
+
+### 14.3 初始数据
+
+迁移 015 插入一条 `config_key='extract'` 记录，`system_prompt` 为完整的极致卖点卡提取提示词（机制/背书/口碑/产品力四板块）。
+
+### 14.4 workspace_tools 注册
+
+| tool_code | tool_name | category | status | sort_order |
+|-----------|-----------|----------|--------|------------|
+| `selling-point-extractor` | 产品卖点提取器 | 选题分析 | `online` | 3 |

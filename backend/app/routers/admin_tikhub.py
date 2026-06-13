@@ -15,7 +15,7 @@ TikHub 独立池管理接口（10 个）：
 """
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 from sqlalchemy import delete, select, update, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.response import ApiResponse, ErrorCode, error_response, success_response
 from app.middlewares.auth import require_admin
+from app.models.log import OperationLog
 from app.models.tikhub_credential import TikHubCredential
 from app.models.user import User
 
@@ -42,6 +43,13 @@ def _mask_key(key: str) -> str:
     if not key or len(key) <= 4:
         return "****"
     return "*" * (len(key) - 4) + key[-4:]
+
+
+def _get_ip(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
 
 
 # ---------------------------------------------------------------------------
@@ -231,6 +239,7 @@ async def list_tikhub_keys(
 @router.post("/keys", response_model=ApiResponse)
 async def create_tikhub_key(
     body: CreateTikHubKeyRequest,
+    request: Request,
     current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
@@ -242,6 +251,18 @@ async def create_tikhub_key(
         max_users=body.max_users,
     )
     db.add(cred)
+    await db.flush()
+    db.add(OperationLog(
+        user_id=current_user.id,
+        username=current_user.username,
+        role=current_user.role,
+        action="create_tikhub_key",
+        target_type="credential",
+        target_id=cred.id,
+        detail={"label": body.label},
+        ip=_get_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    ))
     await db.commit()
     await db.refresh(cred)
     return success_response(
@@ -269,6 +290,7 @@ async def create_tikhub_key(
 async def update_tikhub_key(
     key_id: int,
     body: UpdateTikHubKeyRequest,
+    request: Request,
     current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
@@ -288,6 +310,17 @@ async def update_tikhub_key(
         await db.execute(
             update(TikHubCredential).where(TikHubCredential.id == key_id).values(**values)
         )
+        db.add(OperationLog(
+            user_id=current_user.id,
+            username=current_user.username,
+            role=current_user.role,
+            action="update_tikhub_key",
+            target_type="credential",
+            target_id=key_id,
+            detail={k: v for k, v in values.items() if k != "updated_at"},
+            ip=_get_ip(request),
+            user_agent=request.headers.get("user-agent"),
+        ))
         await db.commit()
         await db.refresh(cred)
 
@@ -313,6 +346,7 @@ async def update_tikhub_key(
 @router.delete("/keys/{key_id}", response_model=ApiResponse)
 async def delete_tikhub_key(
     key_id: int,
+    request: Request,
     current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
@@ -325,6 +359,16 @@ async def delete_tikhub_key(
     await db.execute(
         delete(TikHubCredential).where(TikHubCredential.id == key_id)
     )
+    db.add(OperationLog(
+        user_id=current_user.id,
+        username=current_user.username,
+        role=current_user.role,
+        action="delete_tikhub_key",
+        target_type="credential",
+        target_id=key_id,
+        ip=_get_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    ))
     await db.commit()
     return success_response(data=None, message="TikHub Key 已删除")
 
@@ -336,6 +380,7 @@ async def delete_tikhub_key(
 @router.post("/keys/{key_id}/test", response_model=ApiResponse)
 async def test_tikhub_key(
     key_id: int,
+    request: Request,
     current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
@@ -372,6 +417,17 @@ async def test_tikhub_key(
                     last_latency_ms=latency_ms,
                 )
             )
+            db.add(OperationLog(
+                user_id=current_user.id,
+                username=current_user.username,
+                role=current_user.role,
+                action="test_tikhub_key",
+                target_type="credential",
+                target_id=key_id,
+                detail={"status": "ok", "latency_ms": latency_ms},
+                ip=_get_ip(request),
+                user_agent=request.headers.get("user-agent"),
+            ))
             await db.commit()
             return success_response(data={
                 "status": "ok",
@@ -400,6 +456,7 @@ async def test_tikhub_key(
 @router.post("/keys/{key_id}/enable", response_model=ApiResponse)
 async def enable_tikhub_key(
     key_id: int,
+    request: Request,
     current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
@@ -415,6 +472,16 @@ async def enable_tikhub_key(
             updated_at=datetime.now(timezone.utc),
         )
     )
+    db.add(OperationLog(
+        user_id=current_user.id,
+        username=current_user.username,
+        role=current_user.role,
+        action="enable_tikhub_key",
+        target_type="credential",
+        target_id=key_id,
+        ip=_get_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    ))
     await db.commit()
     return success_response(data=None, message="TikHub Key 已启用")
 
@@ -426,6 +493,7 @@ async def enable_tikhub_key(
 @router.post("/keys/{key_id}/disable", response_model=ApiResponse)
 async def disable_tikhub_key(
     key_id: int,
+    request: Request,
     current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
@@ -441,6 +509,16 @@ async def disable_tikhub_key(
             updated_at=datetime.now(timezone.utc),
         )
     )
+    db.add(OperationLog(
+        user_id=current_user.id,
+        username=current_user.username,
+        role=current_user.role,
+        action="disable_tikhub_key",
+        target_type="credential",
+        target_id=key_id,
+        ip=_get_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    ))
     await db.commit()
     return success_response(data=None, message="TikHub Key 已停用")
 

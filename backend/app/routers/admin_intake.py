@@ -16,7 +16,7 @@ app/routers/admin_intake.py
 """
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,6 +27,7 @@ from app.middlewares.auth import require_admin
 from app.models.kol_intake import (
     KolIntakeConfig, KolIntakeLink, KolIntakeQuestion, KolIntakeSubmission,
 )
+from app.models.log import OperationLog
 from app.models.user import User
 
 router = APIRouter(prefix="/admin/intake", tags=["admin-intake"])
@@ -34,6 +35,13 @@ router = APIRouter(prefix="/admin/intake", tags=["admin-intake"])
 
 def _ts(dt) -> str | None:
     return dt.isoformat() if dt else None
+
+
+def _get_ip(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
 
 
 # ---------------------------------------------------------------------------
@@ -79,11 +87,24 @@ async def list_questions(
 @router.post("/questions")
 async def create_question(
     body: QuestionIn,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_admin),
+    current_user: User = Depends(require_admin),
 ):
     q = KolIntakeQuestion(**body.model_dump())
     db.add(q)
+    await db.flush()
+    db.add(OperationLog(
+        user_id=current_user.id,
+        username=current_user.username,
+        role=current_user.role,
+        action="create_intake_question",
+        target_type="question",
+        target_id=q.id,
+        detail={"category": body.category, "order_num": body.order_num},
+        ip=_get_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    ))
     await db.commit()
     await db.refresh(q)
     return success_response(data={"id": q.id})
@@ -97,8 +118,9 @@ class ReorderItem(BaseModel):
 @router.put("/questions/reorder")
 async def reorder_questions(
     body: list[ReorderItem],
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_admin),
+    current_user: User = Depends(require_admin),
 ):
     """批量更新题目排序。"""
     now = datetime.now(timezone.utc)
@@ -108,6 +130,17 @@ async def reorder_questions(
             .where(KolIntakeQuestion.id == item.id)
             .values(order_num=item.order_num, updated_at=now)
         )
+    db.add(OperationLog(
+        user_id=current_user.id,
+        username=current_user.username,
+        role=current_user.role,
+        action="reorder_intake_questions",
+        target_type="question",
+        target_id=None,
+        detail={"count": len(body)},
+        ip=_get_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    ))
     await db.commit()
     return success_response(data=None)
 
@@ -116,8 +149,9 @@ async def reorder_questions(
 async def update_question(
     question_id: int,
     body: QuestionIn,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_admin),
+    current_user: User = Depends(require_admin),
 ):
     result = await db.execute(
         update(KolIntakeQuestion)
@@ -130,6 +164,17 @@ async def update_question(
             status_code=404,
             detail={"code": "RESOURCE_NOT_FOUND", "message": "题目不存在"},
         )
+    db.add(OperationLog(
+        user_id=current_user.id,
+        username=current_user.username,
+        role=current_user.role,
+        action="update_intake_question",
+        target_type="question",
+        target_id=question_id,
+        detail=body.model_dump(),
+        ip=_get_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    ))
     await db.commit()
     return success_response(data={"id": question_id})
 
@@ -137,8 +182,9 @@ async def update_question(
 @router.delete("/questions/{question_id}")
 async def delete_question(
     question_id: int,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_admin),
+    current_user: User = Depends(require_admin),
 ):
     result = await db.execute(
         delete(KolIntakeQuestion)
@@ -150,6 +196,16 @@ async def delete_question(
             status_code=404,
             detail={"code": "RESOURCE_NOT_FOUND", "message": "题目不存在"},
         )
+    db.add(OperationLog(
+        user_id=current_user.id,
+        username=current_user.username,
+        role=current_user.role,
+        action="delete_intake_question",
+        target_type="question",
+        target_id=question_id,
+        ip=_get_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    ))
     await db.commit()
     return success_response(data=None)
 
@@ -187,8 +243,9 @@ async def list_configs(
 async def update_config(
     config_key: str,
     body: ConfigIn,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_admin),
+    current_user: User = Depends(require_admin),
 ):
     result = await db.execute(
         update(KolIntakeConfig)
@@ -206,6 +263,17 @@ async def update_config(
             status_code=404,
             detail={"code": "RESOURCE_NOT_FOUND", "message": "配置不存在"},
         )
+    db.add(OperationLog(
+        user_id=current_user.id,
+        username=current_user.username,
+        role=current_user.role,
+        action="update_intake_config",
+        target_type="config",
+        target_id=None,
+        detail={"config_key": config_key, "ai_model_id": body.ai_model_id},
+        ip=_get_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    ))
     await db.commit()
     return success_response(data={"config_key": config_key})
 
@@ -314,8 +382,9 @@ async def get_submission_detail(
 async def regenerate_report(
     submission_id: int,
     background_tasks: BackgroundTasks,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_admin),
+    current_user: User = Depends(require_admin),
 ):
     """重新生成报告：重置状态为 pending，异步触发生成。"""
     from app.routers.intake_public import generate_intake_report
@@ -335,6 +404,16 @@ async def regenerate_report(
         .where(KolIntakeSubmission.id == submission_id)
         .values(report_status="pending", ai_report=None, ai_report_raw=None)
     )
+    db.add(OperationLog(
+        user_id=current_user.id,
+        username=current_user.username,
+        role=current_user.role,
+        action="regenerate_intake_report",
+        target_type="output",
+        target_id=submission_id,
+        ip=_get_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    ))
     await db.commit()
 
     background_tasks.add_task(generate_intake_report, submission_id)

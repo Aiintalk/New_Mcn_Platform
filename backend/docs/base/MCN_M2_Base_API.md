@@ -34,6 +34,19 @@
 |------|--------|----------|
 | TikHub 管理端 | 10 | `/api/admin/tikhub` |
 
+### 1.5 Sprint 4 — TikTok 脚本仿写
+
+| 分类 | 接口数 | 路由前缀 |
+|------|--------|----------|
+| 运营端 | 3 | `/api/tools/tiktok-writer` |
+
+### 1.6 Sprint 5 — 产品卖点提取器
+
+| 分类 | 接口数 | 路由前缀 |
+|------|--------|----------|
+| 运营端 | 5 | `/api/tools/selling-point-extractor` |
+| 管理端 | 2 | `/api/admin/selling-point` |
+
 ---
 
 ## 2. 通用约定
@@ -535,23 +548,31 @@ Response：`text/plain` 流式文本（raw text stream，非 SSE）
 
 Request：`multipart/form-data`，字段名 `file`
 
-Response：`{ "text": "string", "filename": "string" }`
+Response：
+```json
+{
+  "success": true,
+  "code": "OK",
+  "message": "success",
+  "data": { "text": "string", "filename": "string" }
+}
+```
 
 支持格式：`.txt` / `.md` / `.docx` / `.pdf`（pdfplumber）/ `.pages`（zipfile+snappy）/ `.doc`（返回提示）/ 其他（UTF-8）
 
 ### 12.6 GET `/api/tools/selling-point-extractor/history`
 
-不带 id：返回列表 `{ "records": [{ "id", "productName", "createdAt", "summary" }] }`（全员共享）
-带 `?id={id}`：返回单条 `{ "record": { "id", "productName", "result", "chatHistory", "briefFiles", "scriptFiles", "createdAt" } }`
+不带 id：返回列表 `data: { "records": [{ "id", "productName", "createdAt", "summary" }] }`（全员共享）
+带 `?id={id}`：返回单条 `data: { "record": { "id", "productName", "result", "chatHistory", "briefFiles", "scriptFiles", "createdAt" } }`
 
 ### 12.7 POST `/api/tools/selling-point-extractor/history`
 
 Request：`{ "productName": "string", "result": "string", "chatHistory": [...], "briefFiles": [...], "scriptFiles": [...] }`
-Response：`{ "success": true, "id": "string" }`
+Response：`{ "success": true, "code": "OK", "data": { "id": "string" } }`
 
 ### 12.8 DELETE `/api/tools/selling-point-extractor/history?id={id}`
 
-软删除（设 `deleted_at`）。Response：`{ "success": true }`
+软删除（设 `deleted_at`）。Response：`{ "success": true, "code": "OK", "data": { "id": id } }`
 
 ### 12.9 错误码
 
@@ -563,4 +584,88 @@ Response：`{ "success": true, "id": "string" }`
 | 422 | `PARSE_ERROR` | 文件格式不支持（ValueError）|
 | 500 | `PARSE_ERROR` | 文件解析内部错误 |
 | 503 | `CONFIG_NOT_FOUND` | 配置未激活 |
+
+---
+
+## 13. Sprint 4 — TikTok 脚本仿写（tiktok-writer）
+
+> 路由文件：`backend/app/routers/operator_tiktok_writer.py`
+> 权限：JWT 鉴权，operator / admin（`require_operator`）
+> 无独立配置表：Prompt 由前端传入（`systemPrompt` 字段），不存 DB
+
+### 13.1 接口总览
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/tools/tiktok-writer/chat` | AI 流式对话（raw text stream） |
+| POST | `/api/tools/tiktok-writer/export-word` | 导出 Word 文档（docx 二进制流） |
+| GET | `/api/tools/tiktok-writer/kols/personas` | 达人人设列表（从 kols 表读取） |
+
+### 13.2 POST `/api/tools/tiktok-writer/chat`
+
+Request:
+```json
+{
+  "messages": [{"role": "user", "content": "string"}],
+  "systemPrompt": "string（必填）",
+  "model": "claude-opus-4-6-thinking",
+  "createJob": false,
+  "jobContext": { "tiktokUrl": "", "likesCount": "", "selectedPersonaName": "" }
+}
+```
+
+Response：`text/plain` 流式文本（raw text stream，非 SSE）
+
+业务规则：
+- `systemPrompt` 为空时返回 400
+- 内置 429 限流重试（间隔 2/4/6 秒，最多 3 次）
+- `createJob=true` 时后台写 `task_jobs` 记录
+- 后台写 OperationLog（action=`tiktok_writer_chat`）
+- AI 调用明细由 yunwu adapter 写 `ai_call_logs`
+
+### 13.3 POST `/api/tools/tiktok-writer/export-word`
+
+Request:
+```json
+{
+  "personaName": "string",
+  "topic": "string",
+  "content": "string（必填，Markdown 正文）",
+  "taskJobId": null
+}
+```
+
+Response：文件流
+- `Content-Type: application/vnd.openxmlformats-officedocument.wordprocessingml.document`
+- `Content-Disposition: attachment; filename="TikTok_Script_{personaName}_{date}.docx"`
+
+业务规则：
+- 写入 `outputs` 表（tool_code=`tiktok-writer`）
+- 写 OperationLog（action=`tiktok_export_word`，target_type=`output`）
+
+### 13.4 GET `/api/tools/tiktok-writer/kols/personas`
+
+Response:
+```json
+{
+  "success": true,
+  "code": "OK",
+  "message": "success",
+  "data": {
+    "personas": [
+      { "name": "string", "soul": "string", "contentPlan": "string" }
+    ]
+  }
+}
+```
+
+业务规则：
+- 从 `kols` 表查询 `persona IS NOT NULL AND deleted_at IS NULL`
+- 按 `name` ASC 排序
+
+### 13.5 错误码
+
+| HTTP | code | 含义 |
+|------|------|------|
+| 400 | `INVALID_INPUT` | messages 为空 / systemPrompt 为空 / content 为空 |
 

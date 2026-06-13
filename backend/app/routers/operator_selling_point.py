@@ -11,7 +11,7 @@ app/routers/operator_selling_point.py
 import time
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select, text
@@ -20,7 +20,9 @@ from starlette.background import BackgroundTask
 
 from app.adapters import yunwu as yunwu_adapter
 from app.core.database import AsyncSessionLocal, get_db
+from app.core.response import success_response
 from app.middlewares.auth import get_current_user
+from app.models.log import OperationLog
 from app.models.output import Output
 from app.models.selling_point import SellingPointConfig
 from app.models.task import TaskJob
@@ -33,6 +35,13 @@ TOOL_CODE = "selling-point-extractor"
 TOOL_NAME = "产品卖点提取器"
 CONFIG_KEY = "extract"
 DEFAULT_MODEL = "claude-sonnet-4-6"
+
+
+def _get_ip(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
 
 
 async def require_operator(current_user: User = Depends(get_current_user)) -> User:
@@ -86,6 +95,7 @@ class ChatRequest(BaseModel):
 @router.post("/chat")
 async def chat(
     body: ChatRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_operator),
 ):
@@ -101,6 +111,11 @@ async def chat(
     system_prompt = config.system_prompt or ""
     messages = [{"role": "system", "content": system_prompt}] + body.messages
     user_id = current_user.id
+    # 捕获请求信息，供后台日志使用（StreamingResponse 返回后 request 不可用）
+    ip = _get_ip(request)
+    user_agent = request.headers.get("user-agent")
+    username = current_user.username
+    role = current_user.role
 
     async def generate():
         try:
@@ -139,6 +154,17 @@ async def chat(
                 created_by=user_id,
             )
             bg_db.add(task_job)
+            bg_db.add(OperationLog(
+                user_id=user_id,
+                username=username,
+                role=role,
+                action="selling_point_chat",
+                target_type="tool",
+                target_id=None,
+                detail={"model_id": model_id, "message_count": len(body.messages)},
+                ip=ip,
+                user_agent=user_agent,
+            ))
             await bg_db.commit()
 
     return StreamingResponse(
@@ -154,7 +180,9 @@ async def chat(
 
 @router.post("/parse-file")
 async def parse_file(
+    request: Request,
     file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_operator),
 ):
     if not file.filename:
@@ -174,7 +202,19 @@ async def parse_file(
             status_code=500,
             detail={"code": "PARSE_ERROR", "message": f"文件解析失败: {str(e)}"},
         ) from e
-    return {"text": text, "filename": file.filename}
+
+    db.add(OperationLog(
+        user_id=current_user.id,
+        username=current_user.username,
+        role=current_user.role,
+        action="selling_point_parse_file",
+        target_type="file",
+        detail={"filename": file.filename, "chars": len(text)},
+        ip=_get_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    ))
+    await db.commit()
+    return success_response(data={"text": text, "filename": file.filename})
 
 
 # ---------------------------------------------------------------------------
@@ -204,7 +244,7 @@ async def get_history(
                 detail={"code": "NOT_FOUND", "message": "记录不存在"},
             )
         cj = row.content_json or {}
-        return {
+        return success_response(data={
             "record": {
                 "id": str(row.id),
                 "productName": row.title,
@@ -214,7 +254,7 @@ async def get_history(
                 "scriptFiles": cj.get("scriptFiles", []),
                 "createdAt": row.created_at.isoformat() if row.created_at else None,
             }
-        }
+        })
 
     rows = (await db.execute(
         select(Output)
@@ -223,7 +263,7 @@ async def get_history(
         .order_by(Output.created_at.desc())
     )).scalars().all()
 
-    return {
+    return success_response(data={
         "records": [
             {
                 "id": str(r.id),
@@ -234,12 +274,13 @@ async def get_history(
             }
             for r in rows
         ]
-    }
+    })
 
 
 @router.post("/history")
 async def save_history(
     body: SaveHistoryRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_operator),
 ):
@@ -262,13 +303,26 @@ async def save_history(
         created_by=current_user.id,
     )
     db.add(output)
+    await db.flush()  # flush 以获取 output.id 供日志使用
+    db.add(OperationLog(
+        user_id=current_user.id,
+        username=current_user.username,
+        role=current_user.role,
+        action="selling_point_save_history",
+        target_type="output",
+        target_id=output.id,
+        detail={"productName": body.productName or "未命名产品"},
+        ip=_get_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    ))
     await db.commit()
     await db.refresh(output)
-    return {"success": True, "id": str(output.id)}
+    return success_response(data={"id": str(output.id)})
 
 
 @router.delete("/history")
 async def delete_history(
+    request: Request,
     id: int = Query(...),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_operator),
@@ -280,5 +334,16 @@ async def delete_history(
             detail={"code": "NOT_FOUND", "message": "记录不存在"},
         )
     row.deleted_at = datetime.now(timezone.utc)
+    db.add(OperationLog(
+        user_id=current_user.id,
+        username=current_user.username,
+        role=current_user.role,
+        action="selling_point_delete_history",
+        target_type="output",
+        target_id=id,
+        detail={"productName": row.title},
+        ip=_get_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    ))
     await db.commit()
-    return {"success": True}
+    return success_response(data={"id": id})

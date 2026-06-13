@@ -113,10 +113,11 @@ def mock_db():
 
 **目录**: `backend/tests/integration/`
 
-| 子目录 | 测试目标 | 策略 |
+| 子目录/文件 | 测试目标 | 策略 |
 |--------|---------|------|
 | `routers/` | 所有 API 端点 | FastAPI TestClient + 测试数据库 |
-| `models/` | 完整 ORM 行为 | 测试数据库建表 + CRUD |
+| `test_convention_guard.py` | 开发红线自动化守卫 | AST 静态分析扫描（红线 #1 标准信封、#2 OperationLog） |
+| `test_credential_pool.py` | AI 凭证池并发安全 | 多 session + asyncio.gather 验证 FOR UPDATE SKIP LOCKED |
 
 **集成测试 conftest 模式：**
 
@@ -371,6 +372,8 @@ backend/tests/
 │       └── test_auth.py
 ├── integration/
 │   ├── conftest.py                # 真实测试 DB + test client
+│   ├── test_convention_guard.py   # 规范守卫（AST 扫描红线 #1 #2）
+│   ├── test_credential_pool.py    # AI 凭证池并发安全（21 条）
 │   └── routers/
 │       ├── test_auth.py
 │       ├── test_admin_users.py
@@ -403,3 +406,4 @@ frontend/src/__tests__/
 |------|------|----------|
 | v1.0 | 2026-06-10 | 初始版本 |
 | v1.1 | 2026-06-10 | 补充覆盖率门禁铁律 + 分层底线 + 门禁脚本 + 交付报告格式 |
+| v1.2 | 2026-06-13 | 新增规范守卫测试 + 凭证池并发测试分类；更新集成测试目录树 |

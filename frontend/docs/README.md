@@ -9,7 +9,7 @@
 ```
 frontend/
 ├── src/                               # 源码
-│   ├── api/                           # API 调用层
+│   ├── api/                           # API 调用层（20 个模块）
 │   │   ├── request.ts                 #   基础封装（get/post/patch/put/del + 拦截器）
 │   │   ├── auth.ts                    #   登录、改密码
 │   │   ├── users.ts                   #   用户管理
@@ -25,13 +25,17 @@ frontend/
 │   │   ├── logs.ts                    #   日志查看
 │   │   ├── system.ts                  #   系统状态
 │   │   ├── ai.ts                      #   AI 服务管理
-│   │   └── tikhub.ts                  #   TikHub 管理
+│   │   ├── tikhub.ts                  #   TikHub 管理
+│   │   ├── persona.ts                 #   人格定位
+│   │   ├── benchmark.ts               #   对标分析
+│   │   ├── tiktokWriter.ts            #   TikTok 脚本仿写
+│   │   └── sellingPoint.ts            #   产品卖点提取器
 │   ├── layouts/                       # 布局组件
 │   │   ├── AdminLayout.tsx            #   管理端布局（左侧菜单 + 内容区）
 │   │   ├── OperatorLayout.tsx         #   运营端布局（左侧菜单 + 内容区）
 │   │   └── AuthLayout.tsx             #   登录/注册页布局
 │   ├── pages/                         # 页面组件
-│   │   ├── admin/                     #   管理端（12 个页面）
+│   │   ├── admin/                     #   管理端（15 个页面）
 │   │   │   ├── KolsPage.tsx           #     红人管理
 │   │   │   ├── UsersPage.tsx          #     用户管理
 │   │   │   ├── AiManagementPage.tsx   #     AI 密钥/模型管理
@@ -43,15 +47,22 @@ frontend/
 │   │   │   ├── AdminDashboardPage.tsx #     管理端仪表盘
 │   │   │   ├── ExternalLogsPage.tsx   #     外部服务日志
 │   │   │   ├── OperationLogsPage.tsx  #     操作日志
-│   │   │   └── ServiceStatusPage.tsx  #     服务状态
-│   │   ├── operator/                  #   运营端（7 个页面）
+│   │   │   ├── ServiceStatusPage.tsx  #     服务状态
+│   │   │   ├── BenchmarkConfigPage.tsx #    对标分析配置
+│   │   │   ├── BenchmarkConfigTab.tsx #     对标分析配置 Tab
+│   │   │   └── SellingPointConfigTab.tsx #  卖点提取配置 Tab
+│   │   ├── operator/                  #   运营端（11 个页面）
 │   │   │   ├── HomePage.tsx           #     首页（统计卡片 + 趋势图）
 │   │   │   ├── OperatorIntakePage.tsx #     入驻问卷列表
 │   │   │   ├── OperatorIntakeChatPage.tsx #  运营直发对话
 │   │   │   ├── TasksPage.tsx          #     任务中心
 │   │   │   ├── OutputsPage.tsx        #     产出中心
 │   │   │   ├── WorkspacePage.tsx      #     创作中心
-│   │   │   └── PersonaWriterPage.tsx  #     人设定位（Sprint3 新增）
+│   │   │   ├── PersonaPage.tsx        #     人格定位
+│   │   │   ├── PersonaWriterPage.tsx  #     人设定位（旧版入口）
+│   │   │   ├── BenchmarkPage.tsx      #     对标分析助手
+│   │   │   ├── TiktokWriterPage.tsx   #     TikTok 脚本仿写
+│   │   │   └── SellingPointPage.tsx   #     产品卖点提取器
 │   │   ├── auth/                      #   登录/改密码
 │   │   │   ├── LoginPage.tsx
 │   │   │   └── ChangePasswordPage.tsx
@@ -65,13 +76,17 @@ frontend/
 │   ├── styles/                        # 全局样式
 │   │   ├── variables.css              #   CSS 变量（品牌色、字号、间距）
 │   │   └── admin.css                  #   管理端/运营端共享样式
-│   ├── types/                         # TypeScript 类型定义（12 个模块）
+│   ├── types/                         # TypeScript 类型定义（15 个模块）
 │   │   ├── api.ts                     #   ApiResponse<T> / PagedData<T>
 │   │   ├── user.ts                    #   UserInfo
 │   │   ├── kol.ts                     #   KolInfo
 │   │   ├── intake.ts                  #   Intake 相关
 │   │   ├── credential.ts             #   凭证相关
 │   │   ├── workspace.ts              #   工作空间相关
+│   │   ├── persona.ts                 #   人格定位相关
+│   │   ├── benchmark.ts               #   对标分析相关
+│   │   ├── tiktokWriter.ts            #   TikTok 脚本仿写相关
+│   │   ├── sellingPoint.ts            #   卖点提取器相关
 │   │   └── ...                        #   task / output / log / file / system
 │   ├── __tests__/                     # 测试代码（71 个用例，全部通过）
 │   │   ├── unit/                      #   单元测试
@@ -98,13 +113,16 @@ frontend/
 │   ├── tests/                         #   测试报告
 │   │   ├── MCN_Frontend_Test_Task_M1M2.md              #  前端测试任务单
 │   │   └── MCN_Frontend_Test_Fix_Report_2026-06-11.md  #  前端测试修复报告
-│   └── tasks/                         #   任务单 + 验收文档（23 个）
+│   └── tasks/                         #   任务单 + 验收文档（29 个）
 │       ├── M1_Sprint0.md ~ Sprint4.md           #  M1 各 Sprint
 │       ├── M1_Sprint5_TikHub_独立池化.md         #  TikHub 独立池化
 │       ├── M2_Sprint1_kol_intake.md             #  入驻问卷主任务
 │       ├── M2_Sprint1_kol_intake_*.md           #  入驻问卷系列（14 个）
 │       ├── M2_Sprint2_operator_homepage*.md     #  首页系列（3 个）
-│       └── M2_Sprint3_persona_positioning.md    #  人设定位
+│       ├── M2_Sprint3_persona_positioning.md    #  人设定位
+│       ├── M2_Sprint3_前端任务_benchmark_v2_修复Bug.md  #  对标分析修复
+│       ├── M2_Sprint04_前端任务_tiktok-writer_v1.md     #  TikTok 脚本仿写
+│       └── M2_Sprint05_前端任务_selling-point-extractor_v1.md  #  卖点提取器
 │
 ├── vitest.config.ts                   # Vitest 测试配置
 ├── vite.config.ts                     # Vite 构建配置
