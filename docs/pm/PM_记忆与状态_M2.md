@@ -95,6 +95,10 @@
 
 **红线合规**：6 条迁移红线全部满足，含红线 4（Prompt+模型管理端可配置）
 
+**迭代修复（验收后）：**
+- CSS 重写：初版使用 Tailwind（项目未安装），重写为 `card`/`btn`/CSS 变量体系，页面布局正常
+- 拖拽上传：Step 1/2 上传框支持拖拽文件，`briefDragOver`/`scriptDragOver` state 控制高亮
+
 **覆盖率：**
 - `operator_selling_point.py`：71%（目标≥70%）✅
 - `admin_selling_point.py`：71%（目标≥70%）✅

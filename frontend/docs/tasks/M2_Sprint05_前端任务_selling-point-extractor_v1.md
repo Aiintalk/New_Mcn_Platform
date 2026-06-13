@@ -38,7 +38,32 @@
 
 ---
 
-## 四、tsc + 测试结果
+## 四、迭代修复记录
+
+### v2 — CSS 重写（2026-06-13）
+
+**问题**：`SellingPointPage.tsx` 初版使用 Tailwind CSS 类（`min-h-screen`、`rounded-2xl` 等），项目未安装 Tailwind，样式全部失效，页面布局破碎。
+
+**修复**：将 return JSX 中所有 Tailwind 类替换为项目 CSS 体系：
+- 容器改用 `card` / `card-body`
+- 按钮改用 `btn btn-primary` / `btn btn-ghost`
+- 配色改用 `var(--brand)`、`var(--gray-*)`、`var(--danger)`、`var(--success)` 等 CSS 变量
+- 标题区改用 `page-header` / `page-title` / `page-desc`
+- 去掉全屏渐变背景，由 OperatorLayout 的 `.main-body` 提供容器
+
+### v3 — 拖拽上传（2026-06-13）
+
+**需求**：上传框支持直接拖拽文件，提升操作效率。
+
+**修复**：
+- 新增 `briefDragOver` / `scriptDragOver` state
+- Step 1、Step 2 上传区从 `<button>` 改为 `<div>`，绑定 `onDragOver` / `onDragLeave` / `onDrop`
+- 拖拽悬浮时边框加深、背景变深、文字提示「松开即可上传」
+- 松手后复用 `handleFilesUpload`，与点击共用同一逻辑
+
+---
+
+## 五、tsc + 测试结果
 
 - `tsc --noEmit`：0 错误 ✅
 - `vitest run`：**86/86 通过**（11 个测试文件）✅
