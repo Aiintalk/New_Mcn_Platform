@@ -34,6 +34,7 @@ from app.routers.operator_selling_point import router as operator_selling_point_
 from app.routers.admin_selling_point import router as admin_selling_point_router
 from app.routers.operator_qianchuan_review import router as operator_qianchuan_review_router
 from app.routers.admin_tiktok_writer import router as admin_tiktok_writer_router
+from app.routers.admin_qianchuan_review import router as admin_qianchuan_review_router
 
 
 @asynccontextmanager
@@ -121,3 +122,4 @@ app.include_router(operator_selling_point_router, prefix="/api")
 app.include_router(admin_selling_point_router, prefix="/api")
 app.include_router(operator_qianchuan_review_router, prefix="/api")
 app.include_router(admin_tiktok_writer_router, prefix="/api")
+app.include_router(admin_qianchuan_review_router, prefix="/api")
