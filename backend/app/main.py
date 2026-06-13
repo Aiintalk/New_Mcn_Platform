@@ -30,6 +30,7 @@ from app.routers.admin_tikhub import router as admin_tikhub_router
 from app.routers.operator_benchmark import router as operator_benchmark_router
 from app.routers.admin_benchmark import router as admin_benchmark_router
 from app.routers.operator_tiktok_writer import router as operator_tiktok_writer_router
+from app.routers.operator_selling_point import router as operator_selling_point_router
 from app.routers.admin_selling_point import router as admin_selling_point_router
 
 
@@ -113,4 +114,5 @@ app.include_router(admin_tikhub_router, prefix="/api")
 app.include_router(operator_benchmark_router, prefix="/api")
 app.include_router(admin_benchmark_router, prefix="/api")
 app.include_router(operator_tiktok_writer_router, prefix="/api")
+app.include_router(operator_selling_point_router, prefix="/api")
 app.include_router(admin_selling_point_router, prefix="/api")
