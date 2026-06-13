@@ -61,6 +61,8 @@ export default function SellingPointPage() {
   const [followUpLoading, setFollowUpLoading] = useState(false);
   const briefRef = useRef<HTMLInputElement>(null);
   const scriptRef = useRef<HTMLInputElement>(null);
+  const [briefDragOver, setBriefDragOver] = useState(false);
+  const [scriptDragOver, setScriptDragOver] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [historyList, setHistoryList] = useState<HistoryItem[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -192,200 +194,334 @@ export default function SellingPointPage() {
     setError(''); setFollowUp(''); setFollowUpResult(''); setChatHistory([]);
   }
 
-  const stepLabels = ['上传Brief', '达人文案', '卖点分析'];
-
   return (
-    <div className="min-h-screen bg-gradient-to-br from-orange-50 via-white to-amber-50">
-      <div className="bg-gradient-to-r from-orange-500 to-amber-500 text-white">
-        <div className="max-w-3xl mx-auto px-6 py-10">
-          <div className="flex items-center gap-3 mb-3">
-            <span className="text-4xl">🎯</span>
-            <h1 className="text-3xl font-bold tracking-tight">产品卖点提取器</h1>
-          </div>
-          <p className="text-orange-100 text-base">上传产品Brief + 达人文案，AI帮你提炼最炸裂的卖点</p>
+    <div>
+      {/* 页面标题 */}
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">产品卖点提取器</h1>
+          <p className="page-desc">上传产品Brief + 达人文案，AI提炼机制/背书/口碑/产品力卖点卡</p>
         </div>
+        <button className="btn btn-ghost btn-sm" onClick={() => { setShowHistory(true); loadHistory(); }}>
+          📋 历史记录
+        </button>
       </div>
-      <div className="max-w-3xl mx-auto px-6 pt-8 pb-2">
-        <div className="flex items-center justify-between mb-8">
-          {stepLabels.map((label, i) => {
-            const num = i + 1; const isActive = step === num; const isDone = step > num;
-            return (
-              <div key={num} className="flex items-center flex-1">
-                <div className="flex flex-col items-center flex-1">
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold transition-all ${isActive ? 'bg-orange-500 text-white shadow-lg shadow-orange-200' : isDone ? 'bg-orange-500 text-white' : 'bg-gray-200 text-gray-400'}`}>
-                    {isDone ? '✓' : num}
-                  </div>
-                  <span className={`mt-2 text-xs font-medium ${isActive ? 'text-orange-600' : isDone ? 'text-orange-400' : 'text-gray-400'}`}>{label}</span>
-                </div>
-                {i < stepLabels.length - 1 && <div className={`h-[2px] w-full mx-2 mt-[-18px] ${step > num ? 'bg-orange-400' : 'bg-gray-200'}`} />}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-      <div className="max-w-3xl mx-auto px-6 pb-16">
-        {error && <div className="bg-red-50 border border-red-200 rounded-2xl px-5 py-4 text-sm text-red-600 mb-6">{error}</div>}
 
-        {showHistory && (
-          <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setShowHistory(false)}>
-            <div className="bg-white rounded-2xl shadow-xl max-w-2xl w-full max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
-              <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
-                <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2"><span>📋</span> 历史记录</h2>
-                <button onClick={() => setShowHistory(false)} className="text-gray-400 hover:text-gray-600 text-xl">✕</button>
+      {/* Step Indicator */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 0, marginBottom: 24 }}>
+        {['上传Brief', '达人文案', '卖点分析'].map((label, i) => {
+          const num = i + 1;
+          const isActive = step === num;
+          const isDone = step > num;
+          return (
+            <div key={num} style={{ display: 'flex', alignItems: 'center', flex: 1 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1 }}>
+                <div style={{
+                  width: 32, height: 32, borderRadius: '50%', display: 'flex',
+                  alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 600,
+                  background: (isActive || isDone) ? 'var(--brand)' : 'var(--gray-200)',
+                  color: (isActive || isDone) ? '#fff' : 'var(--gray-400)',
+                }}>
+                  {isDone ? '✓' : num}
+                </div>
+                <span style={{ marginTop: 4, fontSize: 12, color: isActive ? 'var(--brand)' : isDone ? 'var(--gray-500)' : 'var(--gray-400)' }}>
+                  {label}
+                </span>
               </div>
-              <div className="flex-1 overflow-y-auto p-6">
-                {historyLoading ? <div className="text-center py-12 text-gray-400">加载中...</div>
-                : historyList.length === 0 ? <div className="text-center py-12 text-gray-400">暂无历史记录</div>
-                : <div className="space-y-3">
+              {i < 2 && <div style={{ flex: 1, height: 2, background: step > num ? 'var(--brand)' : 'var(--gray-200)', marginBottom: 18 }} />}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* 错误提示 */}
+      {error && (
+        <div style={{ background: 'var(--danger-bg)', border: '1px solid var(--danger)', borderRadius: 'var(--radius-md)', padding: '12px 16px', fontSize: 13, color: 'var(--danger)', marginBottom: 16 }}>
+          {error}
+        </div>
+      )}
+
+      {/* 历史记录弹窗 */}
+      {showHistory && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+          onClick={() => setShowHistory(false)}>
+          <div className="card" style={{ width: '100%', maxWidth: 560, maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}
+            onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--border)' }}>
+              <span style={{ fontWeight: 600, fontSize: 15 }}>📋 历史记录</span>
+              <button className="btn btn-ghost btn-sm" onClick={() => setShowHistory(false)}>✕</button>
+            </div>
+            <div style={{ flex: 1, overflowY: 'auto', padding: 20 }}>
+              {historyLoading
+                ? <div className="empty-state"><div className="empty-state-text">加载中...</div></div>
+                : historyList.length === 0
+                ? <div className="empty-state"><div className="empty-state-text">暂无历史记录</div></div>
+                : <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                     {historyList.map(item => (
-                      <div key={item.id} className="border border-orange-100 rounded-xl p-4 hover:bg-orange-50/50 transition group">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="flex-1 min-w-0 cursor-pointer" onClick={() => loadHistoryRecord(item.id)}>
-                            <h3 className="font-semibold text-gray-800 text-sm truncate">{item.productName}</h3>
-                            <p className="text-xs text-gray-400 mt-1">{new Date(item.createdAt).toLocaleString('zh-CN')}</p>
-                            <p className="text-xs text-gray-500 mt-2 line-clamp-2">{item.summary}</p>
+                      <div key={item.id} className="card" style={{ cursor: 'pointer' }}>
+                        <div className="card-body" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+                          <div style={{ flex: 1, minWidth: 0 }} onClick={() => loadHistoryRecord(item.id)}>
+                            <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--gray-800)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.productName}</div>
+                            <div style={{ fontSize: 12, color: 'var(--gray-400)', marginTop: 2 }}>{new Date(item.createdAt).toLocaleString('zh-CN')}</div>
+                            <div style={{ fontSize: 12, color: 'var(--gray-500)', marginTop: 4, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{item.summary}</div>
                           </div>
-                          <button onClick={e => { e.stopPropagation(); handleDeleteHistory(item.id); }} className="text-gray-300 hover:text-red-500 transition text-sm shrink-0 opacity-0 group-hover:opacity-100">删除</button>
+                          <button className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)', flexShrink: 0 }}
+                            onClick={e => { e.stopPropagation(); handleDeleteHistory(item.id); }}>删除</button>
                         </div>
                       </div>
                     ))}
-                  </div>}
-              </div>
+                  </div>
+              }
             </div>
           </div>
-        )}
+        </div>
+      )}
 
-        {step === 1 && (
-          <div className="bg-white rounded-2xl border border-orange-100 p-8 shadow-sm">
-            <div className="flex items-center justify-between mb-6">
-              <div className="flex items-center gap-3">
-                <span className="w-12 h-12 rounded-xl bg-orange-100 flex items-center justify-center text-2xl">📄</span>
-                <div><h2 className="text-xl font-bold text-gray-800">上传产品Brief</h2><p className="text-sm text-gray-400 mt-0.5">支持 PDF、Word、TXT 格式，可上传多个文件</p></div>
+      {/* Step 1: 上传Brief */}
+      {step === 1 && (
+        <div className="card">
+          <div className="card-body">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+              <span style={{ fontSize: 24 }}>📄</span>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 15, color: 'var(--gray-800)' }}>上传产品Brief</div>
+                <div style={{ fontSize: 13, color: 'var(--gray-400)', marginTop: 2 }}>支持 PDF、Word、TXT 格式，可上传多个文件</div>
               </div>
-              <button onClick={() => { setShowHistory(true); loadHistory(); }} className="text-sm text-orange-500 hover:text-orange-600 border border-orange-200 rounded-lg px-4 py-2 hover:bg-orange-50 transition flex items-center gap-1.5"><span>📋</span> 历史记录</button>
             </div>
-            <input ref={briefRef} type="file" accept=".pdf,.docx,.doc,.txt,.md,.pages" multiple className="hidden" onChange={e => { if (e.target.files?.length) handleFilesUpload(e.target.files, 'brief'); }} />
+
+            <input ref={briefRef} type="file" accept=".pdf,.docx,.doc,.txt,.md,.pages" multiple style={{ display: 'none' }}
+              onChange={e => { if (e.target.files?.length) handleFilesUpload(e.target.files, 'brief'); }} />
+
             {briefFiles.length > 0 && (
-              <div className="mb-4 space-y-2">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
                 {briefFiles.map((f, i) => (
-                  <div key={i} className="flex items-center gap-3 bg-green-50 border border-green-100 rounded-xl px-4 py-3">
-                    <span className="text-green-500 text-lg">✅</span>
-                    <span className="text-sm text-green-700 truncate flex-1">{f.name}</span>
-                    <button className="text-gray-400 hover:text-red-500 transition text-lg" onClick={() => removeFile('brief', i)}>✕</button>
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'var(--success-bg)', border: '1px solid var(--success)', borderRadius: 'var(--radius-sm)', padding: '8px 12px' }}>
+                    <span style={{ color: 'var(--success)' }}>✅</span>
+                    <span style={{ flex: 1, fontSize: 13, color: 'var(--gray-700)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                    <button className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)' }} onClick={() => removeFile('brief', i)}>✕</button>
                   </div>
                 ))}
               </div>
             )}
-            <button onClick={() => briefRef.current?.click()} disabled={uploadingBrief} className="w-full border-2 border-dashed border-orange-200 rounded-xl py-8 text-base text-orange-400 hover:border-orange-400 hover:text-orange-500 hover:bg-orange-50/50 transition disabled:opacity-50 mb-5">
-              {uploadingBrief ? '正在解析文件...' : briefFiles.length > 0 ? '+ 继续添加文件' : '点击上传文件（可多选）'}
-            </button>
-            <div className="mb-6">
-              <label className="block text-sm text-gray-500 mb-2">也可以直接粘贴补充内容</label>
-              <textarea className="w-full border border-gray-200 rounded-xl px-5 py-4 text-[15px] resize-none focus:outline-none focus:ring-2 focus:ring-orange-300 leading-relaxed" rows={6} placeholder="粘贴产品Brief内容..." value={briefExtra} onChange={e => setBriefExtra(e.target.value)} />
+
+            <div
+              onClick={() => !uploadingBrief && briefRef.current?.click()}
+              onDragOver={e => { e.preventDefault(); if (!uploadingBrief) setBriefDragOver(true); }}
+              onDragLeave={() => setBriefDragOver(false)}
+              onDrop={e => {
+                e.preventDefault();
+                setBriefDragOver(false);
+                if (!uploadingBrief && e.dataTransfer.files.length) handleFilesUpload(e.dataTransfer.files, 'brief');
+              }}
+              style={{
+                width: '100%', border: `2px dashed ${briefDragOver ? 'var(--brand)' : 'var(--brand-border)'}`,
+                borderRadius: 'var(--radius-md)', padding: '24px 0', fontSize: 14,
+                color: 'var(--brand)', background: briefDragOver ? 'rgba(245,154,35,0.12)' : 'var(--brand-light)',
+                cursor: uploadingBrief ? 'not-allowed' : 'pointer', marginBottom: 16,
+                opacity: uploadingBrief ? 0.5 : 1, textAlign: 'center',
+                transition: 'border-color 0.15s, background 0.15s',
+              }}
+            >
+              {uploadingBrief ? '正在解析文件...' : briefDragOver ? '松开即可上传' : briefFiles.length > 0 ? '点击或拖拽继续添加文件' : '点击或拖拽文件到此处上传（可多选）'}
             </div>
-            <button onClick={() => setStep(2)} className="w-full bg-gradient-to-r from-orange-500 to-amber-500 text-white font-semibold py-4 rounded-xl text-base hover:from-orange-600 hover:to-amber-600 transition shadow-lg shadow-orange-200">
-              {hasBrief ? '下一步：上传达人文案' : '跳过，直接上传达人文案'}
+
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: 'block', fontSize: 13, color: 'var(--gray-500)', marginBottom: 6 }}>也可以直接粘贴补充内容</label>
+              <textarea
+                style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '12px 14px', fontSize: 14, resize: 'none', outline: 'none', lineHeight: 1.6, boxSizing: 'border-box', fontFamily: 'var(--font-sans)' }}
+                rows={5} placeholder="粘贴产品Brief内容..." value={briefExtra} onChange={e => setBriefExtra(e.target.value)} />
+            </div>
+
+            <button className="btn btn-primary" style={{ width: '100%' }} onClick={() => setStep(2)}>
+              {hasBrief ? '下一步：上传达人文案 →' : '跳过，直接上传达人文案'}
             </button>
           </div>
-        )}
+        </div>
+      )}
 
-        {step === 2 && (
-          <div className="bg-white rounded-2xl border border-orange-100 p-8 shadow-sm">
-            <div className="flex items-center gap-3 mb-6">
-              <span className="w-12 h-12 rounded-xl bg-amber-100 flex items-center justify-center text-2xl">🎬</span>
-              <div><h2 className="text-xl font-bold text-gray-800">上传达人文案脚本</h2><p className="text-sm text-gray-400 mt-0.5">头部达人的讲解文案，可上传多个文件</p></div>
+      {/* Step 2: 上传达人文案 */}
+      {step === 2 && (
+        <div className="card">
+          <div className="card-body">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+              <span style={{ fontSize: 24 }}>🎬</span>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 15, color: 'var(--gray-800)' }}>上传达人文案脚本</div>
+                <div style={{ fontSize: 13, color: 'var(--gray-400)', marginTop: 2 }}>头部达人的讲解文案，可上传多个文件</div>
+              </div>
             </div>
-            {hasBrief && <div className="flex items-center gap-1.5 mb-4 text-xs text-gray-400"><span>✓</span><span>Brief已就绪（{briefFiles.length}份{briefExtra.trim() ? ' + 补充' : ''}）</span></div>}
-            <input ref={scriptRef} type="file" accept=".pdf,.docx,.doc,.txt,.md,.pages" multiple className="hidden" onChange={e => { if (e.target.files?.length) handleFilesUpload(e.target.files, 'script'); }} />
+
+            {hasBrief && (
+              <div style={{ fontSize: 12, color: 'var(--gray-400)', marginBottom: 12 }}>
+                ✓ Brief已就绪（{briefFiles.length}份{briefExtra.trim() ? ' + 补充' : ''}）
+              </div>
+            )}
+
+            <input ref={scriptRef} type="file" accept=".pdf,.docx,.doc,.txt,.md,.pages" multiple style={{ display: 'none' }}
+              onChange={e => { if (e.target.files?.length) handleFilesUpload(e.target.files, 'script'); }} />
+
             {scriptFiles.length > 0 && (
-              <div className="mb-4 space-y-2">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
                 {scriptFiles.map((f, i) => (
-                  <div key={i} className="flex items-center gap-3 bg-green-50 border border-green-100 rounded-xl px-4 py-3">
-                    <span className="text-green-500 text-lg">✅</span>
-                    <span className="text-sm text-green-700 truncate flex-1">{f.name}</span>
-                    <button className="text-gray-400 hover:text-red-500 transition text-lg" onClick={() => removeFile('script', i)}>✕</button>
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'var(--success-bg)', border: '1px solid var(--success)', borderRadius: 'var(--radius-sm)', padding: '8px 12px' }}>
+                    <span style={{ color: 'var(--success)' }}>✅</span>
+                    <span style={{ flex: 1, fontSize: 13, color: 'var(--gray-700)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                    <button className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)' }} onClick={() => removeFile('script', i)}>✕</button>
                   </div>
                 ))}
               </div>
             )}
-            <button onClick={() => scriptRef.current?.click()} disabled={uploadingScript} className={`w-full border-2 border-dashed rounded-xl py-8 text-base transition disabled:opacity-50 mb-5 ${hasScript ? 'border-amber-200 text-amber-400 hover:border-amber-400' : 'border-amber-300 text-amber-500 bg-amber-50/30 hover:border-amber-400'}`}>
-              {uploadingScript ? '正在解析文件...' : scriptFiles.length > 0 ? '+ 继续添加文件' : '📎 点击上传达人文案（可多选）'}
-            </button>
-            <div className="mb-6">
-              <label className="block text-sm text-gray-500 mb-2">也可以直接粘贴补充内容</label>
-              <textarea className="w-full border border-gray-200 rounded-xl px-5 py-4 text-[15px] resize-none focus:outline-none focus:ring-2 focus:ring-amber-300 leading-relaxed" rows={6} placeholder="粘贴达人文案脚本..." value={scriptExtra} onChange={e => setScriptExtra(e.target.value)} />
+
+            <div
+              onClick={() => !uploadingScript && scriptRef.current?.click()}
+              onDragOver={e => { e.preventDefault(); if (!uploadingScript) setScriptDragOver(true); }}
+              onDragLeave={() => setScriptDragOver(false)}
+              onDrop={e => {
+                e.preventDefault();
+                setScriptDragOver(false);
+                if (!uploadingScript && e.dataTransfer.files.length) handleFilesUpload(e.dataTransfer.files, 'script');
+              }}
+              style={{
+                width: '100%', border: `2px dashed ${scriptDragOver ? 'var(--brand)' : 'var(--brand-border)'}`,
+                borderRadius: 'var(--radius-md)', padding: '24px 0', fontSize: 14,
+                color: 'var(--brand)', background: scriptDragOver ? 'rgba(245,154,35,0.12)' : 'var(--brand-light)',
+                cursor: uploadingScript ? 'not-allowed' : 'pointer', marginBottom: 16,
+                opacity: uploadingScript ? 0.5 : 1, textAlign: 'center',
+                transition: 'border-color 0.15s, background 0.15s',
+              }}
+            >
+              {uploadingScript ? '正在解析文件...' : scriptDragOver ? '松开即可上传' : scriptFiles.length > 0 ? '点击或拖拽继续添加文件' : '📎 点击或拖拽达人文案到此处（可多选）'}
             </div>
-            <div className="flex items-center gap-4">
-              <button onClick={() => setStep(1)} className="px-6 py-4 border border-gray-200 rounded-xl text-sm text-gray-500 hover:bg-gray-50 transition">上一步</button>
-              <button onClick={handleAnalyze} disabled={loading || (!hasBrief && !hasScript)} className="flex-1 bg-gradient-to-r from-orange-500 to-amber-500 text-white font-semibold py-4 rounded-xl text-base hover:from-orange-600 hover:to-amber-600 transition disabled:opacity-50 shadow-lg shadow-orange-200">
+
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: 'block', fontSize: 13, color: 'var(--gray-500)', marginBottom: 6 }}>也可以直接粘贴补充内容</label>
+              <textarea
+                style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '12px 14px', fontSize: 14, resize: 'none', outline: 'none', lineHeight: 1.6, boxSizing: 'border-box', fontFamily: 'var(--font-sans)' }}
+                rows={5} placeholder="粘贴达人文案脚本..." value={scriptExtra} onChange={e => setScriptExtra(e.target.value)} />
+            </div>
+
+            <div style={{ display: 'flex', gap: 12 }}>
+              <button className="btn btn-ghost" onClick={() => setStep(1)}>← 上一步</button>
+              <button
+                className="btn btn-primary"
+                style={{ flex: 1 }}
+                onClick={handleAnalyze}
+                disabled={loading || (!hasBrief && !hasScript)}
+              >
                 {hasScript ? '开始提取卖点' : '请先上传达人文案 ↑'}
               </button>
             </div>
           </div>
-        )}
+        </div>
+      )}
 
-        {step === 3 && (
-          <div>
-            {loading && !result && (
-              <div className="bg-white rounded-2xl border border-orange-100 p-12 shadow-sm text-center">
-                <svg className="animate-spin h-10 w-10 mx-auto mb-4 text-orange-500" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-                </svg>
-                <p className="text-gray-500 text-base">AI 正在分析你的产品资料...</p>
-                <p className="text-gray-300 text-sm mt-2">共 {briefFiles.length + scriptFiles.length} 份文档，请稍候</p>
+      {/* Step 3: 结果 */}
+      {step === 3 && (
+        <div>
+          {/* 加载中 */}
+          {loading && !result && (
+            <div className="card">
+              <div className="card-body" style={{ textAlign: 'center', padding: '48px 24px' }}>
+                <div className="spinner" style={{ marginBottom: 12 }} />
+                <p style={{ color: 'var(--gray-500)', fontSize: 14 }}>AI 正在分析你的产品资料...</p>
+                <p style={{ color: 'var(--gray-300)', fontSize: 13, marginTop: 4 }}>共 {briefFiles.length + scriptFiles.length} 份文档，请稍候</p>
               </div>
-            )}
-            {result && (
-              <div className="bg-white rounded-2xl border border-orange-100 p-8 shadow-sm mb-6">
-                <div className="flex items-center justify-between mb-6">
-                  <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2"><span>📊</span> 卖点分析报告</h2>
-                  <button onClick={() => navigator.clipboard.writeText(result)} className="text-sm text-orange-500 hover:text-orange-600 border border-orange-200 rounded-lg px-4 py-2 hover:bg-orange-50 transition">复制全文</button>
+            </div>
+          )}
+
+          {/* 文件徽章 */}
+          {(result || loading) && (
+            <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+              {briefFiles.length > 0 && (
+                <span className="badge badge-brand">📄 {briefFiles.length} 份Brief</span>
+              )}
+              {scriptFiles.length > 0 && (
+                <span className="badge badge-brand">🎬 {scriptFiles.length} 份文案</span>
+              )}
+            </div>
+          )}
+
+          {/* 分析报告 */}
+          {result && (
+            <div className="card" style={{ marginBottom: 16 }}>
+              <div className="card-body">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                  <span style={{ fontWeight: 600, fontSize: 15 }}>📊 卖点分析报告</span>
+                  <button className="btn btn-ghost btn-sm" onClick={() => navigator.clipboard.writeText(result)}>复制全文</button>
                 </div>
-                <SimpleMarkdown text={result} />
+                <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: 14, lineHeight: 1.8, color: 'var(--gray-800)', margin: 0 }}>{result}</pre>
               </div>
-            )}
-            {followUpResult && (
-              <div className="bg-white rounded-2xl border border-amber-100 p-8 shadow-sm mb-6">
-                <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2 mb-6"><span>💬</span> 追问回复</h2>
-                <SimpleMarkdown text={followUpResult} />
+            </div>
+          )}
+
+          {/* 追问回复 */}
+          {followUpResult && (
+            <div className="card" style={{ marginBottom: 16 }}>
+              <div className="card-body">
+                <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 16 }}>💬 追问回复</div>
+                <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: 14, lineHeight: 1.8, color: 'var(--gray-800)', margin: 0 }}>{followUpResult}</pre>
               </div>
-            )}
-            {result && !loading && (
-              <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm mb-6">
-                <h3 className="text-sm font-semibold text-gray-600 mb-1">和 AI 聊聊</h3>
-                <div className="flex gap-3">
-                  <input type="text" className="flex-1 border border-gray-200 rounded-xl px-5 py-3.5 text-[15px] focus:outline-none focus:ring-2 focus:ring-orange-300" placeholder="比如：帮我把卖点一的话术再优化一下..." value={followUp} onChange={e => setFollowUp(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleFollowUp(); } }} />
-                  <button onClick={handleFollowUp} disabled={followUpLoading || !followUp.trim()} className="bg-orange-500 text-white px-6 py-3.5 rounded-xl text-sm font-semibold hover:bg-orange-600 transition disabled:opacity-50">
+            </div>
+          )}
+
+          {/* 追问输入框 */}
+          {result && !loading && (
+            <div className="card" style={{ marginBottom: 16 }}>
+              <div className="card-body">
+                <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--gray-600)', marginBottom: 4 }}>和 AI 聊聊</div>
+                <div style={{ fontSize: 12, color: 'var(--gray-400)', marginBottom: 12 }}>对卖点分析有疑问？和 AI 讨论调整</div>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <input
+                    type="text"
+                    style={{ flex: 1, border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '10px 14px', fontSize: 14, outline: 'none', fontFamily: 'var(--font-sans)' }}
+                    placeholder="比如：帮我把卖点一的话术再优化一下..."
+                    value={followUp}
+                    onChange={e => setFollowUp(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleFollowUp(); } }}
+                  />
+                  <button className="btn btn-primary" onClick={handleFollowUp} disabled={followUpLoading || !followUp.trim()}>
                     {followUpLoading ? '思考中...' : '发送'}
                   </button>
                 </div>
               </div>
-            )}
-            {result && !loading && (() => {
-              const source = followUpResult || result;
-              const cardMatch = source.match(/(?:##\s*)?🔥\s*极致卖点卡([\s\S]*?)(?=(?:##\s*)?💡\s*AI|$)/);
-              const aiMatch = source.match(/(?:##\s*)?💡\s*AI补充建议[\s\S]*$/);
-              const cardContent = cardMatch ? ('## 🔥 极致卖点卡' + cardMatch[1]).trim() : '';
-              const fullCard = cardContent + (aiMatch ? '\n\n' + aiMatch[0] : '');
-              if (!fullCard) return null;
-              return (
-                <div className="bg-gradient-to-br from-orange-50 to-amber-50 rounded-2xl border-2 border-orange-200 p-8 shadow-sm">
-                  <div className="flex items-center justify-between mb-5">
-                    <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2"><span>🔥</span> 最终卖点卡</h2>
-                    <div className="flex gap-2">
-                      <button onClick={() => navigator.clipboard.writeText(fullCard)} className="text-sm text-orange-600 hover:text-orange-700 border border-orange-300 rounded-lg px-4 py-2 hover:bg-orange-100 transition font-medium">复制卖点卡</button>
-                      <button onClick={() => { const blob = new Blob([fullCard], { type: 'text/markdown;charset=utf-8' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = '极致卖点卡.md'; a.click(); URL.revokeObjectURL(url); }} className="text-sm text-white bg-orange-500 hover:bg-orange-600 rounded-lg px-4 py-2 transition font-medium shadow-sm">保存到电脑</button>
+            </div>
+          )}
+
+          {/* 最终卖点卡 */}
+          {result && !loading && (() => {
+            const source = followUpResult || result;
+            const cardMatch = source.match(/(?:##\s*)?🔥\s*极致卖点卡([\s\S]*?)(?=(?:##\s*)?💡\s*AI|$)/);
+            const aiMatch = source.match(/(?:##\s*)?💡\s*AI补充建议[\s\S]*$/);
+            const cardContent = cardMatch ? ('## 🔥 极致卖点卡' + cardMatch[1]).trim() : '';
+            const fullCard = cardContent + (aiMatch ? '\n\n' + aiMatch[0] : '');
+            if (!fullCard) return null;
+            return (
+              <div className="card" style={{ marginBottom: 16, border: '2px solid var(--brand-border)', background: 'var(--brand-light)' }}>
+                <div className="card-body">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                    <span style={{ fontWeight: 700, fontSize: 15, color: 'var(--brand)' }}>🔥 最终卖点卡</span>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button className="btn btn-ghost btn-sm" onClick={() => navigator.clipboard.writeText(fullCard)}>复制卖点卡</button>
+                      <button className="btn btn-primary btn-sm" onClick={() => {
+                        const blob = new Blob([fullCard], { type: 'text/markdown;charset=utf-8' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url; a.download = '极致卖点卡.md'; a.click();
+                        URL.revokeObjectURL(url);
+                      }}>保存到电脑</button>
                     </div>
                   </div>
-                  <SimpleMarkdown text={fullCard} />
+                  <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: 14, lineHeight: 1.8, color: 'var(--gray-800)', margin: 0 }}>{fullCard}</pre>
                 </div>
-              );
-            })()}
-            <div className="text-center mt-6"><button onClick={handleReset} className="text-sm text-gray-400 hover:text-orange-500 transition">重新开始分析新产品</button></div>
+              </div>
+            );
+          })()}
+
+          <div style={{ textAlign: 'center', marginTop: 8 }}>
+            <button className="btn btn-ghost btn-sm" onClick={handleReset}>重新开始分析新产品</button>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
