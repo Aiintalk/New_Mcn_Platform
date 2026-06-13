@@ -32,10 +32,10 @@ export default function TiktokWriterConfigTab() {
     setLoading(true);
     try {
       const [cfgResp, mdResp] = await Promise.all([
-        get<{ data: TiktokWriterConfig[] }>('/api/admin/tiktok-writer/configs'),
+        get<TiktokWriterConfig[]>('/api/admin/tiktok-writer/configs'),
         getAiModels().catch(() => ({ items: [] as AiModelItem[], total: 0 })),
       ]);
-      setConfigs((cfgResp as any)?.data ?? []);
+      setConfigs(Array.isArray(cfgResp) ? cfgResp : []);
       setModels(mdResp.items ?? []);
     } catch { message.error('加载配置失败'); }
     finally { setLoading(false); }
