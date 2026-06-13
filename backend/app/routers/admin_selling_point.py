@@ -21,6 +21,10 @@ from app.models.user import User
 router = APIRouter(prefix="/admin/selling-point", tags=["admin-selling-point"])
 
 
+def _ts(dt) -> str | None:
+    return dt.isoformat() if dt else None
+
+
 class ConfigIn(BaseModel):
     ai_model_id: int | None = None
     system_prompt: str | None = None
@@ -40,7 +44,7 @@ async def list_configs(
             "ai_model_id": c.ai_model_id,
             "system_prompt": c.system_prompt,
             "is_active": c.is_active,
-            "updated_at": c.updated_at.isoformat() if c.updated_at else None,
+            "updated_at": _ts(c.updated_at),
         }
         for c in configs
     ])
