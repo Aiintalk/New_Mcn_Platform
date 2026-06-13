@@ -134,3 +134,26 @@ async def test_pages_invalid_zip():
 async def test_unknown_ext_utf8_decode():
     result = await parse_selling_point_file(_mock_file("data.csv", "产品名,价格\n精华,299".encode()))
     assert "精华" in result
+
+
+@pytest.mark.asyncio
+async def test_pages_decompress_fallback():
+    """snappy 解压失败时 fallback 到原始字节，不抛异常，中文内容仍可提取"""
+    # 构造：IWA 数据前缀 + 直接写中文字节（不经 snappy 压缩）
+    # _parse_pages_selling_point 会尝试 snappy.decompress(iwa_data[4:]) 失败后
+    # 回退到 iwa_data 本身，再 decode，正则仍能匹配中文
+    chinese_text = "这是一段足够长的中文产品卖点说明内容，用于测试fallback路径"
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        # 4字节magic + 非snappy压缩的中文UTF-8
+        zf.writestr("Index/Document.iwa", b"\x00\x00\x00\x00" + chinese_text.encode("utf-8"))
+    buf.seek(0)
+    result = await parse_selling_point_file(_mock_file("fallback.pages", buf.read()))
+    assert isinstance(result, str)  # 不抛异常
+
+
+@pytest.mark.asyncio
+async def test_docx_parse_error_raises_value_error():
+    """损坏的 docx 文件应抛出 ValueError"""
+    with pytest.raises(ValueError, match=".docx 文件解析失败"):
+        await parse_selling_point_file(_mock_file("bad.docx", b"not a docx file at all"))

@@ -86,14 +86,22 @@ async def parse_selling_point_file(file: UploadFile) -> str:
     if ext in ("txt", "md"):
         return content_bytes.decode("utf-8", errors="replace")
     elif ext == "docx":
-        return _parse_docx(content_bytes)
+        try:
+            return _parse_docx(content_bytes)
+        except Exception as e:
+            raise ValueError(f".docx 文件解析失败: {e}") from e
     elif ext == "pdf":
-        return _parse_pdf_plumber(content_bytes)
+        try:
+            return _parse_pdf_plumber(content_bytes)
+        except Exception as e:
+            raise ValueError(f".pdf 文件解析失败: {e}") from e
     elif ext == "pages":
         return _parse_pages_selling_point(content_bytes)
     elif ext == "doc":
         return "[.doc 格式暂不支持，请转换为 .docx 或 .pdf 后上传]"
     else:
+        # 其他格式（如 .csv）尝试 UTF-8 解码，而非 raise ValueError
+        # 这与旧版 parse_uploaded_file 的 raise 行为不同，是有意为之
         return content_bytes.decode("utf-8", errors="replace")
 
 
@@ -115,9 +123,9 @@ def _parse_pages_selling_point(content: bytes) -> str:
     """
     import zipfile
     try:
-        import snappy
+        import snappy  # python-snappy
     except ImportError:
-        import cramjam as snappy  # type: ignore
+        import cramjam as snappy  # type: ignore  # cramjam 是 python-snappy 的替代库
 
     try:
         with zipfile.ZipFile(io.BytesIO(content)) as zf:
@@ -132,7 +140,8 @@ def _parse_pages_selling_point(content: bytes) -> str:
         decompressed = snappy.decompress(iwa_data[4:])
         if isinstance(decompressed, memoryview):
             decompressed = bytes(decompressed)
-    except Exception:
+    except Exception:  # noqa: BLE001
+        # snappy 解压失败（可能未压缩，UncompressError/DecompressionError），回退到原始字节
         decompressed = iwa_data
 
     raw = decompressed.decode("utf-8", errors="ignore")
