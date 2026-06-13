@@ -165,3 +165,84 @@ npm run dev                                   # 启动
 
 迁移 = PM 流程骨架 + 迁移规范约束，两者同时生效，不得只遵循其一、不得凭记忆直接开干。
 迁移红线会持续更新，以迁移规范文档最新内容为准。
+
+---
+
+## 十二、强制技能调用规则（每次任务必须严格执行）
+
+> **本节是硬约束，不是建议。** 每个闸门节点未完成前，不得进入下一节点。
+> 违反本节规则 = 流程失效，PM 必须停下来、回到对应节点重走。
+
+### 节点与强制技能对照表
+
+| 节点 | 必须执行的动作 | 闸门：满足后才能进入下一节点 |
+|------|--------------|---------------------------|
+| **-1 启动** | 调用 `Skill: superpowers:using-superpowers` | 确认 superpowers 技能可用 |
+| **0 需求澄清** | 逐条列出假设和疑问；对用户**复述**理解的需求 | 用户用文字明确回复「确认」或「没问题」；**未收到确认不得进入 A** |
+| **A 写开发文档 + 拆分** | 调用 `Skill: superpowers:writing-plans`，产出拆解方案 | 用户**审阅并批准**拆解方案后，才能开始写代码 |
+| **B 开发** | 调用 `Skill: superpowers:test-driven-development`，先写测试 | 测试先红后绿（TDD），不得先写实现再补测试 |
+| **B review** | 调用 `Skill: superpowers:requesting-code-review` | review 通过，该子任务才算完成 |
+| **B+ 验收前** | 调用 `Skill: superpowers:verification-before-completion` | 有可验证证据（测试输出/截图/日志），才能声称"完成" |
+
+### 调用顺序规则
+
+```
+收到需求
+  ↓
+Skill: superpowers:using-superpowers      ← 必须第一步
+  ↓
+逐条列疑问 + 复述需求 → 等用户文字确认    ← 闸门，不确认不动
+  ↓
+Skill: superpowers:writing-plans          ← 产出计划 → 等用户批准
+  ↓
+Skill: superpowers:test-driven-development ← 每个子任务开发前
+  ↓
+实现代码
+  ↓
+Skill: superpowers:requesting-code-review  ← 每个子任务完成后
+  ↓
+Skill: superpowers:verification-before-completion ← 声称完成前
+  ↓
+文档落地（PM 签收）
+```
+
+### 常见违规模式（禁止）
+
+- ❌ 读完需求文档后直接开始调研代码，跳过 superpowers:using-superpowers
+- ❌ 自己判断"需求已经清楚"，不复述、不等用户确认就开工
+- ❌ 用问三个选择题代替 superpowers:writing-plans 的完整拆分方案
+- ❌ 先写实现代码，再"补"测试（不是 TDD）
+- ❌ 没有 review 直接声称子任务完成
+- ❌ 没有跑验证命令就说"测试通过"
+- ❌ 整体功能开发完成后未做功能测试就声称"完成"
+
+---
+
+## 十三、功能测试（强制，每次整体功能完成后）
+
+> **硬约束：** 整体功能开发完成（所有子任务 review 通过、覆盖率达标）后，**必须**调用 `Skill: verify` 进行功能测试，通过后才能声称该功能"完成"。
+
+### 触发时机
+
+以下任一情形发生时，必须立即调用 `Skill: verify`：
+
+- 一个完整功能（Sprint / 迁移任务 / 独立模块）的所有后端+前端开发均已完成
+- `superpowers:subagent-driven-development` 所有 Task 全部完成后
+- 用户明确说"测试一下""验证一下""功能测试"
+
+### 验证范围（最低标准）
+
+| 验证项 | 方法 |
+|--------|------|
+| 后端接口是否注册 | curl `/openapi.json` 确认路径存在 |
+| 未鉴权返回 401 | curl 不带 token |
+| 核心接口正常响应 | 带 token curl，含 happy path |
+| 错误路径返回正确状态码 | 空参数、超限、不支持格式等 |
+| 前端页面可访问、模块无编译错误 | curl Vite 模块，检查是否有 `Failed to resolve` |
+| 数据库写入符合预期 | psql 查 task_jobs / outputs 等相关表 |
+
+### 不可跳过条件
+
+- 不论 pytest 是否全部通过，都必须做功能测试（pytest 是单元/集成，不等于真实运行）
+- 功能测试发现问题 → 修复 → **重新运行** verify，直到 PASS
+- verify 结果必须附在完成声明中（PASS / FAIL / 修复了什么）
