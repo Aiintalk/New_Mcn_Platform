@@ -13,7 +13,6 @@ from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.adapters import yunwu as yunwu_adapter
-from app.tools.qianchuan_review.prompts import PROMPT_WITH_EXCEL, PROMPT_WITHOUT_EXCEL
 
 TOOL_CODE = "qianchuan-review"
 TOOL_NAME = "千川脚本复盘"
@@ -188,26 +187,25 @@ def build_user_message(items: list[dict]) -> str:
 
 async def generate_review_stream(
     items: list[dict],
-    has_excel: bool,
+    system_prompt: str,
+    model_id: str,
     db: AsyncSession,
     user_id: int,
     task_id: int | None = None,
 ) -> AsyncGenerator[str, None]:
     """
     调用 AI 流式生成复盘报告。
-    has_excel=True 用 PROMPT_WITH_EXCEL，否则用 PROMPT_WITHOUT_EXCEL。
+    system_prompt 和 model_id 由调用方从 DB 读取后传入。
     """
-    system_prompt = PROMPT_WITH_EXCEL if has_excel else PROMPT_WITHOUT_EXCEL
     user_message = build_user_message(items)
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_message + "\n\n请输出复盘报告。"},
     ]
-
     async for chunk in yunwu_adapter.chat_stream(
         messages=messages,
         db=db,
-        model_id=DEFAULT_MODEL,
+        model_id=model_id,
         user_id=user_id,
         feature="qianchuan_review_generate",
     ):

@@ -5,6 +5,17 @@ import pytest
 from sqlalchemy import text as sa_text
 
 
+@pytest.fixture(autouse=True)
+async def seed_qr_configs(test_session):
+    for key, prompt in [('with_excel', 'Test Prompt With Excel'), ('without_excel', 'Test Prompt Without Excel')]:
+        await test_session.execute(sa_text(
+            "INSERT INTO qianchuan_review_configs (config_key, system_prompt, is_active) "
+            "VALUES (:k, :p, true) ON CONFLICT (config_key) DO NOTHING"
+        ), {"k": key, "p": prompt})
+    await test_session.commit()
+    yield
+
+
 # ---------- Auth ----------
 
 class TestAuth:
