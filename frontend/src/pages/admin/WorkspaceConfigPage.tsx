@@ -4,6 +4,8 @@ import { adminGetTools, adminUpdateTool } from '../../api/workspace';
 import AdminIntakePage from './AdminIntakePage';
 import BenchmarkConfigTab from './BenchmarkConfigTab';
 import SellingPointConfigTab from './SellingPointConfigTab';
+import TiktokWriterConfigTab from './TiktokWriterConfigTab';
+import QianchuanReviewConfigTab from './QianchuanReviewConfigTab';
 import type { WorkspaceTool } from '../../types/workspace';
 export default function WorkspaceConfigPage() {
   const [tools, setTools] = useState<WorkspaceTool[]>([]);
@@ -79,6 +81,8 @@ export default function WorkspaceConfigPage() {
           { key: 'intake', label: '红人信息采集助手', children: <AdminIntakePage embedded /> },
           { key: 'benchmark', label: '对标分析助手', children: <BenchmarkConfigTab /> },
           { key: 'selling-point', label: '产品卖点提取器', children: <SellingPointConfigTab /> },
+          { key: 'tiktok-writer', label: 'TikTok 脚本仿写', children: <TiktokWriterConfigTab /> },
+          { key: 'qianchuan-review', label: '千川脚本复盘', children: <QianchuanReviewConfigTab /> },
         ]}
       />
     </>
