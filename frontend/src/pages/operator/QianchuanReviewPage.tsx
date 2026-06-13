@@ -7,13 +7,13 @@ import { parseFile, generateReport, saveReport, getOutputs } from '../../api/qia
 /* ── Markdown 渲染 ── */
 function SimpleMarkdown({ text }: { text: string }) {
   const html = text
-    .replace(/### (.+)/g, '<h3 class="text-base font-bold mt-4 mb-2">$1</h3>')
-    .replace(/## (.+)/g, '<h2 class="text-lg font-bold mt-5 mb-2">$1</h2>')
-    .replace(/# (.+)/g, '<h1 class="text-xl font-bold mt-6 mb-3">$1</h1>')
+    .replace(/### (.+)/g, '<h3 style="font-size:14px;font-weight:600;margin:16px 0 8px">$1</h3>')
+    .replace(/## (.+)/g, '<h2 style="font-size:16px;font-weight:600;margin:20px 0 8px">$1</h2>')
+    .replace(/# (.+)/g, '<h1 style="font-size:18px;font-weight:700;margin:24px 0 10px">$1</h1>')
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\n- /g, '<br/>• ')
     .replace(/\n/g, '<br/>');
-  return <div dangerouslySetInnerHTML={{ __html: html }} />;
+  return <div style={{ fontSize: 14, lineHeight: 1.7, color: 'var(--gray-800)' }} dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
 /* ── Excel 解析（前端本地，与旧代码等价） ── */
@@ -270,97 +270,113 @@ export default function QianchuanReviewPage() {
   ];
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-8">
+    <div style={{ maxWidth: 900, margin: '0 auto' }}>
       {/* Header */}
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-gray-900">千川脚本复盘助手</h1>
-        <p className="text-gray-500 mt-1">上传脚本 → 上传投放数据 → AI复盘报告</p>
+      <div className="page-header">
+        <h1 className="page-title">千川脚本复盘助手</h1>
+        <p className="page-desc">上传脚本 → 上传投放数据 → AI复盘报告</p>
       </div>
 
       {/* Step Indicator */}
-      <div className="flex items-center gap-2 mb-8">
-        {STEPS.map(({ n, label }) => (
-          <div key={n} className="flex items-center gap-2">
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium shrink-0 ${
-              step >= n ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-500'
-            }`}>
-              {step > n ? '✓' : n}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 0, marginBottom: 24 }}>
+        {STEPS.map(({ n, label }) => {
+          const isActive = step === n;
+          const isDone = step > n;
+          return (
+            <div key={n} style={{ display: 'flex', alignItems: 'center' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                <div style={{
+                  width: 32, height: 32, borderRadius: '50%',
+                  background: (isActive || isDone) ? 'var(--brand)' : 'var(--gray-200)',
+                  color: (isActive || isDone) ? '#fff' : 'var(--gray-400)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 13, fontWeight: 600,
+                }}>
+                  {isDone ? '✓' : n}
+                </div>
+                <span style={{ fontSize: 12, color: isActive ? 'var(--brand)' : isDone ? 'var(--gray-500)' : 'var(--gray-400)', whiteSpace: 'nowrap' }}>{label}</span>
+              </div>
+              {n < 3 && <div style={{ width: 48, height: 2, background: isDone ? 'var(--brand)' : 'var(--gray-200)', margin: '0 4px', marginBottom: 18 }} />}
             </div>
-            <span className={`text-sm ${step >= n ? 'text-gray-900 font-medium' : 'text-gray-400'}`}>{label}</span>
-            {n < 3 && <div className={`w-10 h-0.5 ${step > n ? 'bg-blue-500' : 'bg-gray-200'}`} />}
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* Error */}
       {error && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex justify-between">
+        <div style={{ background: 'var(--danger-bg)', border: '1px solid var(--danger)', borderRadius: 'var(--radius-md)', padding: '10px 14px', fontSize: 13, color: 'var(--danger)', marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           {error}
-          <button onClick={() => setError('')} className="ml-4 text-red-400 hover:text-red-600">✕</button>
+          <button className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)' }} onClick={() => setError('')}>✕</button>
         </div>
       )}
 
       {/* Step 1 */}
       {step === 1 && (
-        <div className="space-y-4">
-          <div className="bg-white rounded-xl shadow-sm border p-6">
-            <h2 className="text-lg font-semibold mb-1">上传千川脚本</h2>
-            <p className="text-gray-400 text-sm mb-4">每个文件 = 一条脚本，支持批量上传</p>
-            <div
-              className="border-2 border-dashed rounded-xl p-10 text-center cursor-pointer hover:border-blue-400 hover:bg-blue-50/30 transition-colors"
-              onClick={() => scriptFileRef.current?.click()}
-              onDragOver={e => e.preventDefault()}
-              onDrop={async e => {
-                e.preventDefault();
-                const files = e.dataTransfer.files;
-                for (let i = 0; i < files.length; i++) {
-                  try {
-                    const text = await handleParseFile(files[i]);
-                    if (text.trim()) setScripts(prev => [...prev, { id: genId(), title: extractTitle(text), content: text.trim(), source: files[i].name }]);
-                  } catch { setError(`文件 ${files[i].name} 解析失败`); }
-                }
-              }}
-            >
-              <input ref={scriptFileRef} type="file" accept=".txt,.md,.docx,.pages" multiple onChange={handleScriptFiles} className="hidden" />
-              <div className="text-4xl mb-3">📄</div>
-              <p className="text-sm font-medium text-gray-700">点击选择文件 或 拖拽到这里</p>
-              <p className="text-xs text-gray-400 mt-1">支持 .txt / .md / .docx / .pages，可多选</p>
-            </div>
-            <details className="mt-4">
-              <summary className="text-sm text-blue-500 cursor-pointer hover:text-blue-600">或者手动粘贴文案</summary>
-              <div className="mt-3">
-                <textarea
-                  className="w-full h-36 p-4 border rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-300"
-                  placeholder={"粘贴千川脚本文案...\n多条脚本用 === 分隔"}
-                  value={pasteInput}
-                  onChange={e => setPasteInput(e.target.value)}
-                />
-                <div className="mt-2 flex justify-end">
-                  <button onClick={handleAddPaste} disabled={!pasteInput.trim()} className="px-5 py-2 bg-blue-500 text-white rounded-lg text-sm disabled:opacity-50">添加脚本</button>
-                </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div className="card">
+            <div className="card-body">
+              <div style={{ fontWeight: 600, fontSize: 15, color: 'var(--gray-800)', marginBottom: 4 }}>上传千川脚本</div>
+              <div style={{ fontSize: 13, color: 'var(--gray-400)', marginBottom: 16 }}>每个文件 = 一条脚本，支持批量上传</div>
+              <div
+                style={{
+                  border: '2px dashed var(--brand-border)', borderRadius: 'var(--radius-md)',
+                  padding: '40px 0', textAlign: 'center', cursor: 'pointer',
+                  background: 'var(--brand-light)',
+                }}
+                onClick={() => scriptFileRef.current?.click()}
+                onDragOver={e => e.preventDefault()}
+                onDrop={async e => {
+                  e.preventDefault();
+                  const files = e.dataTransfer.files;
+                  for (let i = 0; i < files.length; i++) {
+                    try {
+                      const text = await handleParseFile(files[i]);
+                      if (text.trim()) setScripts(prev => [...prev, { id: genId(), title: extractTitle(text), content: text.trim(), source: files[i].name }]);
+                    } catch { setError(`文件 ${files[i].name} 解析失败`); }
+                  }
+                }}
+              >
+                <input ref={scriptFileRef} type="file" accept=".txt,.md,.docx,.pages" multiple onChange={handleScriptFiles} style={{ display: 'none' }} />
+                <div style={{ fontSize: 32, marginBottom: 10 }}>📄</div>
+                <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--gray-700)' }}>点击选择文件 或 拖拽到这里</div>
+                <div style={{ fontSize: 12, color: 'var(--gray-400)', marginTop: 4 }}>支持 .txt / .md / .docx / .pages，可多选</div>
               </div>
-            </details>
+              <details style={{ marginTop: 12 }}>
+                <summary style={{ fontSize: 13, color: 'var(--brand)', cursor: 'pointer' }}>或者手动粘贴文案</summary>
+                <div style={{ marginTop: 10 }}>
+                  <textarea
+                    style={{ width: '100%', height: 120, padding: '10px 12px', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', fontSize: 13, resize: 'none', outline: 'none', boxSizing: 'border-box', fontFamily: 'var(--font-sans)' }}
+                    placeholder={"粘贴千川脚本文案...\n多条脚本用 === 分隔"}
+                    value={pasteInput}
+                    onChange={e => setPasteInput(e.target.value)}
+                  />
+                  <div style={{ marginTop: 8, display: 'flex', justifyContent: 'flex-end' }}>
+                    <button className="btn btn-primary btn-sm" onClick={handleAddPaste} disabled={!pasteInput.trim()}>添加脚本</button>
+                  </div>
+                </div>
+              </details>
+            </div>
           </div>
 
           {scripts.length > 0 && (
-            <div className="bg-white rounded-xl shadow-sm border p-4">
-              <div className="text-sm font-medium text-gray-700 mb-3">已添加 {scripts.length} 条脚本</div>
-              <div className="space-y-2">
-                {scripts.map((s, i) => (
-                  <div key={s.id} className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
-                    <span className="text-xs text-gray-400 w-5 shrink-0">{i + 1}.</span>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-gray-900 truncate">{s.title}</div>
-                      <div className="text-xs text-gray-400 mt-0.5">{s.source === 'paste' ? '手动粘贴' : s.source} · {s.content.length} 字</div>
+            <div className="card">
+              <div className="card-body">
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--gray-700)', marginBottom: 10 }}>已添加 {scripts.length} 条脚本</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {scripts.map((s, i) => (
+                    <div key={s.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 12px', background: 'var(--gray-50)', borderRadius: 'var(--radius-sm)' }}>
+                      <span style={{ fontSize: 12, color: 'var(--gray-400)', minWidth: 20, flexShrink: 0 }}>{i + 1}.</span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--gray-800)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.title}</div>
+                        <div style={{ fontSize: 12, color: 'var(--gray-400)', marginTop: 2 }}>{s.source === 'paste' ? '手动粘贴' : s.source} · {s.content.length} 字</div>
+                      </div>
+                      <button className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)', flexShrink: 0 }} onClick={() => setScripts(prev => prev.filter(x => x.id !== s.id))}>✕</button>
                     </div>
-                    <button onClick={() => setScripts(prev => prev.filter(x => x.id !== s.id))} className="text-gray-300 hover:text-red-400 text-sm">✕</button>
-                  </div>
-                ))}
-              </div>
-              <div className="mt-4 flex justify-end">
-                <button onClick={() => setStep(2)} className="px-6 py-2.5 bg-blue-500 text-white rounded-lg font-medium hover:bg-blue-600 transition-colors">
-                  下一步：上传投放数据
-                </button>
+                  ))}
+                </div>
+                <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end' }}>
+                  <button className="btn btn-primary" onClick={() => setStep(2)}>下一步：上传投放数据</button>
+                </div>
               </div>
             </div>
           )}
@@ -370,69 +386,76 @@ export default function QianchuanReviewPage() {
       {/* Step 2 */}
       {step === 2 && (
         <div>
-          <div className="flex items-center gap-4 mb-4">
-            <button onClick={() => setStep(1)} className="text-sm text-blue-500 hover:text-blue-600">← 返回</button>
-            <span className="text-sm text-gray-500">已添加 {scripts.length} 条脚本</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 16 }}>
+            <button className="btn btn-ghost btn-sm" onClick={() => setStep(1)}>← 返回</button>
+            <span style={{ fontSize: 13, color: 'var(--gray-500)' }}>已添加 {scripts.length} 条脚本</span>
           </div>
-          <div className="bg-white rounded-xl shadow-sm border p-6">
-            <h2 className="text-lg font-semibold mb-1">上传千川投放数据</h2>
-            <p className="text-gray-400 text-sm mb-4">可选步骤，跳过也能基于脚本内容生成复盘报告</p>
-            <div onClick={() => excelFileRef.current?.click()} className="border-2 border-dashed rounded-xl p-8 text-center cursor-pointer hover:border-blue-300 hover:bg-blue-50/30 transition-colors">
-              <input ref={excelFileRef} type="file" accept=".xlsx,.xls,.csv" onChange={handleExcelUpload} className="hidden" />
-              {excelFileName ? (
-                <div>
-                  <div className="text-3xl mb-2">📊</div>
-                  <div className="text-sm font-medium">{excelFileName}</div>
-                  <div className="text-xs text-green-600 mt-1">已解析 {excelData.length} 条数据</div>
-                  <div className="text-xs text-gray-400 mt-1">点击更换文件</div>
-                </div>
-              ) : (
-                <div>
-                  <div className="text-3xl mb-2">📄</div>
-                  <div className="text-sm text-gray-500">点击上传千川投放数据 Excel</div>
-                  <div className="text-xs text-gray-400 mt-1">支持 .xlsx / .xls / .csv</div>
-                </div>
-              )}
-            </div>
-            {excelData.length > 0 && (
-              <div className="mt-4 overflow-x-auto">
-                <div className="text-sm font-medium text-gray-700 mb-2">解析预览</div>
-                <table className="text-xs w-full">
-                  <thead>
-                    <tr className="bg-gray-50 text-gray-500">
-                      <th className="px-3 py-2 text-left">素材名称</th>
-                      <th className="px-3 py-2 text-right">消耗</th>
-                      <th className="px-3 py-2 text-right">ROI</th>
-                      <th className="px-3 py-2 text-right">转化数</th>
-                      <th className="px-3 py-2 text-right">3s完播率</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {excelData.slice(0, 10).map((row, i) => (
-                      <tr key={i} className="border-t">
-                        <td className="px-3 py-1.5 text-gray-900 max-w-[200px] truncate">{row.video_theme || '—'}</td>
-                        <td className="px-3 py-1.5 text-right">{row.spend ? row.spend + '元' : '—'}</td>
-                        <td className="px-3 py-1.5 text-right">{row.roi || '—'}</td>
-                        <td className="px-3 py-1.5 text-right">{row.conversions || '—'}</td>
-                        <td className="px-3 py-1.5 text-right">{row.three_sec_rate || '—'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-            <div className="mt-6 flex justify-end gap-3">
-              <button
-                onClick={() => { setExcelData([]); setExcelFileName(''); handleGenerate(false); }}
-                className="px-5 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition-colors"
+          <div className="card">
+            <div className="card-body">
+              <div style={{ fontWeight: 600, fontSize: 15, color: 'var(--gray-800)', marginBottom: 4 }}>上传千川投放数据</div>
+              <div style={{ fontSize: 13, color: 'var(--gray-400)', marginBottom: 16 }}>可选步骤，跳过也能基于脚本内容生成复盘报告</div>
+              <div
+                onClick={() => excelFileRef.current?.click()}
+                style={{
+                  border: '2px dashed var(--brand-border)', borderRadius: 'var(--radius-md)',
+                  padding: '32px 0', textAlign: 'center', cursor: 'pointer',
+                  background: 'var(--brand-light)',
+                }}
               >
-                跳过，直接生成报告
-              </button>
+                <input ref={excelFileRef} type="file" accept=".xlsx,.xls,.csv" onChange={handleExcelUpload} style={{ display: 'none' }} />
+                {excelFileName ? (
+                  <div>
+                    <div style={{ fontSize: 28, marginBottom: 6 }}>📊</div>
+                    <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--gray-700)' }}>{excelFileName}</div>
+                    <div style={{ fontSize: 12, color: 'var(--success)', marginTop: 4 }}>已解析 {excelData.length} 条数据</div>
+                    <div style={{ fontSize: 12, color: 'var(--gray-400)', marginTop: 2 }}>点击更换文件</div>
+                  </div>
+                ) : (
+                  <div>
+                    <div style={{ fontSize: 28, marginBottom: 6 }}>📄</div>
+                    <div style={{ fontSize: 13, color: 'var(--gray-500)' }}>点击上传千川投放数据 Excel</div>
+                    <div style={{ fontSize: 12, color: 'var(--gray-400)', marginTop: 4 }}>支持 .xlsx / .xls / .csv</div>
+                  </div>
+                )}
+              </div>
               {excelData.length > 0 && (
-                <button onClick={() => handleGenerate(true)} className="px-6 py-2.5 bg-blue-500 text-white rounded-lg font-medium hover:bg-blue-600 transition-colors">
-                  生成复盘报告
-                </button>
+                <div style={{ marginTop: 16, overflowX: 'auto' }}>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--gray-700)', marginBottom: 8 }}>解析预览</div>
+                  <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ background: 'var(--gray-50)', color: 'var(--gray-500)' }}>
+                        <th style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 500 }}>素材名称</th>
+                        <th style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 500 }}>消耗</th>
+                        <th style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 500 }}>ROI</th>
+                        <th style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 500 }}>转化数</th>
+                        <th style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 500 }}>3s完播率</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {excelData.slice(0, 10).map((row, i) => (
+                        <tr key={i} style={{ borderTop: '1px solid var(--border)' }}>
+                          <td style={{ padding: '6px 10px', color: 'var(--gray-800)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.video_theme || '—'}</td>
+                          <td style={{ padding: '6px 10px', textAlign: 'right', color: 'var(--gray-600)' }}>{row.spend ? row.spend + '元' : '—'}</td>
+                          <td style={{ padding: '6px 10px', textAlign: 'right', color: 'var(--gray-600)' }}>{row.roi || '—'}</td>
+                          <td style={{ padding: '6px 10px', textAlign: 'right', color: 'var(--gray-600)' }}>{row.conversions || '—'}</td>
+                          <td style={{ padding: '6px 10px', textAlign: 'right', color: 'var(--gray-600)' }}>{row.three_sec_rate || '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
+              <div style={{ marginTop: 20, display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                <button
+                  className="btn btn-ghost"
+                  onClick={() => { setExcelData([]); setExcelFileName(''); handleGenerate(false); }}
+                >
+                  跳过，直接生成报告
+                </button>
+                {excelData.length > 0 && (
+                  <button className="btn btn-primary" onClick={() => handleGenerate(true)}>生成复盘报告</button>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -441,79 +464,82 @@ export default function QianchuanReviewPage() {
       {/* Step 3 */}
       {step === 3 && (
         <div>
-          <div className="flex items-center gap-4 mb-4">
-            <button onClick={() => setStep(2)} className="text-sm text-blue-500 hover:text-blue-600">← 返回</button>
-            <span className="text-sm text-gray-500">{scripts.length} 条素材{excelData.length > 0 ? ' · 含投放数据' : ''}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 16 }}>
+            <button className="btn btn-ghost btn-sm" onClick={() => setStep(2)}>← 返回</button>
+            <span style={{ fontSize: 13, color: 'var(--gray-500)' }}>{scripts.length} 条素材{excelData.length > 0 ? ' · 含投放数据' : ''}</span>
           </div>
           <div
             ref={reportRef}
-            className="bg-white rounded-xl shadow-sm border p-6 min-h-[400px] max-h-[70vh] overflow-y-auto"
+            className="card"
+            style={{ minHeight: 400, maxHeight: '70vh', overflowY: 'auto' }}
           >
-            {reportLoading && !report && (
-              <div className="flex items-center gap-2 text-gray-400">
-                <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                </svg>
-                千川复盘专家正在深度分析素材数据...
-              </div>
-            )}
-            {report && (
-              <div className="prose prose-sm max-w-none text-gray-800 leading-relaxed">
-                <SimpleMarkdown text={report} />
-              </div>
-            )}
-            {reportLoading && report && <span className="inline-block w-2 h-4 bg-blue-400 animate-pulse ml-1" />}
+            <div className="card-body">
+              {reportLoading && !report && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--gray-400)', fontSize: 14 }}>
+                  <svg style={{ width: 20, height: 20, animation: 'spin 1s linear infinite' }} viewBox="0 0 24 24">
+                    <circle style={{ opacity: 0.25 }} cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                    <path style={{ opacity: 0.75 }} fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  千川复盘专家正在深度分析素材数据...
+                </div>
+              )}
+              {report && <SimpleMarkdown text={report} />}
+              {reportLoading && report && (
+                <span style={{ display: 'inline-block', width: 8, height: 16, background: 'var(--brand)', animation: 'pulse 1s infinite', marginLeft: 4 }} />
+              )}
+            </div>
           </div>
 
           {!reportLoading && report && (
-            <div className="mt-4 flex justify-end gap-3">
+            <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
               {savedOutputId ? (
-                <span className="px-5 py-2 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700">已保存</span>
+                <span style={{ padding: '6px 16px', background: 'var(--success-bg)', border: '1px solid var(--success)', borderRadius: 'var(--radius-md)', fontSize: 13, color: 'var(--success)' }}>已保存</span>
               ) : (
                 <button
+                  className="btn btn-ghost"
                   onClick={handleSave}
                   disabled={saving || taskId === null}
-                  className="px-5 py-2 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-700 hover:bg-blue-100 disabled:opacity-50 transition-colors"
                 >
                   {saving ? '保存中...' : '保存到产出中心'}
                 </button>
               )}
-              <button onClick={handleExport} className="px-5 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 transition-colors">导出下载</button>
-              <button onClick={() => navigator.clipboard.writeText(report)} className="px-5 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 transition-colors">复制报告</button>
+              <button className="btn btn-ghost" onClick={handleExport}>导出下载</button>
+              <button className="btn btn-ghost" onClick={() => navigator.clipboard.writeText(report)}>复制报告</button>
             </div>
           )}
         </div>
       )}
 
       {/* 底部历史 */}
-      <div className="mt-12 border-t pt-8">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-base font-semibold text-gray-700">最近复盘记录</h3>
-          <button onClick={loadHistory} disabled={historyLoading} className="text-sm text-blue-500 hover:text-blue-600 disabled:opacity-50">
+      <div style={{ marginTop: 48, paddingTop: 24, borderTop: '1px solid var(--border)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+          <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--gray-700)' }}>最近复盘记录</span>
+          <button className="btn btn-ghost btn-sm" onClick={loadHistory} disabled={historyLoading}>
             {historyLoading ? '加载中...' : '刷新'}
           </button>
         </div>
         {history.length === 0 && !historyLoading && (
-          <p className="text-sm text-gray-400">暂无记录，点击刷新加载</p>
+          <p style={{ fontSize: 13, color: 'var(--gray-400)' }}>暂无记录，点击刷新加载</p>
         )}
         {history.length > 0 && (
-          <div className="space-y-2">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {history.map(item => (
-              <div key={item.id} className="flex items-start justify-between p-3 bg-gray-50 rounded-lg">
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium text-gray-900 truncate">{item.title}</div>
-                  <div className="text-xs text-gray-400 mt-0.5">
+              <div key={item.id} className="card" style={{ cursor: 'default' }}>
+                <div className="card-body" style={{ padding: '10px 14px' }}>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--gray-800)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.title}</div>
+                  <div style={{ fontSize: 12, color: 'var(--gray-400)', marginTop: 3 }}>
                     {item.created_at ? new Date(item.created_at).toLocaleString('zh-CN') : ''}
                     {item.word_count ? ` · ${item.word_count} 字` : ''}
                   </div>
-                  {item.preview && <div className="text-xs text-gray-500 mt-1 truncate">{item.preview}</div>}
+                  {item.preview && <div style={{ fontSize: 12, color: 'var(--gray-500)', marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.preview}</div>}
                 </div>
               </div>
             ))}
           </div>
         )}
       </div>
+
+      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } } @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0; } }`}</style>
     </div>
   );
 }
