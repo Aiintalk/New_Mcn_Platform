@@ -1,6 +1,6 @@
 # MCN_PM_Agent — 项目记忆与当前状态（M2）
 
-> 最后更新：2026-06-13（Sprint 5 selling-point-extractor 迁移完成）
+> 最后更新：2026-06-13（Sprint 6 qianchuan-review 迁移完成）
 > 更新角色：MCN_PM_Agent
 > 上一份文档：`docs/pm/PM_记忆与状态.md`（M1 阶段，已归档）
 
@@ -75,6 +75,36 @@
 4. SSE 断连空报告标 ready（空内容保护）
 5. 历史记录点击无反应（loadHistoryDetail 加 setStep(3)）
 6. 产出中心预览为空（调详情接口获取 content）
+
+---
+
+### M2 Sprint 6 — 千川脚本复盘（qianchuan-review）✅ 完成
+
+**核心流程：** 上传千川脚本（文件/粘贴）→ 上传投放数据 Excel（可选）→ AI 流式生成复盘报告 → 保存/导出/复制
+
+| 端 | 状态 | 备注 |
+|----|------|------|
+| 后端 4 个接口 | ✅ 完成 | `operator_qianchuan_review.py`（parse-file/generate/save/outputs）|
+| System Prompt 常量 | ✅ 完成 | `tools/qianchuan_review/prompts.py`，A/B 两版本逐字保留 |
+| 合并服务层 | ✅ 完成 | `qianchuan_review_service.py`（merge/sort/build_user_message/stream）|
+| file_parser 扩展 | ✅ 完成 | 新增 `parse_qianchuan_review_file()` 含日历噪声过滤 |
+| 前端三步页面 | ✅ 完成 | `QianchuanReviewPage.tsx`，XLSX.js 前端解析 Excel |
+| 旧数据迁移脚本 | ✅ 完成 | `scripts/migrate_qianchuan_reports.py`，支持 --dry-run |
+| 运维任务单 | ✅ 完成 | `deploy/docs/tasks/M2_Sprint6_运维端任务_qianchuan-review_v1.md` |
+| 自动化测试 | ✅ 57/57 后端 | prompts(17) + service(13) + file_parser(14) + integration(13) |
+| 功能测试 | ✅ PASS | 12 项端到端验证全通过，修复 xlsx 依赖缺失 |
+| 工具状态 | dev | 创作中心可见（workspace_tools 已注册）|
+
+**技术要点：**
+- CORS 新增 `expose_headers=["X-Task-Id"]`，前端从响应头读 task_id
+- task_job 生命周期：流前 processing → 流后 success（独立 AsyncSessionLocal background task）
+- outputs 分页：一次全量有序查询后内存切片，避免双查询
+
+**覆盖率：**
+- `prompts.py`：100% ✅
+- `qianchuan_review_service.py`：86%（目标≥80%）✅
+- `operator_qianchuan_review.py`：73%（目标≥70%）✅
+- `file_parser.py`（新增函数）：82%（目标≥90%）⚠️
 
 ---
 
@@ -159,15 +189,16 @@
 
 | 卡点 | 处理方式 |
 |------|---------|
-| 测试任务单结果列为空 | 仅第一章执行完毕，需补充执行 |
 | 并发测试 4/4 失败 | 本地环境问题，需在测试服验证 |
 | antd `message` 静态方法警告 | 仅 BenchmarkPage 已修复，其余 25 个文件待批量迁移 |
+| qianchuan-review 工具状态 | 当前 `dev`，上线前需切为 `online` |
+| file_parser.py 新增函数覆盖率 82% | 差 8%，未来可补充 OS 级异常路径测试 |
 
 **下一步优先级：**
-1. 人工验收 selling-point-extractor（浏览器 3 步流程 + AI 真实调用，需先在管理端配置 Prompt 和模型）
-2. 规划 M2 Sprint 6（下一个待迁移工具）
+1. 规划 M2 Sprint 7（下一个待迁移工具，参考 `Ai_Toolbox/` 目录和工具迁移方案）
+2. 将 qianchuan-review 工具状态切为 `online`（执行一条 UPDATE SQL 或在管理端操作）
 3. 批量修复 antd `message` 静态方法 → `App.useApp()` hook（25 个文件）
-4. 补充 operator_tiktok_writer.py 单元测试（提升覆盖率至 70%+）
+4. 补充 operator_tiktok_writer.py 单元测试（覆盖率提升至 70%+）
 5. 测试服部署并验证并发测试
 
 ---
@@ -178,6 +209,10 @@
 
 | 文件 | 说明 | 状态 |
 |------|------|------|
+| `docs/pm/M2_Sprint06_qianchuan-review_需求文档.md` | Sprint 6 需求文档 | ✅ 已完成 |
+| `backend/docs/tasks/M2_Sprint06_后端任务_qianchuan-review_v1.md` | Sprint 6 后端任务单 | ✅ 已执行 |
+| `frontend/docs/tasks/M2_Sprint06_前端任务_qianchuan-review_v1.md` | Sprint 6 前端任务单 | ✅ 已执行 |
+| `deploy/docs/tasks/M2_Sprint6_运维端任务_qianchuan-review_v1.md` | Sprint 6 运维任务单 | ✅ 已完成 |
 | `backend/docs/tasks/M2_Sprint05_后端任务_selling-point-extractor_v1.md` | Sprint 5 后端任务单 | ✅ 已执行 |
 | `frontend/docs/tasks/M2_Sprint05_前端任务_selling-point-extractor_v1.md` | Sprint 5 前端任务单 | ✅ 已执行 |
 | `backend/docs/tasks/M2_Sprint04_后端任务_tiktok-writer_v1.md` | tiktok-writer 后端任务单 | ✅ 已执行 |
@@ -194,6 +229,7 @@
 
 | 文件 | 说明 | 状态 |
 |------|------|------|
+| `backend/docs/tests/M2_Sprint06_测试报告_qianchuan-review_v1.md` | Sprint 6 测试报告（57/57 后端，verify PASS）| ✅ 已完成 |
 | `backend/docs/tests/M2_Sprint05_测试报告_selling-point-extractor_v1.md` | Sprint 5 测试报告（43/43 后端 + 86/86 前端）| ✅ 已完成 |
 | `backend/docs/tests/M2_Sprint04_测试报告_tiktok-writer_v1.md` | Sprint 4 测试报告（317/317 后端）| ✅ 已完成 |
 | `backend/docs/tests/M2_Sprint3_测试报告.md` | Sprint 3 测试报告（371/371） | ✅ 已完成 |
