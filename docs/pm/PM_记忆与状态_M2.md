@@ -93,7 +93,7 @@
 | 运维任务单 | ✅ 完成 | `deploy/docs/tasks/M2_Sprint6_运维端任务_qianchuan-review_v1.md` |
 | 自动化测试 | ✅ 57/57 后端 | prompts(17) + service(13) + file_parser(14) + integration(13) |
 | 功能测试 | ✅ PASS | 12 项端到端验证全通过，修复 xlsx 依赖缺失 |
-| 工具状态 | dev | 创作中心可见（workspace_tools 已注册）|
+| 工具状态 | ✅ online | 创作中心可见可用（016 迁移已执行）|
 
 **技术要点：**
 - CORS 新增 `expose_headers=["X-Task-Id"]`，前端从响应头读 task_id
@@ -105,6 +105,11 @@
 - `qianchuan_review_service.py`：86%（目标≥80%）✅
 - `operator_qianchuan_review.py`：73%（目标≥70%）✅
 - `file_parser.py`（新增函数）：82%（目标≥90%）⚠️
+
+**验收后修复（2026-06-13）：**
+- `xlsx` npm 包漏写 `package.json`：前端 Vite 编译报 `Failed to resolve import "xlsx"`，`tsc --noEmit` 未能检出（类型通过，运行时缺包）。修复：`npm install xlsx --save`（commit `ca50de6`）
+- `workspace_tools` 漏 INSERT：`016_qianchuan_review.sql` 迁移未在开发阶段执行，工具 status 停留在 dev，管理端看不到入口。修复：补写迁移文件并执行（commit `9969176`）
+- 前端 CSS 失效：页面全部使用 Tailwind class，项目未安装 Tailwind，样式无效。修复：全部改为 `var(--brand)` / `card` / `btn` 等项目 CSS 变量体系（commit `7cff76e`）
 
 ---
 
@@ -185,25 +190,37 @@
 
 ---
 
-## 三、当前卡点与下一步
+## 三、跨 Sprint 通用问题记录（经验教训）
+
+每次新工具迁移必须检查以下事项，避免重复踩坑：
+
+| # | 问题 | 首次出现 | 处理方式 |
+|---|------|---------|---------|
+| 1 | **前端 CSS 用了 Tailwind**：项目未安装 Tailwind，所有 `bg-*`/`text-*`/`rounded-*` 等 class 全部无效，页面裸奔 | Sprint 5、Sprint 6 均出现 | 全部改为 `var(--brand)` / `card` / `btn-primary` 等项目 CSS 变量体系；前端规范已注明禁止使用 Tailwind |
+| 2 | **npm 包引用未声明**：代码 `import * as XLSX from 'xlsx'` 但 `package.json` 未写 `xlsx`，`tsc --noEmit` 不报错（类型解析走 node_modules），Vite 运行时才爆 `Failed to resolve import` | Sprint 6 | 新增第三方包必须同步 `npm install --save`；功能测试阶段 curl Vite 模块可发现 |
+| 3 | **workspace_tools INSERT 漏执行**：迁移 SQL 文件写了但没有执行，工具 status 停留在 dev，运营端入口不显示 | Sprint 6 | 每次迁移完成后验收清单必须包含 `psql` 查 workspace_tools 确认 status=online |
+| 4 | **文档落地遗漏**：代码全部完成后未补写需求文档/任务单/测试报告，PM 记忆停留在上一个 Sprint | Sprint 6 | CLAUDE.md 第十二节已增加「C 文档落地」强制闸门 |
+| 5 | **功能测试缺失**：只跑 pytest，未在真实服务上验证接口和页面 | Sprint 6（首次发现） | CLAUDE.md 第十三节已增加「必须调用 Skill: verify」规则 |
+
+---
+
+## 四、当前卡点与下一步
 
 | 卡点 | 处理方式 |
 |------|---------|
 | 并发测试 4/4 失败 | 本地环境问题，需在测试服验证 |
 | antd `message` 静态方法警告 | 仅 BenchmarkPage 已修复，其余 25 个文件待批量迁移 |
-| qianchuan-review 工具状态 | 当前 `dev`，上线前需切为 `online` |
 | file_parser.py 新增函数覆盖率 82% | 差 8%，未来可补充 OS 级异常路径测试 |
 
 **下一步优先级：**
 1. 规划 M2 Sprint 7（下一个待迁移工具，参考 `Ai_Toolbox/` 目录和工具迁移方案）
-2. 将 qianchuan-review 工具状态切为 `online`（执行一条 UPDATE SQL 或在管理端操作）
-3. 批量修复 antd `message` 静态方法 → `App.useApp()` hook（25 个文件）
-4. 补充 operator_tiktok_writer.py 单元测试（覆盖率提升至 70%+）
-5. 测试服部署并验证并发测试
+2. 批量修复 antd `message` 静态方法 → `App.useApp()` hook（25 个文件）
+3. 补充 operator_tiktok_writer.py 单元测试（覆盖率提升至 70%+）
+4. 测试服部署并验证并发测试
 
 ---
 
-## 四、文档索引
+## 五、文档索引
 
 ### 任务单（已迁移至各端 docs/ 下）
 
