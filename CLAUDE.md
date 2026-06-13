@@ -83,6 +83,20 @@ PM 和用户聊 → 产出需求文档 docs/pm/Mx_Sprintxx_xxx_需求文档.md
   ③ 更新 docs/pm/ 的 PM 记忆与状态
 ```
 
+### 交付物清单（每个功能收尾时逐项核对，缺一不算交付完成）
+
+| # | 交付物 | 位置 | 何时产出 |
+|---|--------|------|---------|
+| 1 | 需求文档 | `docs/pm/Mx_Sprintxx_xxx_需求文档.md` | 节点 A |
+| 2 | 任务文档（每端一份） | `{端}/docs/tasks/Mx_Sprintxx_{角色}_{功能}_v1.md` | 节点 B |
+| 3 | 验收文档 | `{端}/docs/tasks/Mx_Sprintxx_{角色}_开发验收_{功能}_v1.md` | 节点 B+ |
+| 4 | 契约更新（若改接口/表） | `backend/docs/base/MCN_M2_Base_API.md` / `Base_Database.md` | 节点 B |
+| 5 | README 更新 | `{端}/docs/README.md` | 收尾 |
+| 6 | PM 记忆与状态 | `docs/pm/PM_记忆与状态_M2.md` | 收尾 |
+| 7 | 测试报告 | `{端}/docs/tests/` 或 `docs/tests/`（跨端） | 节点 B+ |
+
+> ⚠️ subagent 交付代码时必须同时声明这份清单的完成状态。**缺项不得声明"完成"**——PM 签收前逐项核对。这正是 Sprint 4/5 曾出现"代码有但任务文档/验收文档缺失"的教训。
+
 **迭代（开发中加需求/改需求/修 bug）**：同样先产出需求文档（不覆盖原件），再增对应任务文档（vN 递增）。
 
 **铁律：superpowers/subagent 产物都是草稿；只有 PM 按命名+就近归位+签收才算正式落地。**
