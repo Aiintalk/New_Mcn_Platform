@@ -165,3 +165,81 @@ npm run dev                                   # 启动
 
 迁移 = PM 流程骨架 + 迁移规范约束，两者同时生效，不得只遵循其一、不得凭记忆直接开干。
 迁移红线会持续更新，以迁移规范文档最新内容为准。
+
+---
+
+## 十二、⚠️ 开发红线（最易遗漏 Top 7）
+
+> 以下 7 条是历次开发中**实际被遗漏频率最高**的规则。每次写代码前先扫一遍，写完再对照一遍。
+> 有自动化守卫测试拦截 #1 #2 #3 #6 #7，但 #4 #5 仍需人工把关。
+> - 后端守卫：`backend/tests/integration/test_convention_guard.py`（#1 标准信封、#2 OperationLog、#6 AiCallLog、#7 AsyncSessionLocal 注册）
+> - 前端守卫：`frontend/src/__tests__/unit/api/conventionGuard.test.ts`（#3 裸 fetch 检测）
+
+### #1 非流式接口必须返回标准信封
+
+```python
+# ✅ 正确
+return success_response(data={"items": [...]})
+
+# ❌ 违规（一票否决项）
+return {"items": [...]}
+return {"success": True, "id": "123"}
+```
+
+**例外**：流式接口（`StreamingResponse`）和文件下载（`Response` 返回二进制）不受此约束。
+
+### #2 用户写操作必须写 OperationLog
+
+每个 POST / PUT / PATCH / DELETE 接口，在 commit 前必须 `session.add(OperationLog(...))`。
+
+```python
+db.add(output)
+await db.flush()  # flush 拿 ID
+db.add(OperationLog(
+    user_id=current_user.id, username=current_user.username, role=current_user.role,
+    action="xxx_action", target_type="output", target_id=output.id,
+    detail={...}, ip=_get_ip(request), user_agent=request.headers.get("user-agent"),
+))
+await db.commit()
+```
+
+**例外**：GET 查询不需要。流式接口在 BackgroundTask 里写。
+
+### #3 前端 JSON 调用必须走 request.ts
+
+```typescript
+// ✅ 正确
+import { get, post, del } from './request';
+export const saveHistory = (body) => post<{ id: string }>('/api/.../history', body);
+
+// ❌ 违规
+const resp = await fetch(url, { ... }); return resp.json();
+```
+
+**例外**：流式（`chatStream`）、FormData 上传（`parseFile`）、Blob 下载（`exportWord`）保留原生 fetch，但必须手动解包 `.data`。
+
+> 🔒 **自动化守卫**：`frontend/src/__tests__/unit/api/conventionGuard.test.ts` 扫描所有 `src/api/*.ts`，发现裸 `fetch()` 无例外指示器（FormData / .blob() / getReader / Promise\<Response\>）即报失败。
+
+### #4 改接口/表必须同步更新契约文档
+
+- 新增/修改 API → 同步更新 `backend/docs/base/MCN_M2_Base_API.md`
+- 新增/修改表 → 同步更新 `backend/docs/base/MCN_M2_Base_Database.md`
+- 新增 migration → 在 Base_Database 迁移列表中登记
+
+**不更新契约 = 唯一事实源失真，后续开发全乱。**
+
+### #5 功能完成后必须更新 README
+
+每个端的 `docs/README.md` 中的文件列表、计数、路由清单必须与实际代码一致。
+
+### #6 AiCallLog 由 adapter 层负责（不要在 router 里重复写）
+
+`yunwu.py` 的 `chat()` / `chat_stream()` 在 `finally` 块自动写 `AiCallLog`。router 层不需要、也不应该再写。
+
+> 🔒 **自动化守卫**：`test_convention_guard.py` 扫描所有 router 文件，发现 `AiCallLog(` 即报失败。
+
+### #7 新增 router 必须注册到 conftest.py 的 `_SESSION_LOCAL_PATCH_TARGETS`
+
+如果 router 内部直接 `from app.core.database import AsyncSessionLocal`（用于后台任务/流式），必须在 `tests/conftest.py` 的 patch 列表中注册，否则测试时该 router 会连到生产数据库。
+
+> 🔒 **自动化守卫**：`test_convention_guard.py` 交叉检查 router 文件的 `AsyncSessionLocal` 导入与 conftest.py 的注册列表，未注册即报失败。

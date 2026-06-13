@@ -12,7 +12,7 @@ import os
 import secrets
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy import select, update
@@ -22,6 +22,7 @@ from app.core.database import get_db
 from app.core.response import success_response
 from app.middlewares.auth import get_current_user
 from app.models.kol_intake import KolIntakeLink, KolIntakeSubmission
+from app.models.log import OperationLog
 from app.models.user import User
 
 router = APIRouter(prefix="/operator/intake", tags=["operator-intake"])
@@ -46,6 +47,13 @@ def _ts(dt) -> str | None:
     return dt.isoformat() if dt else None
 
 
+def _get_ip(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
 # ---------------------------------------------------------------------------
 # POST /operator/intake/links
 # ---------------------------------------------------------------------------
@@ -58,6 +66,7 @@ class CreateLinkRequest(BaseModel):
 @router.post("/links")
 async def create_link(
     body: CreateLinkRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_operator),
 ):
@@ -71,6 +80,18 @@ async def create_link(
         expires_at=expires_at,
     )
     db.add(link)
+    await db.flush()
+    db.add(OperationLog(
+        user_id=current_user.id,
+        username=current_user.username,
+        role=current_user.role,
+        action="create_intake_link",
+        target_type="link",
+        target_id=link.id,
+        detail={"kol_name": body.kol_name},
+        ip=_get_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    ))
     await db.commit()
     await db.refresh(link)
 

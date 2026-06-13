@@ -1,4 +1,4 @@
-import { get, put } from './request';
+import { del, get, post, put } from './request';
 import type { HistoryItem, HistoryRecord, SellingPointConfig, UploadedFile } from '../types/sellingPoint';
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
@@ -12,7 +12,7 @@ function authHeaders(token: string | null): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-/** AI 流式对话（后端从 DB 读取 Prompt，前端只传 messages） */
+/** AI 流式对话（后端从 DB 读取 Prompt，前端只传 messages）。流式必须走原生 fetch。 */
 export async function chatStream(messages: Array<{ role: string; content: string }>): Promise<Response> {
   const token = await getToken();
   return fetch(`${BASE_URL}${PREFIX}/chat`, {
@@ -22,7 +22,7 @@ export async function chatStream(messages: Array<{ role: string; content: string
   });
 }
 
-/** 解析上传文件 */
+/** 解析上传文件（FormData 无法走 request.ts 的 JSON 封装，保留原生 fetch + 手动解包 .data） */
 export async function parseFile(file: File): Promise<{ text: string; filename: string }> {
   const token = await getToken();
   const formData = new FormData();
@@ -36,7 +36,8 @@ export async function parseFile(file: File): Promise<{ text: string; filename: s
     const err = await resp.json().catch(() => ({}));
     throw new Error(err?.message ?? `Parse failed: ${resp.status}`);
   }
-  return resp.json();
+  const body = await resp.json();
+  return body.data;
 }
 
 /** 获取历史列表 */
@@ -45,35 +46,21 @@ export const getHistoryList = () =>
 
 /** 获取单条历史 */
 export const getHistoryRecord = (id: string) =>
-  get<{ record: HistoryRecord }>(`${PREFIX}/history?id=${id}`);
+  get<{ record: HistoryRecord }>(`${PREFIX}/history`, { id });
 
 /** 保存历史记录 */
-export async function saveHistory(body: {
+export const saveHistory = (body: {
   productName: string;
   result: string;
   chatHistory: Array<{ role: string; content: string }>;
   briefFiles: UploadedFile[];
   scriptFiles: UploadedFile[];
-}): Promise<{ success: boolean; id: string }> {
-  const token = await getToken();
-  const resp = await fetch(`${BASE_URL}${PREFIX}/history`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeaders(token) },
-    body: JSON.stringify(body),
-  });
-  if (!resp.ok) throw new Error(`Save failed: ${resp.status}`);
-  return resp.json();
-}
+}) =>
+  post<{ id: string }>(`${PREFIX}/history`, body);
 
 /** 软删除历史记录 */
-export async function deleteHistoryRecord(id: string): Promise<void> {
-  const token = await getToken();
-  const resp = await fetch(`${BASE_URL}${PREFIX}/history?id=${id}`, {
-    method: 'DELETE',
-    headers: authHeaders(token),
-  });
-  if (!resp.ok) throw new Error(`Delete failed: ${resp.status}`);
-}
+export const deleteHistoryRecord = (id: string) =>
+  del<null>(`${PREFIX}/history?id=${id}`);
 
 // -- Admin API --
 

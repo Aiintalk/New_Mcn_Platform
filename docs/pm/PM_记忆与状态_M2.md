@@ -1,6 +1,6 @@
 # MCN_PM_Agent — 项目记忆与当前状态（M2）
 
-> 最后更新：2026-06-13（Sprint 5 selling-point-extractor 迁移完成）
+> 最后更新：2026-06-13（补充测试基础设施：规范守卫 + 凭证池并发测试 + 28 处 OperationLog 历史债修复）
 > 更新角色：MCN_PM_Agent
 > 上一份文档：`docs/pm/PM_记忆与状态.md`（M1 阶段，已归档）
 
@@ -17,7 +17,7 @@
 
 ### 环境信息
 
-- **数据库**：PostgreSQL @ localhost:5432，用户 postgres，密码 admin123，数据库 `mcn_m1`
+- **数据库**：PostgreSQL 18.4 @ localhost:5432，用户 mcn_user / 密码 admin123，数据库 `mcn_m1`（开发）/ `mcn_test`（测试）
 - **psql 路径**：`D:\ProtgreSQL\bin\psql.exe`
 - **后端地址**：`http://localhost:8000`（uvicorn）
 - **前端地址**：`http://localhost:5173`（Vite）
@@ -155,20 +155,69 @@
 
 ---
 
-## 三、当前卡点与下一步
+## 三、测试基础设施增强（2026-06-13）
+
+本次在 Sprint 功能开发之外，补充了两项测试基础设施并修复了历史技术债：
+
+### 1. 规范守卫自动化测试
+
+**文件**：`tests/integration/test_convention_guard.py`（4 条测试）
+
+AST 静态代码分析，自动扫描所有 `app/routers/*.py`，拦截两条开发红线：
+- **红线 #1**：非流式接口必须返回 `success_response` / `error_response`，不得返回裸 dict
+- **红线 #2**：鉴权写操作（POST/PUT/PATCH/DELETE + commit）必须有 `OperationLog`
+
+### 2. AI 凭证池并发安全测试
+
+**文件**：`tests/integration/test_credential_pool.py`（21 条测试，6 个测试类）
+
+覆盖 `yunwu.py` adapter 的全部并发原语：
+- `_pick_and_lock`：原子选取、过滤（provider/status/max_concurrent）、优先级排序
+- `_release`：递减计数、GREATEST 防负数
+- 僵尸锁清理：360s 超时自动重置
+- **并发竞争**：`FOR UPDATE SKIP LOCKED` 多凭证分配、满载拒绝、10 并发不超限
+- 排队唤醒：`_release` 唤醒等待者、跳过已取消 future
+- `chat()` 全流程（mock httpx）：成功+日志、错误仍释放+日志、无凭证超时
+
+### 3. OperationLog 历史债修复（28 处）
+
+规范守卫测试创建后立即发现 28 处 OperationLog 缺失，横跨 8 个 router 文件，全部修复：
+
+| 文件 | 修复数 | 补充的 action |
+|------|--------|--------------|
+| `admin_ai.py` | 8 | create/update/delete/test key+model |
+| `admin_tikhub.py` | 6 | create/update/delete/test/enable/disable |
+| `admin_intake.py` | 6 | create/reorder/update/delete question + config + report |
+| `admin_benchmark.py` | 2 | update config + regenerate |
+| `admin_selling_point.py` | 1 | update config |
+| `operator_intake.py` | 1 | create intake link |
+| `operator_intake_direct.py` | 3 | start/chat/submit session |
+| `persona.py` | 1 | persona generate |
+
+附带修复：3 处 `detail=values` 的 datetime JSON 序列化错误（`updated_at` 不可直接序列化到 JSONB）。
+
+### 4. 测试统计
+
+- 后端测试总数：**393 passed**（不含 E2E: concurrent/intake）
+- 覆盖率：**58.07%**（目标 ≥75%，后续 Sprint 逐步提升）
+- concurrent E2E（ISO-001~004）：仍需运行中的服务器
+
+---
+
+## 四、当前卡点与下一步
 
 | 卡点 | 处理方式 |
 |------|---------|
-| 测试任务单结果列为空 | 仅第一章执行完毕，需补充执行 |
-| 并发测试 4/4 失败 | 本地环境问题，需在测试服验证 |
+| 并发测试 E2E（ISO-001~004）4/4 失败 | 本地需运行服务器；凭证池并发已由集成测试覆盖（21 passed） |
 | antd `message` 静态方法警告 | 仅 BenchmarkPage 已修复，其余 25 个文件待批量迁移 |
+| tests/intake conftest 收集错误 | `pytest_plugins` 在非顶层 conftest 中，pytest 8+ 已弃用 |
 
 **下一步优先级：**
 1. 人工验收 selling-point-extractor（浏览器 3 步流程 + AI 真实调用，需先在管理端配置 Prompt 和模型）
 2. 规划 M2 Sprint 6（下一个待迁移工具）
 3. 批量修复 antd `message` 静态方法 → `App.useApp()` hook（25 个文件）
 4. 补充 operator_tiktok_writer.py 单元测试（提升覆盖率至 70%+）
-5. 测试服部署并验证并发测试
+5. 修复 tests/intake/conftest.py 的 pytest_plugins 问题
 
 ---
 

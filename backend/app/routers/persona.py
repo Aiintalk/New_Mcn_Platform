@@ -61,6 +61,15 @@ async def require_operator(current_user: User = Depends(get_current_user)) -> Us
 
 # ── 辅助函数 ────────────────────────────────────────────────────────
 
+def _get_ip(request: Request | None) -> str:
+    if request is None:
+        return "unknown"
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
 async def _write_op_log(
     session: AsyncSession,
     actor: User,
@@ -282,6 +291,18 @@ async def generate(
             status="generating",
         )
         db.add(report)
+        await db.flush()
+        db.add(OperationLog(
+            user_id=current_user.id,
+            username=current_user.username,
+            role=current_user.role,
+            action="persona_generate",
+            target_type="persona_report",
+            target_id=report.id,
+            detail={"douyin_nickname": body.douyin_nickname},
+            ip=_get_ip(request),
+            user_agent=request.headers.get("user-agent") if request else None,
+        ))
         await db.commit()
         await db.refresh(report)
         report_id = report.id

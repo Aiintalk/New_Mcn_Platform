@@ -10,7 +10,7 @@ import time
 import asyncio
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -19,8 +19,10 @@ from starlette.background import BackgroundTask
 
 from app.adapters import yunwu as yunwu_adapter
 from app.core.database import get_db, AsyncSessionLocal
+from app.core.response import success_response
 from app.middlewares.auth import get_current_user
 from app.models.kol import Kol
+from app.models.log import OperationLog
 from app.models.output import Output
 from app.models.task import TaskJob
 from app.models.user import User
@@ -30,6 +32,13 @@ router = APIRouter(prefix="/tools/tiktok-writer", tags=["tiktok-writer"])
 
 DEFAULT_MODEL = "claude-opus-4-6-thinking"
 _RETRY_DELAYS = [2, 4, 6]
+
+
+def _get_ip(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
 
 
 async def require_operator(current_user: User = Depends(get_current_user)) -> User:
@@ -61,6 +70,7 @@ class ChatRequest(BaseModel):
 @router.post("/chat")
 async def chat(
     body: ChatRequest,
+    request: Request,
     current_user: User = Depends(require_operator),
 ):
     """AI 流式对话，返回 raw text stream（非 SSE）。"""
@@ -80,6 +90,11 @@ async def chat(
     create_job = body.createJob
     job_context = body.jobContext or {}
     model_id = body.model or DEFAULT_MODEL
+    # 捕获请求信息，供后台日志使用（StreamingResponse 返回后 request 不可用）
+    ip = _get_ip(request)
+    user_agent = request.headers.get("user-agent")
+    username = current_user.username
+    role = current_user.role
 
     async def generate():
         delays = [0] + _RETRY_DELAYS
@@ -107,24 +122,34 @@ async def chat(
                 return
 
     async def write_task_job():
-        if not create_job:
-            return
         async with AsyncSessionLocal() as bg_db:
-            task_job = TaskJob(
-                task_no=f"TW-{int(time.time())}",
-                tool_code="tiktok-writer",
-                tool_name="TikTok 脚本仿写",
-                status="completed",
-                input_payload={
-                    "tiktokUrl": job_context.get("tiktokUrl", ""),
-                    "likesCount": job_context.get("likesCount", ""),
-                    "selectedPersonaName": job_context.get("selectedPersonaName", ""),
-                },
-                started_at=datetime.now(timezone.utc),
-                finished_at=datetime.now(timezone.utc),
-                created_by=user_id,
-            )
-            bg_db.add(task_job)
+            if create_job:
+                task_job = TaskJob(
+                    task_no=f"TW-{int(time.time())}",
+                    tool_code="tiktok-writer",
+                    tool_name="TikTok 脚本仿写",
+                    status="completed",
+                    input_payload={
+                        "tiktokUrl": job_context.get("tiktokUrl", ""),
+                        "likesCount": job_context.get("likesCount", ""),
+                        "selectedPersonaName": job_context.get("selectedPersonaName", ""),
+                    },
+                    started_at=datetime.now(timezone.utc),
+                    finished_at=datetime.now(timezone.utc),
+                    created_by=user_id,
+                )
+                bg_db.add(task_job)
+            bg_db.add(OperationLog(
+                user_id=user_id,
+                username=username,
+                role=role,
+                action="tiktok_writer_chat",
+                target_type="tool",
+                target_id=None,
+                detail={"model_id": model_id, "message_count": len(body.messages)},
+                ip=ip,
+                user_agent=user_agent,
+            ))
             await bg_db.commit()
 
     return StreamingResponse(
@@ -148,6 +173,7 @@ class ExportWordRequest(BaseModel):
 @router.post("/export-word")
 async def export_word(
     body: ExportWordRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_operator),
 ):
@@ -181,6 +207,18 @@ async def export_word(
         created_by=current_user.id,
     )
     db.add(output)
+    await db.flush()
+    db.add(OperationLog(
+        user_id=current_user.id,
+        username=current_user.username,
+        role=current_user.role,
+        action="tiktok_export_word",
+        target_type="output",
+        target_id=output.id,
+        detail={"personaName": body.personaName, "topic": body.topic},
+        ip=_get_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    ))
     await db.commit()
 
     filename = f"TikTok_Script_{body.personaName}_{date_str}.docx"
@@ -218,4 +256,4 @@ async def get_kol_personas(
         }
         for row in rows
     ]
-    return {"personas": personas}
+    return success_response(data={"personas": personas})

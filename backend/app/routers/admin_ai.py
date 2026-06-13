@@ -16,7 +16,7 @@ AI 管理模块接口：
 """
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 from sqlalchemy import select, update, delete, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,6 +26,7 @@ from app.core.database import get_db
 from app.core.response import ApiResponse, ErrorCode, error_response, success_response
 from app.middlewares.auth import require_admin
 from app.models.credential import Credential, AiModel
+from app.models.log import OperationLog
 from app.models.user import User
 
 router = APIRouter(prefix="/admin/ai", tags=["admin-ai"])
@@ -43,6 +44,13 @@ _DEFAULT_BASE_URLS = {
 
 def _ts(dt) -> str | None:
     return dt.isoformat() if dt else None
+
+
+def _get_ip(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
 
 
 def _cred_to_dict(c: Credential, today_calls: int = 0) -> dict:
@@ -169,6 +177,7 @@ async def list_keys(
 @router.post("/keys", response_model=ApiResponse)
 async def create_key(
     body: CreateKeyRequest,
+    request: Request,
     current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
@@ -181,6 +190,18 @@ async def create_key(
         max_users=body.max_users,
     )
     db.add(cred)
+    await db.flush()
+    db.add(OperationLog(
+        user_id=current_user.id,
+        username=current_user.username,
+        role=current_user.role,
+        action="create_ai_key",
+        target_type="credential",
+        target_id=cred.id,
+        detail={"provider": body.provider, "label": body.label},
+        ip=_get_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    ))
     await db.commit()
     await db.refresh(cred)
     return success_response(data=_cred_to_dict(cred), message="Key 添加成功")
@@ -190,6 +211,7 @@ async def create_key(
 async def update_key(
     key_id: int,
     body: UpdateKeyRequest,
+    request: Request,
     current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
@@ -207,6 +229,17 @@ async def update_key(
     if values:
         values["updated_at"] = datetime.now(timezone.utc)
         await db.execute(update(Credential).where(Credential.id == key_id).values(**values))
+        db.add(OperationLog(
+            user_id=current_user.id,
+            username=current_user.username,
+            role=current_user.role,
+            action="update_ai_key",
+            target_type="credential",
+            target_id=key_id,
+            detail={k: v for k, v in values.items() if k != "updated_at"},
+            ip=_get_ip(request),
+            user_agent=request.headers.get("user-agent"),
+        ))
         await db.commit()
         await db.refresh(cred)
 
@@ -216,6 +249,7 @@ async def update_key(
 @router.delete("/keys/{key_id}", response_model=ApiResponse)
 async def delete_key(
     key_id: int,
+    request: Request,
     current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
@@ -226,6 +260,16 @@ async def delete_key(
         return error_response(ErrorCode.RESOURCE_NOT_FOUND, "Key 不存在")
 
     await db.execute(delete(Credential).where(Credential.id == key_id))
+    db.add(OperationLog(
+        user_id=current_user.id,
+        username=current_user.username,
+        role=current_user.role,
+        action="delete_ai_key",
+        target_type="credential",
+        target_id=key_id,
+        ip=_get_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    ))
     await db.commit()
     return success_response(data=None, message="Key 已删除")
 
@@ -233,6 +277,7 @@ async def delete_key(
 @router.post("/keys/{key_id}/test", response_model=ApiResponse)
 async def test_key(
     key_id: int,
+    request: Request,
     current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
@@ -265,6 +310,17 @@ async def test_key(
                     last_latency_ms=latency_ms,
                 )
             )
+            db.add(OperationLog(
+                user_id=current_user.id,
+                username=current_user.username,
+                role=current_user.role,
+                action="test_ai_key",
+                target_type="credential",
+                target_id=key_id,
+                detail={"status": "ok", "latency_ms": latency_ms},
+                ip=_get_ip(request),
+                user_agent=request.headers.get("user-agent"),
+            ))
             await db.commit()
             return success_response(data={"status": "ok", "latency_ms": latency_ms})
         else:
@@ -325,6 +381,7 @@ async def list_models(
 @router.post("/models", response_model=ApiResponse)
 async def create_model(
     body: CreateModelRequest,
+    request: Request,
     current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
@@ -336,6 +393,18 @@ async def create_model(
 
     m = AiModel(name=body.name, provider=body.provider, model_id=body.model_id)
     db.add(m)
+    await db.flush()
+    db.add(OperationLog(
+        user_id=current_user.id,
+        username=current_user.username,
+        role=current_user.role,
+        action="create_ai_model",
+        target_type="model",
+        target_id=m.id,
+        detail={"name": body.name, "model_id": body.model_id},
+        ip=_get_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    ))
     await db.commit()
     await db.refresh(m)
     return success_response(data=_model_to_dict(m), message="模型添加成功")
@@ -345,6 +414,7 @@ async def create_model(
 async def update_model(
     model_id: int,
     body: UpdateModelRequest,
+    request: Request,
     current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
@@ -362,6 +432,17 @@ async def update_model(
     if values:
         values["updated_at"] = datetime.now(timezone.utc)
         await db.execute(update(AiModel).where(AiModel.id == model_id).values(**values))
+        db.add(OperationLog(
+            user_id=current_user.id,
+            username=current_user.username,
+            role=current_user.role,
+            action="update_ai_model",
+            target_type="model",
+            target_id=model_id,
+            detail={k: v for k, v in values.items() if k != "updated_at"},
+            ip=_get_ip(request),
+            user_agent=request.headers.get("user-agent"),
+        ))
         await db.commit()
         await db.refresh(m)
 
@@ -371,6 +452,7 @@ async def update_model(
 @router.delete("/models/{model_id}", response_model=ApiResponse)
 async def delete_model(
     model_id: int,
+    request: Request,
     current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
@@ -381,6 +463,16 @@ async def delete_model(
         return error_response(ErrorCode.RESOURCE_NOT_FOUND, "模型不存在")
 
     await db.execute(delete(AiModel).where(AiModel.id == model_id))
+    db.add(OperationLog(
+        user_id=current_user.id,
+        username=current_user.username,
+        role=current_user.role,
+        action="delete_ai_model",
+        target_type="model",
+        target_id=model_id,
+        ip=_get_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    ))
     await db.commit()
     return success_response(data=None, message="模型已删除")
 
@@ -388,6 +480,7 @@ async def delete_model(
 @router.post("/models/{model_id}/test", response_model=ApiResponse)
 async def test_model(
     model_id: int,
+    request: Request,
     current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
@@ -422,6 +515,17 @@ async def test_model(
                 last_latency_ms=latency_ms,
             )
         )
+        db.add(OperationLog(
+            user_id=current_user.id,
+            username=current_user.username,
+            role=current_user.role,
+            action="test_ai_model",
+            target_type="model",
+            target_id=model_id,
+            detail={"status": "ok", "latency_ms": latency_ms},
+            ip=_get_ip(request),
+            user_agent=request.headers.get("user-agent"),
+        ))
         await db.commit()
         return success_response(data={"status": "ok", "latency_ms": latency_ms})
     except Exception as e:

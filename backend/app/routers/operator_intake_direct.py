@@ -12,7 +12,7 @@ app/routers/operator_intake_direct.py
 import os
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy import select, update
@@ -26,6 +26,7 @@ from app.models.credential import AiModel
 from app.models.kol_intake import (
     KolIntakeConfig, KolIntakeOperatorSession, KolIntakeQuestion,
 )
+from app.models.log import OperationLog
 from app.models.user import User
 
 router = APIRouter(prefix="/operator/intake/direct", tags=["operator-intake-direct"])
@@ -82,6 +83,13 @@ async def _build_full_system_prompt(base_prompt: str, db: AsyncSession) -> str:
     return "\n".join(lines)
 
 
+def _get_ip(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
 # ---------------------------------------------------------------------------
 # POST /start
 # ---------------------------------------------------------------------------
@@ -93,6 +101,7 @@ class StartSessionRequest(BaseModel):
 @router.post("/start")
 async def start_session(
     body: StartSessionRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_operator),
 ):
@@ -102,6 +111,18 @@ async def start_session(
         kol_name=body.kol_name,
     )
     db.add(session)
+    await db.flush()
+    db.add(OperationLog(
+        user_id=current_user.id,
+        username=current_user.username,
+        role=current_user.role,
+        action="start_intake_session",
+        target_type="session",
+        target_id=session.id,
+        detail={"kol_name": body.kol_name},
+        ip=_get_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    ))
     await db.commit()
     await db.refresh(session)
     return success_response(data={
@@ -126,6 +147,7 @@ class SubmitBody(BaseModel):
 async def session_chat(
     session_id: int,
     body: ChatRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_operator),
 ):
@@ -170,6 +192,17 @@ async def session_chat(
         .where(KolIntakeOperatorSession.id == session_id)
         .values(messages=body.messages, updated_at=datetime.now(timezone.utc))
     )
+    db.add(OperationLog(
+        user_id=current_user.id,
+        username=current_user.username,
+        role=current_user.role,
+        action="intake_session_chat",
+        target_type="session",
+        target_id=session_id,
+        detail={"message_count": len(body.messages)},
+        ip=_get_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    ))
     await db.commit()
 
     return success_response(data={"reply": reply, "role": "assistant"})
@@ -293,6 +326,7 @@ async def session_submit(
     session_id: int,
     body: SubmitBody,
     background_tasks: BackgroundTasks,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_operator),
 ):
@@ -314,6 +348,17 @@ async def session_submit(
             updated_at=datetime.now(timezone.utc),
         )
     )
+    db.add(OperationLog(
+        user_id=current_user.id,
+        username=current_user.username,
+        role=current_user.role,
+        action="submit_intake_session",
+        target_type="session",
+        target_id=session_id,
+        detail={"message_count": len(body.messages) if body.messages else 0},
+        ip=_get_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    ))
     await db.commit()
 
     background_tasks.add_task(_generate_operator_session_report, session_id)

@@ -1,6 +1,6 @@
 """
 Integration tests for operator_tiktok_writer router.
-覆盖：Auth(401) / chat(400+流式) / export-word(400+docx+outputs写入) / kols/personas(空列表+有数据)
+覆盖：Auth(401) / chat(400+流式) / export-word(400+docx+outputs写入+OperationLog) / kols/personas(空列表+有数据+标准响应)
 """
 import io
 from unittest.mock import patch, AsyncMock
@@ -137,6 +137,24 @@ class TestExportWord:
         assert row[0] == "tiktok-writer"
         assert "Final script content here" in row[1]
 
+    @pytest.mark.asyncio
+    async def test_export_writes_op_log(self, test_client, operator_token, test_session):
+        """验证 export-word 写入 operation_logs。"""
+        resp = await test_client.post(
+            "/api/tools/tiktok-writer/export-word",
+            json={"personaName": "LogTest", "topic": "t", "content": "content for log"},
+            headers={"Authorization": f"Bearer {operator_token}"},
+        )
+        assert resp.status_code == 200
+
+        rows = (await test_session.execute(text(
+            "SELECT action, target_type FROM operation_logs "
+            "WHERE action = 'tiktok_export_word' ORDER BY id DESC LIMIT 1"
+        ))).fetchone()
+        assert rows is not None
+        assert rows[0] == "tiktok_export_word"
+        assert rows[1] == "output"
+
 
 class TestKolsPersonas:
     @pytest.mark.asyncio
@@ -146,9 +164,11 @@ class TestKolsPersonas:
             headers={"Authorization": f"Bearer {operator_token}"},
         )
         assert resp.status_code == 200
-        data = resp.json()
-        assert "personas" in data
-        assert isinstance(data["personas"], list)
+        body = resp.json()
+        assert body["success"] is True
+        assert body["code"] == "OK"
+        assert "personas" in body["data"]
+        assert isinstance(body["data"]["personas"], list)
 
     @pytest.mark.asyncio
     async def test_returns_kols_with_persona(self, test_client, operator_token, test_session):
@@ -164,7 +184,7 @@ class TestKolsPersonas:
             headers={"Authorization": f"Bearer {operator_token}"},
         )
         assert resp.status_code == 200
-        personas = resp.json()["personas"]
+        personas = resp.json()["data"]["personas"]
         assert any(p["name"] == "TestCreator" for p in personas)
         target = next(p for p in personas if p["name"] == "TestCreator")
         assert "soul" in target
@@ -183,5 +203,5 @@ class TestKolsPersonas:
             "/api/tools/tiktok-writer/kols/personas",
             headers={"Authorization": f"Bearer {operator_token}"},
         )
-        personas = resp.json()["personas"]
+        personas = resp.json()["data"]["personas"]
         assert not any(p["name"] == "NullPersonaCreator" for p in personas)
