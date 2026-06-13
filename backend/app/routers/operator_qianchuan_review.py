@@ -269,16 +269,15 @@ async def get_outputs(
     if current_user.role == "operator":
         query = query.where(Output.created_by == current_user.id)
 
-    all_rows = (await db.execute(query)).scalars().all()
-    total = len(all_rows)
-
-    rows = (
+    all_rows = (
         await db.execute(
             query.order_by(Output.created_at.desc())
-            .offset((page - 1) * size)
-            .limit(size)
         )
     ).scalars().all()
+    total = len(all_rows)
+
+    start = (page - 1) * size
+    rows = all_rows[start: start + size]
 
     items = []
     for r in rows:
