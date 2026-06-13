@@ -183,6 +183,8 @@ npm run dev                                   # 启动
 | **B 开发** | 调用 `Skill: superpowers:test-driven-development`，先写测试 | 测试先红后绿（TDD），不得先写实现再补测试 |
 | **B review** | 调用 `Skill: superpowers:requesting-code-review` | review 通过，该子任务才算完成 |
 | **B+ 验收前** | 调用 `Skill: superpowers:verification-before-completion` | 有可验证证据（测试输出/截图/日志），才能声称"完成" |
+| **B+ 功能测试** | 调用 `Skill: verify`，对真实运行的服务做端到端验证 | verify 结果为 PASS，才能进入文档落地 |
+| **C 文档落地** | 补写需求文档、后端任务单、前端任务单、测试报告；更新 PM 记忆 | PM 逐一确认文档已按命名规范归位，该 Sprint 才算"完成" |
 
 ### 调用顺序规则
 
@@ -203,7 +205,9 @@ Skill: superpowers:requesting-code-review  ← 每个子任务完成后
   ↓
 Skill: superpowers:verification-before-completion ← 声称完成前
   ↓
-文档落地（PM 签收）
+Skill: verify                             ← 功能测试，PASS 后才进下一步
+  ↓
+文档落地（PM 归位签收）                   ← 闸门，文档未落地不算完成
 ```
 
 ### 常见违规模式（禁止）
@@ -215,6 +219,7 @@ Skill: superpowers:verification-before-completion ← 声称完成前
 - ❌ 没有 review 直接声称子任务完成
 - ❌ 没有跑验证命令就说"测试通过"
 - ❌ 整体功能开发完成后未做功能测试就声称"完成"
+- ❌ verify PASS 后直接声称完成，不补写文档
 
 ---
 
