@@ -185,3 +185,31 @@ class TestKolsPersonas:
         )
         personas = resp.json()["personas"]
         assert not any(p["name"] == "NullPersonaCreator" for p in personas)
+
+
+class TestGetConfig:
+    @pytest.mark.asyncio
+    async def test_get_config_unauthorized(self, test_client):
+        resp = await test_client.get("/api/tools/tiktok-writer/config")
+        assert resp.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_get_config_returns_prompts_and_model(self, test_client, operator_token, test_session):
+        from sqlalchemy import text as sa_text
+        await test_session.execute(sa_text(
+            "INSERT INTO tiktok_writer_configs (config_key, system_prompt, is_active) "
+            "VALUES ('hook_eval', 'Test Hook Prompt', true), "
+            "('structure', 'Test Structure Prompt', true) "
+            "ON CONFLICT (config_key) DO NOTHING"
+        ))
+        await test_session.commit()
+
+        resp = await test_client.get(
+            "/api/tools/tiktok-writer/config",
+            headers={"Authorization": f"Bearer {operator_token}"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        assert "hook_eval_prompt" in data
+        assert "structure_prompt" in data
+        assert "model_id" in data

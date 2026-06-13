@@ -23,6 +23,7 @@ from app.middlewares.auth import get_current_user
 from app.models.kol import Kol
 from app.models.output import Output
 from app.models.task import TaskJob
+from app.models.tiktok_writer import TiktokWriterConfig
 from app.models.user import User
 from app.services import word_export
 
@@ -30,6 +31,33 @@ router = APIRouter(prefix="/tools/tiktok-writer", tags=["tiktok-writer"])
 
 DEFAULT_MODEL = "claude-opus-4-6-thinking"
 _RETRY_DELAYS = [2, 4, 6]
+
+
+async def _get_tw_config(key: str, db: AsyncSession) -> TiktokWriterConfig:
+    """从 DB 读取激活的 tiktok-writer 配置，不存在则抛 503。"""
+    config = (await db.execute(
+        select(TiktokWriterConfig)
+        .where(TiktokWriterConfig.config_key == key)
+        .where(TiktokWriterConfig.is_active == True)  # noqa: E712
+    )).scalar_one_or_none()
+    if config is None:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "CONFIG_NOT_FOUND", "message": f"tiktok-writer 配置 '{key}' 未激活，请联系管理员"},
+        )
+    return config
+
+
+async def _resolve_tw_model(config: TiktokWriterConfig, db: AsyncSession) -> str:
+    """解析绑定的模型 ID，无绑定则返回默认值。"""
+    from sqlalchemy import text as sa_text
+    if not config.ai_model_id:
+        return DEFAULT_MODEL
+    row = (await db.execute(
+        sa_text("SELECT model_id FROM ai_models WHERE id = :id AND status = 'active'"),
+        {"id": config.ai_model_id},
+    )).fetchone()
+    return row[0] if row else DEFAULT_MODEL
 
 
 async def require_operator(current_user: User = Depends(get_current_user)) -> User:
@@ -44,6 +72,25 @@ async def require_operator(current_user: User = Depends(get_current_user)) -> Us
             detail={"code": "PERMISSION_DENIED", "message": "无权限访问"},
         )
     return current_user
+
+
+@router.get("/config")
+async def get_config(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_operator),
+):
+    """返回 hook_eval 和 structure 的 Prompt + 模型，供前端 Step1/2 使用。"""
+    hook_cfg = await _get_tw_config("hook_eval", db)
+    struct_cfg = await _get_tw_config("structure", db)
+    model_id = await _resolve_tw_model(hook_cfg, db)
+    return {
+        "success": True,
+        "data": {
+            "hook_eval_prompt": hook_cfg.system_prompt or "",
+            "structure_prompt": struct_cfg.system_prompt or "",
+            "model_id": model_id,
+        },
+    }
 
 
 # ---------------------------------------------------------------------------
