@@ -156,3 +156,92 @@ def _parse_pages_selling_point(content: bytes) -> str:
         if len(re.findall(r"[一-鿿]", s)) >= 5:
             result.append(s)
     return "\n".join(result)
+
+
+# ---------------------------------------------------------------------------
+# qianchuan-review 专用解析函数
+# ---------------------------------------------------------------------------
+
+async def parse_qianchuan_review_file(file: UploadFile) -> str:
+    """
+    qianchuan-review 专用文件解析，返回纯文本（无截断）。
+
+    支持：.txt / .md / .docx / .pages
+    不支持：.pdf（返回提示文字）
+    其他格式：抛 ValueError
+
+    .pages 含日历噪声过滤（与旧 JS 逻辑等价）：
+    - 星期[一二三四五六日][BJR]
+    - [一二...十]+月 开头且长度 < 20
+    - 第[一二三四]季度 且长度 < 20
+    - 公元 开头且长度 < 10
+    """
+    filename = file.filename or ""
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    content_bytes = await file.read()
+
+    if ext in ("txt", "md"):
+        return content_bytes.decode("utf-8", errors="replace")
+    elif ext == "docx":
+        try:
+            return _parse_docx(content_bytes)
+        except Exception as e:
+            raise ValueError(f".docx 文件解析失败: {e}") from e
+    elif ext == "pdf":
+        return "[暂不支持 PDF 格式，请转为 .docx 或 .txt 后上传]"
+    elif ext == "pages":
+        return _parse_pages_qianchuan_review(content_bytes)
+    else:
+        raise ValueError(f"不支持的文件格式: .{ext}（支持 .txt / .md / .docx / .pages）")
+
+
+def _parse_pages_qianchuan_review(content: bytes) -> str:
+    """
+    解析 Apple Pages 文件（qianchuan-review 版本）。
+    与 selling-point 版本的差异：增加日历噪声过滤（与原始 JS 逻辑等价）。
+    """
+    import zipfile as _zipfile
+    try:
+        import snappy  # python-snappy
+    except ImportError:
+        import cramjam as snappy  # type: ignore
+
+    try:
+        with _zipfile.ZipFile(io.BytesIO(content)) as zf:
+            try:
+                iwa_data = zf.read("Index/Document.iwa")
+            except KeyError:
+                return "[.pages 文件格式异常，未找到文档内容]"
+    except _zipfile.BadZipFile:
+        return "[.pages 文件格式异常，无法解压]"
+
+    try:
+        decompressed = snappy.decompress(iwa_data[4:])
+        if isinstance(decompressed, memoryview):
+            decompressed = bytes(decompressed)
+    except Exception:  # noqa: BLE001
+        decompressed = iwa_data
+
+    raw = decompressed.decode("utf-8", errors="ignore")
+    pattern = (
+        r"[一-鿿　-〿＀-￯，。！？、；：""''（）【】《》"
+        r"a-zA-Z0-9\s%.+\-·\/…]{10,}"
+    )
+    segments = re.findall(pattern, raw)
+    result = []
+    for s in segments:
+        s = s.strip()
+        chinese_count = len(re.findall(r"[一-鿿]", s))
+        if chinese_count < 5:
+            continue
+        # 日历噪声过滤（与原始 JS 逻辑等价）
+        if re.search(r"星期[一二三四五六日][BJR]", s):
+            continue
+        if re.match(r"^[一二三四五六七八九十]+月", s) and len(s) < 20:
+            continue
+        if re.search(r"第[一二三四]季度", s) and len(s) < 20:
+            continue
+        if s.startswith("公元") and len(s) < 10:
+            continue
+        result.append(s)
+    return "\n".join(result)
