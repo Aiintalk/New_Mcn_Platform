@@ -18,6 +18,8 @@ from app.models.tikhub_credential import TikHubCredential
 from app.models.tikhub_call_log import TikHubCallLog
 from app.models.benchmark import BenchmarkConfig, BenchmarkAnalysis
 from app.models.selling_point import SellingPointConfig
+from app.models.tiktok_writer import TiktokWriterConfig
+from app.models.qianchuan_review import QianchuanReviewConfig
 
 __all__ = [
     "User",
@@ -42,4 +44,6 @@ __all__ = [
     "BenchmarkConfig",
     "BenchmarkAnalysis",
     "SellingPointConfig",
+    "TiktokWriterConfig",
+    "QianchuanReviewConfig",
 ]
