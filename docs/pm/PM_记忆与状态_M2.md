@@ -1,6 +1,6 @@
 # MCN_PM_Agent — 项目记忆与当前状态（M2）
 
-> 最后更新：2026-06-13（Sprint 4 tiktok-writer 迁移完成）
+> 最后更新：2026-06-13（Sprint 5 selling-point-extractor 迁移完成）
 > 更新角色：MCN_PM_Agent
 > 上一份文档：`docs/pm/PM_记忆与状态.md`（M1 阶段，已归档）
 
@@ -78,6 +78,34 @@
 
 ---
 
+### M2 Sprint 5 — 产品卖点提取器（selling-point-extractor）✅ 完成
+
+**核心流程：** 上传产品Brief + 达人文案 → AI 流式生成极致卖点卡（机制/背书/口碑/产品力）→ 多轮追问 → 下载 .md → 历史记录管理
+
+| 端 | 状态 | 备注 |
+|----|------|------|
+| 后端 admin 2 个接口 | ✅ 完成 | `admin_selling_point.py`，GET/PUT selling_point_configs |
+| 后端 operator 5 个接口 | ✅ 完成 | `operator_selling_point.py`，chat 从 DB 读 Prompt+模型 |
+| file_parser 扩展 | ✅ 完成 | 新增 `.pages`/`.doc`/pdfplumber 支持，独立函数 |
+| 前端运营端页面 | ✅ 完成 | `SellingPointPage.tsx`，无 SYSTEM_PROMPT 硬编码 |
+| 前端管理端配置 Tab | ✅ 完成 | `SellingPointConfigTab.tsx`（工具配置页） |
+| 自动化测试 | ✅ 43/43 后端 + 86/86 前端 | |
+| 数据库迁移 | ✅ 015 已执行 | selling_point_configs 表 + workspace_tools 注册 |
+| 工具状态 | ✅ online | 创作中心可见可用 |
+
+**红线合规**：6 条迁移红线全部满足，含红线 4（Prompt+模型管理端可配置）
+
+**迭代修复（验收后）：**
+- CSS 重写：初版使用 Tailwind（项目未安装），重写为 `card`/`btn`/CSS 变量体系，页面布局正常
+- 拖拽上传：Step 1/2 上传框支持拖拽文件，`briefDragOver`/`scriptDragOver` state 控制高亮
+
+**覆盖率：**
+- `operator_selling_point.py`：71%（目标≥70%）✅
+- `admin_selling_point.py`：71%（目标≥70%）✅
+- `file_parser.py`（含旧测试）：82%（目标≥80%）✅
+
+---
+
 ### M2 Sprint 4 — TikTok 脚本仿写（tiktok-writer）✅ 完成
 
 **核心流程：** 粘贴文案 + 点赞数（≥10万）→ AI 评估 Opening Hook → AI 分析结构锁定 Opening → AI 仿写 Body（直写 / 提供方向 / 多轮迭代）→ 导出 Word
@@ -133,12 +161,11 @@
 |------|---------|
 | 测试任务单结果列为空 | 仅第一章执行完毕，需补充执行 |
 | 并发测试 4/4 失败 | 本地环境问题，需在测试服验证 |
-| M2 Base_API / Base_Database 未补全 | Sprint3 接口和表已补充 |
 | antd `message` 静态方法警告 | 仅 BenchmarkPage 已修复，其余 25 个文件待批量迁移 |
 
 **下一步优先级：**
-1. 人工验收 tiktok-writer 功能（浏览器 5 步流程 + AI 真实调用）
-2. 规划 M2 Sprint 5（下一个待迁移工具）
+1. 人工验收 selling-point-extractor（浏览器 3 步流程 + AI 真实调用，需先在管理端配置 Prompt 和模型）
+2. 规划 M2 Sprint 6（下一个待迁移工具）
 3. 批量修复 antd `message` 静态方法 → `App.useApp()` hook（25 个文件）
 4. 补充 operator_tiktok_writer.py 单元测试（提升覆盖率至 70%+）
 5. 测试服部署并验证并发测试
@@ -151,6 +178,8 @@
 
 | 文件 | 说明 | 状态 |
 |------|------|------|
+| `backend/docs/tasks/M2_Sprint05_后端任务_selling-point-extractor_v1.md` | Sprint 5 后端任务单 | ✅ 已执行 |
+| `frontend/docs/tasks/M2_Sprint05_前端任务_selling-point-extractor_v1.md` | Sprint 5 前端任务单 | ✅ 已执行 |
 | `backend/docs/tasks/M2_Sprint04_后端任务_tiktok-writer_v1.md` | tiktok-writer 后端任务单 | ✅ 已执行 |
 | `frontend/docs/tasks/M2_Sprint04_前端任务_tiktok-writer_v1.md` | tiktok-writer 前端任务单 | ✅ 已执行 |
 | `backend/docs/tasks/M2_Sprint3_persona_positioning.md` | 人格定位后端任务单 | ✅ 已执行 |
@@ -165,6 +194,7 @@
 
 | 文件 | 说明 | 状态 |
 |------|------|------|
+| `backend/docs/tests/M2_Sprint05_测试报告_selling-point-extractor_v1.md` | Sprint 5 测试报告（43/43 后端 + 86/86 前端）| ✅ 已完成 |
 | `backend/docs/tests/M2_Sprint04_测试报告_tiktok-writer_v1.md` | Sprint 4 测试报告（317/317 后端）| ✅ 已完成 |
 | `backend/docs/tests/M2_Sprint3_测试报告.md` | Sprint 3 测试报告（371/371） | ✅ 已完成 |
 

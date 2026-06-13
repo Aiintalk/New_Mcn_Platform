@@ -1,0 +1,331 @@
+"""Integration tests for operator_selling_point router."""
+import io
+from unittest.mock import patch, AsyncMock, MagicMock
+
+import pytest
+from sqlalchemy import text
+
+
+# ---------- fixtures ----------
+
+@pytest.fixture(autouse=True)
+async def ensure_config(test_session):
+    """确保测试库中有激活的 selling_point_configs 配置。"""
+    await test_session.execute(text(
+        "INSERT INTO selling_point_configs (config_key, system_prompt, is_active) "
+        "VALUES ('extract', '测试Prompt', true) "
+        "ON CONFLICT (config_key) DO NOTHING"
+    ))
+    await test_session.commit()
+
+
+# ---------- Auth ----------
+
+class TestAuth:
+    @pytest.mark.asyncio
+    async def test_chat_unauthorized(self, test_client):
+        resp = await test_client.post(
+            "/api/tools/selling-point-extractor/chat",
+            json={"messages": [{"role": "user", "content": "hi"}]},
+        )
+        assert resp.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_parse_file_unauthorized(self, test_client):
+        resp = await test_client.post(
+            "/api/tools/selling-point-extractor/parse-file",
+            files={"file": ("test.txt", b"content", "text/plain")},
+        )
+        assert resp.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_history_get_unauthorized(self, test_client):
+        resp = await test_client.get("/api/tools/selling-point-extractor/history")
+        assert resp.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_history_post_unauthorized(self, test_client):
+        resp = await test_client.post(
+            "/api/tools/selling-point-extractor/history",
+            json={"result": "内容"},
+        )
+        assert resp.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_history_delete_unauthorized(self, test_client):
+        resp = await test_client.delete(
+            "/api/tools/selling-point-extractor/history?id=1",
+        )
+        assert resp.status_code == 401
+
+
+# ---------- Chat ----------
+
+class TestChat:
+    @pytest.mark.asyncio
+    async def test_empty_messages_returns_400(self, test_client, operator_token):
+        resp = await test_client.post(
+            "/api/tools/selling-point-extractor/chat",
+            json={"messages": []},
+            headers={"Authorization": f"Bearer {operator_token}"},
+        )
+        assert resp.status_code == 400
+        assert resp.json()["code"] == "INVALID_INPUT"
+
+    @pytest.mark.asyncio
+    async def test_config_inactive_returns_503(self, test_client, operator_token, test_session):
+        await test_session.execute(
+            text("UPDATE selling_point_configs SET is_active=false WHERE config_key='extract'")
+        )
+        await test_session.commit()
+
+        resp = await test_client.post(
+            "/api/tools/selling-point-extractor/chat",
+            json={"messages": [{"role": "user", "content": "分析"}]},
+            headers={"Authorization": f"Bearer {operator_token}"},
+        )
+        assert resp.status_code == 503
+
+        # 恢复
+        await test_session.execute(
+            text("UPDATE selling_point_configs SET is_active=true WHERE config_key='extract'")
+        )
+        await test_session.commit()
+
+    @pytest.mark.asyncio
+    async def test_chat_streams_plain_text(self, test_client, operator_token):
+        async def mock_stream(*args, **kwargs):
+            for chunk in ["【机制】", "无特别机制"]:
+                yield chunk
+
+        with patch(
+            "app.routers.operator_selling_point.yunwu_adapter.chat_stream",
+            side_effect=mock_stream,
+        ), patch("app.routers.operator_selling_point.AsyncSessionLocal") as mock_sl:
+            mock_sess = AsyncMock()
+            mock_sess.__aenter__ = AsyncMock(return_value=mock_sess)
+            mock_sess.__aexit__ = AsyncMock(return_value=False)
+            mock_sess.add = MagicMock()
+            mock_sess.commit = AsyncMock()
+            mock_sl.return_value = mock_sess
+
+            resp = await test_client.post(
+                "/api/tools/selling-point-extractor/chat",
+                json={"messages": [{"role": "user", "content": "分析产品"}]},
+                headers={"Authorization": f"Bearer {operator_token}"},
+            )
+        assert resp.status_code == 200
+        assert "text/plain" in resp.headers["content-type"]
+        assert "【机制】" in resp.text
+
+    @pytest.mark.asyncio
+    async def test_chat_error_yields_error_marker(self, test_client, operator_token):
+        async def mock_stream_error(*args, **kwargs):
+            raise RuntimeError("AI 不可用")
+            yield
+
+        with patch(
+            "app.routers.operator_selling_point.yunwu_adapter.chat_stream",
+            side_effect=mock_stream_error,
+        ), patch("app.routers.operator_selling_point.AsyncSessionLocal") as mock_sl:
+            mock_sess = AsyncMock()
+            mock_sess.__aenter__ = AsyncMock(return_value=mock_sess)
+            mock_sess.__aexit__ = AsyncMock(return_value=False)
+            mock_sess.add = MagicMock()
+            mock_sess.commit = AsyncMock()
+            mock_sl.return_value = mock_sess
+
+            resp = await test_client.post(
+                "/api/tools/selling-point-extractor/chat",
+                json={"messages": [{"role": "user", "content": "分析"}]},
+                headers={"Authorization": f"Bearer {operator_token}"},
+            )
+        assert resp.status_code == 200
+        assert "[ERROR]" in resp.text
+
+
+# ---------- Parse File ----------
+
+class TestParseFile:
+    @pytest.mark.asyncio
+    async def test_parse_txt(self, test_client, operator_token):
+        resp = await test_client.post(
+            "/api/tools/selling-point-extractor/parse-file",
+            files={"file": ("brief.txt", "产品卖点内容".encode(), "text/plain")},
+            headers={"Authorization": f"Bearer {operator_token}"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "text" in data and "filename" in data
+        assert "产品卖点" in data["text"]
+
+    @pytest.mark.asyncio
+    async def test_parse_doc_returns_hint(self, test_client, operator_token):
+        resp = await test_client.post(
+            "/api/tools/selling-point-extractor/parse-file",
+            files={"file": ("old.doc", b"\xd0\xcf\x11", "application/msword")},
+            headers={"Authorization": f"Bearer {operator_token}"},
+        )
+        assert resp.status_code == 200
+        assert ".doc 格式暂不支持" in resp.json()["text"]
+
+    @pytest.mark.asyncio
+    async def test_parse_docx(self, test_client, operator_token):
+        from docx import Document
+        doc = Document()
+        doc.add_paragraph("玻尿酸保湿成分")
+        buf = io.BytesIO(); doc.save(buf); buf.seek(0)
+        resp = await test_client.post(
+            "/api/tools/selling-point-extractor/parse-file",
+            files={"file": ("p.docx", buf.read(),
+                            "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+            headers={"Authorization": f"Bearer {operator_token}"},
+        )
+        assert resp.status_code == 200
+        assert "玻尿酸" in resp.json()["text"]
+
+
+# ---------- History ----------
+
+class TestHistory:
+    @pytest.mark.asyncio
+    async def test_empty_list(self, test_client, operator_token, test_session):
+        await test_session.execute(
+            text("DELETE FROM outputs WHERE tool_code='selling-point-extractor'")
+        )
+        await test_session.commit()
+
+        resp = await test_client.get(
+            "/api/tools/selling-point-extractor/history",
+            headers={"Authorization": f"Bearer {operator_token}"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["records"] == []
+
+    @pytest.mark.asyncio
+    async def test_save_and_list(self, test_client, operator_token, test_session):
+        await test_session.execute(
+            text("DELETE FROM outputs WHERE tool_code='selling-point-extractor'")
+        )
+        await test_session.commit()
+
+        save_resp = await test_client.post(
+            "/api/tools/selling-point-extractor/history",
+            json={"productName": "测试产品", "result": "卖点卡内容"},
+            headers={"Authorization": f"Bearer {operator_token}"},
+        )
+        assert save_resp.status_code == 200
+        assert save_resp.json()["success"] is True
+
+        list_resp = await test_client.get(
+            "/api/tools/selling-point-extractor/history",
+            headers={"Authorization": f"Bearer {operator_token}"},
+        )
+        records = list_resp.json()["records"]
+        assert any(r["productName"] == "测试产品" for r in records)
+
+    @pytest.mark.asyncio
+    async def test_save_and_get_single(self, test_client, operator_token):
+        save_resp = await test_client.post(
+            "/api/tools/selling-point-extractor/history",
+            json={
+                "productName": "单条查询产品",
+                "result": "完整卖点卡内容",
+                "chatHistory": [{"role": "user", "content": "分析"}],
+                "briefFiles": [{"name": "b.pdf", "text": "说明"}],
+                "scriptFiles": [],
+            },
+            headers={"Authorization": f"Bearer {operator_token}"},
+        )
+        assert save_resp.status_code == 200
+        record_id = save_resp.json()["id"]
+
+        get_resp = await test_client.get(
+            f"/api/tools/selling-point-extractor/history?id={record_id}",
+            headers={"Authorization": f"Bearer {operator_token}"},
+        )
+        assert get_resp.status_code == 200
+        rec = get_resp.json()["record"]
+        assert rec["productName"] == "单条查询产品"
+        assert len(rec["briefFiles"]) == 1
+
+    @pytest.mark.asyncio
+    async def test_get_nonexistent_404(self, test_client, operator_token):
+        resp = await test_client.get(
+            "/api/tools/selling-point-extractor/history?id=999999",
+            headers={"Authorization": f"Bearer {operator_token}"},
+        )
+        assert resp.status_code == 404
+        assert resp.json()["code"] == "NOT_FOUND"
+
+    @pytest.mark.asyncio
+    async def test_soft_delete(self, test_client, operator_token, test_session):
+        save_resp = await test_client.post(
+            "/api/tools/selling-point-extractor/history",
+            json={"productName": "待删除", "result": "内容"},
+            headers={"Authorization": f"Bearer {operator_token}"},
+        )
+        record_id = save_resp.json()["id"]
+
+        del_resp = await test_client.delete(
+            f"/api/tools/selling-point-extractor/history?id={record_id}",
+            headers={"Authorization": f"Bearer {operator_token}"},
+        )
+        assert del_resp.status_code == 200
+        assert del_resp.json()["success"] is True
+
+        # 验证物理记录仍在，deleted_at 已设置
+        row = (await test_session.execute(
+            text(f"SELECT deleted_at FROM outputs WHERE id={record_id}")
+        )).fetchone()
+        assert row is not None
+        assert row[0] is not None
+
+        # 查询已删除记录返回 404
+        get_resp = await test_client.get(
+            f"/api/tools/selling-point-extractor/history?id={record_id}",
+            headers={"Authorization": f"Bearer {operator_token}"},
+        )
+        assert get_resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_empty_result_returns_400(self, test_client, operator_token):
+        resp = await test_client.post(
+            "/api/tools/selling-point-extractor/history",
+            json={"result": "   "},
+            headers={"Authorization": f"Bearer {operator_token}"},
+        )
+        assert resp.status_code == 400
+        assert resp.json()["code"] == "INVALID_INPUT"
+
+    @pytest.mark.asyncio
+    async def test_default_product_name(self, test_client, operator_token):
+        save_resp = await test_client.post(
+            "/api/tools/selling-point-extractor/history",
+            json={"result": "卖点内容"},
+            headers={"Authorization": f"Bearer {operator_token}"},
+        )
+        record_id = save_resp.json()["id"]
+        get_resp = await test_client.get(
+            f"/api/tools/selling-point-extractor/history?id={record_id}",
+            headers={"Authorization": f"Bearer {operator_token}"},
+        )
+        assert get_resp.json()["record"]["productName"] == "未命名产品"
+
+    @pytest.mark.asyncio
+    async def test_delete_already_deleted_returns_404(self, test_client, operator_token):
+        save_resp = await test_client.post(
+            "/api/tools/selling-point-extractor/history",
+            json={"result": "内容"},
+            headers={"Authorization": f"Bearer {operator_token}"},
+        )
+        record_id = save_resp.json()["id"]
+        await test_client.delete(
+            f"/api/tools/selling-point-extractor/history?id={record_id}",
+            headers={"Authorization": f"Bearer {operator_token}"},
+        )
+        resp2 = await test_client.delete(
+            f"/api/tools/selling-point-extractor/history?id={record_id}",
+            headers={"Authorization": f"Bearer {operator_token}"},
+        )
+        assert resp2.status_code == 404

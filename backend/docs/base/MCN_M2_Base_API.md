@@ -1,7 +1,7 @@
 # MCN Information System Platform · M2 Base API 说明
 
 > 文档定位：本文件定义 M2 阶段新增的所有 API 接口。M1 接口见 `docs/base/M1/MCN_M1_Base_API.md`。
-> M2 包含 Sprint 1（kol-intake 红人入驻问卷）、Sprint 2（运营首页重设计）、Sprint 3（人格定位 + TikHub 管理）。
+> M2 包含 Sprint 1（kol-intake 红人入驻问卷）、Sprint 2（运营首页重设计）、Sprint 3（人格定位 + TikHub 管理）、Sprint 4（tiktok-writer）、Sprint 5（selling-point-extractor）。
 
 ---
 
@@ -482,3 +482,85 @@ Response：文件流 `Content-Type: application/vnd.openxmlformats-officedocumen
 | 400 | `REPORT_NOT_READY` | 报告未生成完成 |
 | 400 | `OPTIMIZATION_FAILED` | AI 优化失败 |
 | 404 | `REPORT_NOT_FOUND` | 报告不存在 |
+
+---
+
+## 12. Sprint 5 — 产品卖点提取器（selling-point-extractor）
+
+> 路由文件：`backend/app/routers/operator_selling_point.py`（运营端）、`backend/app/routers/admin_selling_point.py`（管理端）
+> 权限：JWT 鉴权。运营端：operator / admin；管理端：admin 专属
+
+### 12.1 接口总览
+
+| 方法 | 路径 | 角色 | 说明 |
+|------|------|------|------|
+| GET | `/api/admin/selling-point/configs` | admin | 配置列表 |
+| PUT | `/api/admin/selling-point/configs/{key}` | admin | 更新 Prompt / 模型 / 激活状态 |
+| POST | `/api/tools/selling-point-extractor/chat` | operator/admin | AI 流式对话（raw text stream）|
+| POST | `/api/tools/selling-point-extractor/parse-file` | operator/admin | 文件解析 |
+| GET | `/api/tools/selling-point-extractor/history` | operator/admin | 历史列表 / 单条 |
+| POST | `/api/tools/selling-point-extractor/history` | operator/admin | 保存历史记录 |
+| DELETE | `/api/tools/selling-point-extractor/history` | operator/admin | 软删除 |
+
+### 12.2 GET `/api/admin/selling-point/configs`
+
+返回所有配置（目前只有 `config_key='extract'` 一条）：
+```json
+{
+  "success": true,
+  "data": [{
+    "id": 1, "config_key": "extract",
+    "ai_model_id": null, "system_prompt": "...",
+    "is_active": true, "updated_at": "ISO 8601"
+  }]
+}
+```
+
+### 12.3 PUT `/api/admin/selling-point/configs/{config_key}`
+
+Request：`{ "ai_model_id": int|null, "system_prompt": "string", "is_active": bool }`
+Response：`{ "success": true, "data": { "config_key": "extract" } }`
+404 + code=`RESOURCE_NOT_FOUND` 当 key 不存在。
+
+### 12.4 POST `/api/tools/selling-point-extractor/chat`
+
+Request：`{ "messages": [{"role": "user"|"assistant", "content": "string"}] }`
+（**无 systemPrompt 字段**，后端从 `selling_point_configs` 表读取）
+
+Response：`text/plain` 流式文本（raw text stream，非 SSE）
+
+503 + code=`CONFIG_NOT_FOUND` 当配置未激活。
+
+### 12.5 POST `/api/tools/selling-point-extractor/parse-file`
+
+Request：`multipart/form-data`，字段名 `file`
+
+Response：`{ "text": "string", "filename": "string" }`
+
+支持格式：`.txt` / `.md` / `.docx` / `.pdf`（pdfplumber）/ `.pages`（zipfile+snappy）/ `.doc`（返回提示）/ 其他（UTF-8）
+
+### 12.6 GET `/api/tools/selling-point-extractor/history`
+
+不带 id：返回列表 `{ "records": [{ "id", "productName", "createdAt", "summary" }] }`（全员共享）
+带 `?id={id}`：返回单条 `{ "record": { "id", "productName", "result", "chatHistory", "briefFiles", "scriptFiles", "createdAt" } }`
+
+### 12.7 POST `/api/tools/selling-point-extractor/history`
+
+Request：`{ "productName": "string", "result": "string", "chatHistory": [...], "briefFiles": [...], "scriptFiles": [...] }`
+Response：`{ "success": true, "id": "string" }`
+
+### 12.8 DELETE `/api/tools/selling-point-extractor/history?id={id}`
+
+软删除（设 `deleted_at`）。Response：`{ "success": true }`
+
+### 12.9 错误码
+
+| HTTP | code | 含义 |
+|------|------|------|
+| 400 | `INVALID_INPUT` | messages/result 为空 |
+| 404 | `NOT_FOUND` | 历史记录不存在或已删除 |
+| 404 | `RESOURCE_NOT_FOUND` | 配置 key 不存在 |
+| 422 | `PARSE_ERROR` | 文件格式不支持（ValueError）|
+| 500 | `PARSE_ERROR` | 文件解析内部错误 |
+| 503 | `CONFIG_NOT_FOUND` | 配置未激活 |
+
