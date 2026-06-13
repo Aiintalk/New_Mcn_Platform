@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.background import BackgroundTask
 
@@ -68,7 +68,6 @@ async def _resolve_model_id(config: SellingPointConfig, db: AsyncSession) -> str
     """解析配置绑定的模型 ID，无绑定则返回默认值。"""
     if not config.ai_model_id:
         return DEFAULT_MODEL
-    from sqlalchemy import text
     row = (await db.execute(
         text("SELECT model_id FROM ai_models WHERE id = :id AND status = 'active'"),
         {"id": config.ai_model_id},
