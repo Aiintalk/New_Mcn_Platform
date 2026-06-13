@@ -6,6 +6,7 @@ app/services/file_parser.py
 """
 import io
 import re
+import zipfile
 
 import pdfplumber
 
@@ -121,7 +122,6 @@ def _parse_pages_selling_point(content: bytes) -> str:
     解析 Apple Pages 文件（selling-point 版本）。
     过滤条件：中文字符 ≥5，无日历噪音过滤。
     """
-    import zipfile
     try:
         import snappy  # python-snappy
     except ImportError:
@@ -200,19 +200,18 @@ def _parse_pages_qianchuan_review(content: bytes) -> str:
     解析 Apple Pages 文件（qianchuan-review 版本）。
     与 selling-point 版本的差异：增加日历噪声过滤（与原始 JS 逻辑等价）。
     """
-    import zipfile as _zipfile
     try:
         import snappy  # python-snappy
     except ImportError:
         import cramjam as snappy  # type: ignore
 
     try:
-        with _zipfile.ZipFile(io.BytesIO(content)) as zf:
+        with zipfile.ZipFile(io.BytesIO(content)) as zf:
             try:
                 iwa_data = zf.read("Index/Document.iwa")
             except KeyError:
                 return "[.pages 文件格式异常，未找到文档内容]"
-    except _zipfile.BadZipFile:
+    except zipfile.BadZipFile:
         return "[.pages 文件格式异常，无法解压]"
 
     try:
@@ -235,6 +234,7 @@ def _parse_pages_qianchuan_review(content: bytes) -> str:
         if chinese_count < 5:
             continue
         # 日历噪声过滤（与原始 JS 逻辑等价）
+        # [BJR] 为 Pages .iwa 序列化日历字段后缀（非自然语言，直接过滤）
         if re.search(r"星期[一二三四五六日][BJR]", s):
             continue
         if re.match(r"^[一二三四五六七八九十]+月", s) and len(s) < 20:
