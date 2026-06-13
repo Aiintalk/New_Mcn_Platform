@@ -37,3 +37,20 @@ export async function exportWord(body: ExportWordRequest): Promise<Blob> {
   }
   return resp.blob();
 }
+
+export interface TiktokWriterConfig {
+  hook_eval_prompt: string;
+  structure_prompt: string;
+  model_id: string;
+}
+
+/** 从后端获取 hook_eval 和 structure 的 Prompt + 模型（管理端可配置）*/
+export async function getTiktokWriterConfig(): Promise<TiktokWriterConfig> {
+  const token = (await import('../store/authStore')).useAuthStore.getState().token;
+  const resp = await fetch(`${BASE_URL}/api/tools/tiktok-writer/config`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!resp.ok) throw new Error(`获取配置失败: ${resp.status}`);
+  const data = await resp.json();
+  return data.data;
+}

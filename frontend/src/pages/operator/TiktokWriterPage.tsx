@@ -8,10 +8,10 @@
  *   Step 4 · Rewrite     — AI 仿写 Body + 多轮迭代
  *   Step 5 · Export      — 编辑 finalBody + 导出 Word
  */
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Button, Input, Select, Steps, message, Radio, Alert } from 'antd';
 import { DownloadOutlined, ReloadOutlined } from '@ant-design/icons';
-import { chatStream, exportWord, getPersonas } from '../../api/tiktokWriter';
+import { chatStream, exportWord, getPersonas, getTiktokWriterConfig, type TiktokWriterConfig } from '../../api/tiktokWriter';
 import type { Persona, StepState } from '../../types/tiktokWriter';
 
 const { TextArea } = Input;
@@ -181,11 +181,18 @@ export default function TiktokWriterPage() {
   const [personasLoaded, setPersonasLoaded] = useState(false);
   const [iterateInput, setIterateInput] = useState('');
   const [streamBuffer, setStreamBuffer] = useState('');
+  const [toolConfig, setToolConfig] = useState<TiktokWriterConfig | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   function update(patch: Partial<StepState>) {
     setState(prev => ({ ...prev, ...patch }));
   }
+
+  useEffect(() => {
+    getTiktokWriterConfig()
+      .then(setToolConfig)
+      .catch(() => {}); // 加载失败静默处理，fallback 到前端硬编码 Prompt
+  }, []);
 
   const likesNum = parseInt(state.likesCount.replace(/,/g, ''), 10);
   const likesOk = !isNaN(likesNum) && likesNum >= 100_000;
@@ -197,7 +204,8 @@ export default function TiktokWriterPage() {
     try {
       const resp = await chatStream({
         messages: [{ role: 'user', content: state.transcript }],
-        systemPrompt: buildHookEvalPrompt(),
+        systemPrompt: toolConfig?.hook_eval_prompt ?? buildHookEvalPrompt(),
+        model: toolConfig?.model_id,
       });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const full = await readStream(resp, chunk => setStreamBuffer(prev => prev + chunk));
@@ -227,7 +235,8 @@ export default function TiktokWriterPage() {
     try {
       const resp = await chatStream({
         messages: [{ role: 'user', content: state.transcript }],
-        systemPrompt: buildStructurePrompt(),
+        systemPrompt: toolConfig?.structure_prompt ?? buildStructurePrompt(),
+        model: toolConfig?.model_id,
       });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const full = await readStream(resp, chunk => setStreamBuffer(prev => prev + chunk));
