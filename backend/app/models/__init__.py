@@ -17,6 +17,7 @@ from app.models.persona_report import PersonaReport
 from app.models.tikhub_credential import TikHubCredential
 from app.models.tikhub_call_log import TikHubCallLog
 from app.models.benchmark import BenchmarkConfig, BenchmarkAnalysis
+from app.models.selling_point import SellingPointConfig
 
 __all__ = [
     "User",
@@ -40,4 +41,5 @@ __all__ = [
     "TikHubCallLog",
     "BenchmarkConfig",
     "BenchmarkAnalysis",
+    "SellingPointConfig",
 ]
