@@ -2,6 +2,8 @@ from sqlalchemy import Column, Integer, String, Text, Boolean, ForeignKey, TIMES
 from app.core.database import Base
 
 
+# NOTE: 结构与 BenchmarkConfig 相同。如需统一抽基类，见 benchmark.py。
+# 当前保持独立以避免改动已稳定的 benchmark 模型。
 class SellingPointConfig(Base):
     """管理端配置（Prompt + 模型）"""
     __tablename__ = "selling_point_configs"
