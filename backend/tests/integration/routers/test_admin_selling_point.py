@@ -8,19 +8,14 @@ from app.models.selling_point import SellingPointConfig
 
 @pytest_asyncio.fixture(autouse=True)
 async def seed_selling_point_config(test_session):
-    """每个测试前插入 extract 配置行，测试后自动清理。"""
-    config = SellingPointConfig(
-        config_key="extract",
-        system_prompt="默认提取卖点 Prompt",
-        is_active=True,
-    )
-    test_session.add(config)
+    """确保 extract 配置存在。使用 ON CONFLICT DO NOTHING 避免与其他测试的 fixture 冲突。"""
+    await test_session.execute(text(
+        "INSERT INTO selling_point_configs (config_key, system_prompt, is_active) "
+        "VALUES ('extract', '默认提取卖点 Prompt', true) "
+        "ON CONFLICT (config_key) DO NOTHING"
+    ))
     await test_session.commit()
     yield
-    await test_session.execute(
-        text("DELETE FROM selling_point_configs WHERE config_key='extract'")
-    )
-    await test_session.commit()
 
 
 class TestGetConfigs:

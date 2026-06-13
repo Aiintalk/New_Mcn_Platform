@@ -11,15 +11,12 @@ from sqlalchemy import text
 @pytest.fixture(autouse=True)
 async def ensure_config(test_session):
     """确保测试库中有激活的 selling_point_configs 配置。"""
-    existing = (await test_session.execute(
-        text("SELECT id FROM selling_point_configs WHERE config_key='extract'")
-    )).fetchone()
-    if not existing:
-        await test_session.execute(text(
-            "INSERT INTO selling_point_configs (config_key, system_prompt, is_active) "
-            "VALUES ('extract', '测试Prompt', true)"
-        ))
-        await test_session.commit()
+    await test_session.execute(text(
+        "INSERT INTO selling_point_configs (config_key, system_prompt, is_active) "
+        "VALUES ('extract', '测试Prompt', true) "
+        "ON CONFLICT (config_key) DO NOTHING"
+    ))
+    await test_session.commit()
 
 
 # ---------- Auth ----------
