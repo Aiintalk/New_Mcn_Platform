@@ -213,10 +213,15 @@
 | file_parser.py 新增函数覆盖率 82% | 差 8%，未来可补充 OS 级异常路径测试 |
 
 **下一步优先级：**
-1. 规划 M2 Sprint 7（下一个待迁移工具，参考 `Ai_Toolbox/` 目录和工具迁移方案）
-2. 批量修复 antd `message` 静态方法 → `App.useApp()` hook（25 个文件）
-3. 补充 operator_tiktok_writer.py 单元测试（覆盖率提升至 70%+）
-4. 测试服部署并验证并发测试
+1. ✅ 已确认：tiktok-writer 和 qianchuan-review 需要增加管理端 Prompt+模型配置（参照 selling-point-extractor 模式）
+   - 实现计划：`docs/superpowers/plans/2026-06-13-tool-prompt-config.md`（10个Task）
+   - tiktok-writer 只将 hook_eval（评估 Opening）和 structure（分析结构）两个纯静态 Prompt 纳入配置；rewrite_* 和 iterate 因含动态插值保留前端构建
+   - qianchuan-review 将 with_excel 和 without_excel 两个 Prompt 均纳入配置
+   - 两者模型均支持管理端配置（绑定 ai_models 表，无绑定回退默认值）
+2. 规划 M2 Sprint 7（下一个待迁移工具，参考 `Ai_Toolbox/` 目录和工具迁移方案）
+3. 批量修复 antd `message` 静态方法 → `App.useApp()` hook（25 个文件）
+4. 补充 operator_tiktok_writer.py 单元测试（覆盖率提升至 70%+）
+5. 测试服部署并验证并发测试
 
 ---
 
