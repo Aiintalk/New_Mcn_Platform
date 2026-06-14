@@ -35,6 +35,11 @@ from app.routers.admin_selling_point import router as admin_selling_point_router
 from app.routers.operator_qianchuan_review import router as operator_qianchuan_review_router
 from app.routers.admin_tiktok_writer import router as admin_tiktok_writer_router
 from app.routers.admin_qianchuan_review import router as admin_qianchuan_review_router
+from app.routers.tool_extract_frames import router as tool_extract_frames_router
+from app.routers.tool_transcribe import router as tool_transcribe_router
+from app.routers.tool_chat_stream import router as tool_chat_stream_router
+from app.routers.tool_export_word import router as tool_export_word_router
+from app.routers.tool_qianchuan_edit_review import router as tool_qianchuan_edit_review_router
 
 
 @asynccontextmanager
@@ -123,3 +128,8 @@ app.include_router(admin_selling_point_router, prefix="/api")
 app.include_router(operator_qianchuan_review_router, prefix="/api")
 app.include_router(admin_tiktok_writer_router, prefix="/api")
 app.include_router(admin_qianchuan_review_router, prefix="/api")
+app.include_router(tool_extract_frames_router, prefix="/api")
+app.include_router(tool_transcribe_router, prefix="/api")
+app.include_router(tool_chat_stream_router, prefix="/api")
+app.include_router(tool_export_word_router, prefix="/api")
+app.include_router(tool_qianchuan_edit_review_router, prefix="/api")
