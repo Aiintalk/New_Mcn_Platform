@@ -20,6 +20,7 @@ from app.models.benchmark import BenchmarkConfig, BenchmarkAnalysis
 from app.models.selling_point import SellingPointConfig
 from app.models.tiktok_writer import TiktokWriterConfig
 from app.models.qianchuan_review import QianchuanReviewConfig
+from app.models.qianchuan_edit_review import QianchuanEditReviewConfig
 
 __all__ = [
     "User",
@@ -46,4 +47,5 @@ __all__ = [
     "SellingPointConfig",
     "TiktokWriterConfig",
     "QianchuanReviewConfig",
+    "QianchuanEditReviewConfig",
 ]

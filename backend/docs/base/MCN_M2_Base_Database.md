@@ -1,7 +1,7 @@
 # MCN Information System Platform · M2 Base Database 说明
 
 > 文档定位：本文件定义 M2 阶段新增的数据库表。M1 表定义见 `docs/base/M1/MCN_M1_Base_Database.md`。
-> M2 包含 Sprint 1（kol-intake 4 张表）、Sprint 3（persona 1 张表 + TikHub 2 张表 + benchmark 2 张表）、Sprint 5（selling_point_configs 1 张表），运营首页复用 M1 已有表，无新增。Sprint 4（tiktok-writer）无独立表，复用 outputs + task_jobs。
+> M2 包含 Sprint 1（kol-intake 4 张表）、Sprint 3（persona 1 张表 + TikHub 2 张表 + benchmark 2 张表）、Sprint 5（selling_point_configs 1 张表），运营首页复用 M1 已有表，无新增。Sprint 4（tiktok-writer）、Sprint 6（qianchuan-review）、Sprint 7（qianchuan-edit-review）无独立表，复用 outputs + task_jobs。
 
 ---
 
@@ -20,7 +20,24 @@
 | `benchmark_analyses` | 对标分析记录（账号分析结果） | Sprint 3 |
 | `selling_point_configs` | 卖点提取 AI 配置（Prompt + 模型） | Sprint 5 |
 
-> Sprint 4（tiktok-writer）无独立表，复用 `outputs` 和 `task_jobs`。
+> Sprint 4（tiktok-writer）、Sprint 6（qianchuan-review）、Sprint 7（qianchuan-edit-review）无独立表，复用 `outputs` 和 `task_jobs`。
+
+---
+
+## 1a. M2 迁移文件清单
+
+| 迁移文件 | Sprint | 操作说明 |
+|---------|--------|---------|
+| `007_benchmark.sql` | Sprint 3 | 新建 benchmark_configs、benchmark_analyses 表 |
+| `008_tikhub_credentials.sql` | Sprint 3 | 新建 tikhub_credentials 表 |
+| `009_persona_reports.sql` | Sprint 3 | 新建 persona_reports 表 |
+| `010_tikhub_call_logs.sql` | Sprint 3 | 新建 tikhub_call_logs 表 |
+| `011_workspace_tools.sql` | Sprint 3 | 初始化 workspace_tools 表及各工具入口 |
+| `014_tiktok_writer_workspace.sql` | Sprint 4 | workspace_tools 注册 tiktok-writer |
+| `015_selling_point_configs.sql` | Sprint 5 | 新建 selling_point_configs 表，注册 selling-point-extractor |
+| `016_qianchuan_review.sql` | Sprint 6 | workspace_tools 注册 qianchuan-review，status=online |
+| `018_qianchuan_review_configs.sql` | Sprint 6 | 新建 qianchuan_review_configs 表（管理端 Prompt 配置）|
+| `019_qianchuan_edit_review.sql` | Sprint 7 | workspace_tools 注册 qianchuan-edit-review，status=online |
 
 ---
 

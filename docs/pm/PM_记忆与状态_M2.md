@@ -1,6 +1,6 @@
 # MCN_PM_Agent — 项目记忆与当前状态（M2）
 
-> 最后更新：2026-06-13（Sprint 6 qianchuan-review 迁移完成）
+> 最后更新：2026-06-14（Sprint 7 qianchuan-edit-review 迁移完成）
 > 更新角色：MCN_PM_Agent
 > 上一份文档：`docs/pm/PM_记忆与状态.md`（M1 阶段，已归档）
 
@@ -9,7 +9,7 @@
 ## 一、项目基本信息
 
 - **项目名**：MCN Information System Platform
-- **当前阶段**：M2 阶段 — Sprint 4 完成
+- **当前阶段**：M2 阶段 — Sprint 7 完成
 - **GitHub**：https://github.com/Aiintalk/New_Mcn_Platform
 - **工作目录**：`D:\2026年工作\AI相关\AI工具箱新架构方案\mcn-platform\`
 - **后端**：`backend/`（FastAPI + PostgreSQL）
@@ -75,6 +75,40 @@
 4. SSE 断连空报告标 ready（空内容保护）
 5. 历史记录点击无反应（loadHistoryDetail 加 setStep(3)）
 6. 产出中心预览为空（调详情接口获取 content）
+
+---
+
+### M2 Sprint 7 — 千川剪辑预审（qianchuan-edit-review）✅ 完成
+
+**核心流程：** 上传原版爆款视频 + 我方成片 → 截帧（ffmpeg）+ 转录（Whisper）→ 多模态 SSE 流式预审（看画面+文案）→ 导出 Word / 保存报告
+
+| 端 | 状态 | 备注 |
+|----|------|------|
+| 后端 5 个接口 | ✅ 完成 | `tool_extract_frames.py` / `tool_transcribe.py` / `tool_chat_stream.py` / `tool_export_word.py` / `tool_qianchuan_edit_review.py` |
+| 数据库迁移 | ✅ 完成 | 019_qianchuan_edit_review.sql，workspace_tools 已注册 status=online |
+| 前端 API 模块 | ✅ 完成 | `qianchuanEditReview.ts`，5 个封装（FormData/SSE/Blob 均有例外标注，红线 #3 合规）|
+| 前端页面 | ✅ 完成 | `QianChuanEditReviewPage.tsx`，路由 `/workspace/qianchuan-edit-review` |
+| 集成测试 | ✅ 21/21 通过 | 5 个路由各 3-5 个测试 |
+| 功能测试 | ✅ PASS | 9 项接口验证（鉴权/截帧/转录/Word 导出/保存报告/输入校验），DB 审计日志确认 |
+
+**技术要点：**
+- `tool_chat_stream.py` 使用 `AsyncSessionLocal` 后台写 AiCallLog，已注册 conftest.py `_SESSION_LOCAL_PATCH_TARGETS`
+- 所有新接口返回标准信封 `success_response(data=...)`（红线 #1 合规）
+- `tool_export_word.py` 返回 `StreamingResponse`（文件流例外，不包信封）
+- Content-Disposition 文件名用 `filename*=UTF-8''url_encoded` 格式，前端需 `decodeURIComponent` 解码
+- `_RETRY_DELAYS = [3, 6]`（共 3 次尝试），单次重试上限对齐测试断言
+- pytz 新增依赖，已写入 requirements.txt
+
+**覆盖率（新增文件）：**
+- `tool_transcribe.py`：100% ✅
+- `tool_qianchuan_edit_review.py`：86% ✅
+- `tool_export_word.py`：87% ✅
+- `tool_chat_stream.py`：81% ✅
+- `tool_extract_frames.py`：34%（ffmpeg subprocess 路径无法在集成测试中真实执行）
+
+**功能测试发现（2026-06-14）：**
+- 运行后端需用新路径 `/Users/zhangchong/Desktop/mcn_platform/New_Mcn_Platform/backend`；旧路径 `/Users/zhangchong/ai_intalk/New_Mcn_Platform/` 的 uvicorn 进程也在 8000 端口，启动前须先 kill 旧进程
+- 新 operator 账户 `password_changed_at` 须设为非 NULL 才能通过 `require_password_changed` 鉴权
 
 ---
 
@@ -201,6 +235,9 @@
 | 3 | **workspace_tools INSERT 漏执行**：迁移 SQL 文件写了但没有执行，工具 status 停留在 dev，运营端入口不显示 | Sprint 6 | 每次迁移完成后验收清单必须包含 `psql` 查 workspace_tools 确认 status=online |
 | 4 | **文档落地遗漏**：代码全部完成后未补写需求文档/任务单/测试报告，PM 记忆停留在上一个 Sprint | Sprint 6 | CLAUDE.md 第十二节已增加「C 文档落地」强制闸门 |
 | 5 | **功能测试缺失**：只跑 pytest，未在真实服务上验证接口和页面 | Sprint 6（首次发现） | CLAUDE.md 第十三节已增加「必须调用 Skill: verify」规则 |
+| 6 | **旧后端进程残留**：旧路径 uvicorn 占用 8000 端口，新路由不生效，功能测试全 404 | Sprint 7 | 功能测试前先 `curl /openapi.json` 确认新路由存在，否则 kill 旧进程重启新后端 |
+| 7 | **operator 首次登录鉴权**：新建 operator 的 `password_changed_at` 为 NULL，`require_password_changed` 拦截所有请求 | Sprint 7 | 测试账号创建后用 `psql UPDATE users SET password_changed_at=NOW() WHERE username='...'` |
+| 8 | **文档欠账跨 Sprint 累积**：代码 commit 后只更新 PM 记忆，未将任务单/验收文档/测试报告就近归位，契约文档（Base_API/Base_Database）也未同步，导致 Sprint 6/7 共欠 9 份文档，在 Sprint 7 结束后才集中补写 | Sprint 7（根因回顾）| **每次 Sprint commit 前先过 CLAUDE.md §五交付物清单，逐项核对，缺一项不得声明完成；契约文档随接口/表变更当次同步，不攒到 Sprint 末尾**。失误根因：把「代码完成」等同于「任务完成」，跳过了节点 A（需求文档确认）和节点 B 归位签收两个闸门 |
 
 ---
 
@@ -211,17 +248,15 @@
 | 并发测试 4/4 失败 | 本地环境问题，需在测试服验证 |
 | antd `message` 静态方法警告 | 仅 BenchmarkPage 已修复，其余 25 个文件待批量迁移 |
 | file_parser.py 新增函数覆盖率 82% | 差 8%，未来可补充 OS 级异常路径测试 |
+| tool_extract_frames.py 覆盖率 34% | ffmpeg subprocess 路径无法在集成测试中执行，后续可补充 mock 路径测试 |
 
 **下一步优先级：**
-1. ✅ 已确认：tiktok-writer 和 qianchuan-review 需要增加管理端 Prompt+模型配置（参照 selling-point-extractor 模式）
-   - 实现计划：`docs/superpowers/plans/2026-06-13-tool-prompt-config.md`（10个Task）
-   - tiktok-writer 只将 hook_eval（评估 Opening）和 structure（分析结构）两个纯静态 Prompt 纳入配置；rewrite_* 和 iterate 因含动态插值保留前端构建
-   - qianchuan-review 将 with_excel 和 without_excel 两个 Prompt 均纳入配置
-   - 两者模型均支持管理端配置（绑定 ai_models 表，无绑定回退默认值）
-2. 规划 M2 Sprint 7（下一个待迁移工具，参考 `Ai_Toolbox/` 目录和工具迁移方案）
+1. ✅ 已完成：qianchuan-edit-review 迁移（Sprint 7）
+2. 规划 M2 Sprint 8（下一个待迁移工具，参考 `Ai_Toolbox/` 目录和工具迁移方案）
 3. 批量修复 antd `message` 静态方法 → `App.useApp()` hook（25 个文件）
 4. 补充 operator_tiktok_writer.py 单元测试（覆盖率提升至 70%+）
 5. 测试服部署并验证并发测试
+6. 浏览器 UI 功能测试（Playwright browser 安装完成后补做 Sprint 7 页面截图验证）
 
 ---
 
@@ -235,7 +270,8 @@
 | `backend/docs/tasks/M2_Sprint06_后端任务_qianchuan-review_v1.md` | Sprint 6 后端任务单 | ✅ 已执行 |
 | `frontend/docs/tasks/M2_Sprint06_前端任务_qianchuan-review_v1.md` | Sprint 6 前端任务单 | ✅ 已执行 |
 | `deploy/docs/tasks/M2_Sprint6_运维端任务_qianchuan-review_v1.md` | Sprint 6 运维任务单 | ✅ 已完成 |
-| `backend/docs/tasks/M2_Sprint05_后端任务_selling-point-extractor_v1.md` | Sprint 5 后端任务单 | ✅ 已执行 |
+| `docs/superpowers/plans/2026-06-14-qianchuan-edit-review.md` | Sprint 7 实现计划（10 Task）| ✅ 已执行 |
+| `docs/superpowers/specs/2026-06-14-qianchuan-edit-review-design.md` | Sprint 7 设计文档 | ✅ 已完成 |
 | `frontend/docs/tasks/M2_Sprint05_前端任务_selling-point-extractor_v1.md` | Sprint 5 前端任务单 | ✅ 已执行 |
 | `backend/docs/tasks/M2_Sprint04_后端任务_tiktok-writer_v1.md` | tiktok-writer 后端任务单 | ✅ 已执行 |
 | `frontend/docs/tasks/M2_Sprint04_前端任务_tiktok-writer_v1.md` | tiktok-writer 前端任务单 | ✅ 已执行 |
@@ -251,6 +287,7 @@
 
 | 文件 | 说明 | 状态 |
 |------|------|------|
+| `backend/docs/tests/M2_Sprint07_测试报告_qianchuan-edit-review_v1.md` | Sprint 7 测试报告（21/21 集成测试 + 9 项功能验证）| ✅ 已完成 |
 | `backend/docs/tests/M2_Sprint06_测试报告_qianchuan-review_v1.md` | Sprint 6 测试报告（57/57 后端，verify PASS）| ✅ 已完成 |
 | `backend/docs/tests/M2_Sprint05_测试报告_selling-point-extractor_v1.md` | Sprint 5 测试报告（43/43 后端 + 86/86 前端）| ✅ 已完成 |
 | `backend/docs/tests/M2_Sprint04_测试报告_tiktok-writer_v1.md` | Sprint 4 测试报告（317/317 后端）| ✅ 已完成 |

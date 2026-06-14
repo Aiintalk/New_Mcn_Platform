@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Button, message } from 'antd'
 import { DownloadOutlined, SaveOutlined } from '@ant-design/icons'
 import {
@@ -7,6 +7,7 @@ import {
   chatStream,
   exportWord,
   saveOutput,
+  getConfig,
   type Frame,
 } from '../../api/qianchuanEditReview'
 
@@ -87,7 +88,14 @@ export default function QianChuanEditReviewPage() {
   const [report, setReport] = useState('')
   const [exporting, setExporting] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [activePrompt, setActivePrompt] = useState(SYSTEM_PROMPT)
   const reportRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    getConfig().then(cfg => {
+      if (cfg.system_prompt) setActivePrompt(cfg.system_prompt)
+    }).catch(() => {/* 读取失败沿用内置 Prompt */})
+  }, [])
 
   async function processVideo(side: 'original' | 'ours') {
     const data = side === 'original' ? original : ours
@@ -151,7 +159,7 @@ export default function QianChuanEditReviewPage() {
     try {
       const resp = await chatStream(
         [{ role: 'user', content: buildMessage() }],
-        SYSTEM_PROMPT,
+        activePrompt,
         'gpt-4o',
         8000,
       )

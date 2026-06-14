@@ -8,8 +8,9 @@
  *   - chatStream: SSE 流式（getReader）
  *   - exportWord: Blob 下载（.blob()）
  *   - saveOutput: 走 request.ts（标准 JSON）
+ *   - getConfig: 走 request.ts（标准 JSON）
  */
-import { post } from './request'
+import { get, post } from './request'
 import { useAuthStore } from '../store/authStore'
 
 export interface Frame {
@@ -106,4 +107,11 @@ export async function exportWord(content: string, title = '千川剪辑预审报
 /** 保存报告：标准 JSON，走 request.ts（红线 #3）*/
 export function saveOutput(body: SaveOutputBody): Promise<{ id: number; created_at: string }> {
   return post<{ id: number; created_at: string }>('/api/tools/qianchuan-edit-review/outputs', body)
+}
+
+/** 获取管理端配置（system_prompt / ai_model_id），未配置返回 null；走 request.ts（红线 #3）*/
+export function getConfig(): Promise<{ system_prompt: string | null; ai_model_id: number | null }> {
+  return get<{ system_prompt: string | null; ai_model_id: number | null }>(
+    '/api/tools/qianchuan-edit-review/config'
+  )
 }

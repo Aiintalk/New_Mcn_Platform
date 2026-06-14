@@ -1,11 +1,12 @@
 """
 app/routers/tool_qianchuan_edit_review.py
 
-POST /api/tools/qianchuan-edit-review/outputs
-保存剪辑预审报告到 outputs 表。
+GET  /api/tools/qianchuan-edit-review/config   — 读取 system_prompt（管理端可配置，fallback 返回 null）
+POST /api/tools/qianchuan-edit-review/outputs  — 保存剪辑预审报告到 outputs 表
 """
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -13,6 +14,7 @@ from app.core.response import success_response
 from app.middlewares.auth import require_password_changed
 from app.models.log import OperationLog
 from app.models.output import Output
+from app.models.qianchuan_edit_review import QianchuanEditReviewConfig
 from app.models.user import User
 
 router = APIRouter(prefix="/tools/qianchuan-edit-review", tags=["qianchuan-edit-review"])
@@ -35,6 +37,22 @@ class SaveOutputRequest(BaseModel):
     ours_duration: float = 0.0
     original_frame_count: int = 0
     ours_frame_count: int = 0
+
+
+@router.get("/config")
+async def get_config(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_password_changed),
+):
+    """读取管理端配置的 system_prompt，未配置时返回 null（前端 fallback 到内置值）。"""
+    cfg = (await db.execute(
+        select(QianchuanEditReviewConfig)
+        .where(QianchuanEditReviewConfig.config_key == "review")
+    )).scalar_one_or_none()
+    return success_response(data={
+        "system_prompt": cfg.system_prompt if cfg else None,
+        "ai_model_id": cfg.ai_model_id if cfg else None,
+    })
 
 
 @router.post("/outputs")
