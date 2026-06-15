@@ -195,6 +195,14 @@ async def parse_qianchuan_review_file(file: UploadFile) -> str:
         raise ValueError(f"不支持的文件格式: .{ext}（支持 .txt / .md / .docx / .pages）")
 
 
+async def parse_livestream_review_file(file: UploadFile) -> str:
+    """
+    livestream-review 专用文件解析，与 qianchuan-review 逻辑完全相同。
+    支持：.txt / .md / .docx / .pages；不支持 .pdf（返回提示文字）。
+    """
+    return await parse_qianchuan_review_file(file)
+
+
 def _parse_pages_qianchuan_review(content: bytes) -> str:
     """
     解析 Apple Pages 文件（qianchuan-review 版本）。

@@ -63,7 +63,7 @@ _SESSION_LOCAL_PATCH_TARGETS = [
     "app.routers.health.AsyncSessionLocal",
     "app.routers.operator_tiktok_writer.AsyncSessionLocal",
     "app.routers.operator_selling_point.AsyncSessionLocal",
-    "app.routers.operator_benchmark.AsyncSessionLocal",
+    "app.routers.operator_livestream_review.AsyncSessionLocal",
 ]
 
 
