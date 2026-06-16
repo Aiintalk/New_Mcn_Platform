@@ -1,6 +1,6 @@
 # MCN_PM_Agent — 项目记忆与当前状态（M2）
 
-> 最后更新：2026-06-16（Sprint 8 livestream-writer 迁移完成，人工验证通过）
+> 最后更新：2026-06-16（Sprint 9 livestream-review 迁移完成，人工验证通过）
 > 更新角色：MCN_PM_Agent
 > 上一份文档：`docs/pm/PM_记忆与状态.md`（M1 阶段，已归档）
 
@@ -9,9 +9,9 @@
 ## 一、项目基本信息
 
 - **项目名**：MCN Information System Platform
-- **当前阶段**：M2 阶段 — Sprint 7 完成
+- **当前阶段**：M2 阶段 — Sprint 9 完成
 - **GitHub**：https://github.com/Aiintalk/New_Mcn_Platform
-- **工作目录**：`D:\2026年工作\AI相关\AI工具箱新架构方案\mcn-platform\`
+- **工作目录**：`/Users/zhangchong/ai_intalk/New_Mcn_Platform/`
 - **后端**：`backend/`（FastAPI + PostgreSQL）
 - **前端**：`frontend/`（React + Vite + TypeScript + Ant Design 5.x）
 
@@ -20,7 +20,7 @@
 - **数据库**：PostgreSQL @ localhost:5432，用户 postgres，密码 admin123，数据库 `mcn_m1`
 - **psql 路径**：`D:\ProtgreSQL\bin\psql.exe`
 - **后端地址**：`http://localhost:8000`（uvicorn）
-- **前端地址**：`http://localhost:5173`（Vite）
+- **前端地址**：`http://localhost:5175`（Vite，5173/5174 被旧项目占用）
 - **测试账号**：admin / Admin@123456
 
 ---
@@ -75,6 +75,36 @@
 4. SSE 断连空报告标 ready（空内容保护）
 5. 历史记录点击无反应（loadHistoryDetail 加 setStep(3)）
 6. 产出中心预览为空（调详情接口获取 content）
+
+---
+
+### M2 Sprint 9 — 直播间脚本复盘（livestream-review）✅ 完成
+
+**核心流程：** 上传直播脚本（多场）→ 上传直播数据 Excel（可选）→ AI 流式生成复盘报告（话术效果 + 留人转化）→ 保存/导出/复制
+
+| 端 | 状态 | 备注 |
+|----|------|------|
+| 数据库迁移 020 | ✅ 完成 | `livestream_review_configs` 表 + workspace_tools 注册（status=dev） |
+| 后端 6 个接口 | ✅ 完成 | `operator_livestream_review.py`（parse-file/generate/save/outputs）+ `admin_livestream_review.py`（GET/PUT configs） |
+| System Prompt | ✅ 完成 | `tools/livestream_review/prompts.py`，A/B 两版逐字保留，�� DB 管理端可配置 |
+| 服务层 | ✅ 完成 | `service.py`：merge/detect_has_excel/build_user_message/generate_review_stream |
+| 前端三步向导 | ✅ 完成 | `LivestreamReviewPage.tsx`，路由 `/workspace/livestream-review` |
+| 自动化测试 | ✅ 58/58 通过 | Prompt 精确比对(16) + service 单元(22) + 集成(20) |
+| 人工验证 | ✅ 通过 | 2026-06-16 |
+
+**关键决策：**
+- Prompt 遵迁移红线 #4 存 DB（with_excel / without_excel 两条）
+- hasExcel：后端合并后检查是否含 gmv/peak_viewers/conversions，非简单判断 excel_data 非空
+- 未匹配 Excel 行不追加给 AI（只发有脚本内容的场次）
+
+**覆盖率：**
+- `operator_livestream_review.py`：86% ✅
+- `admin_livestream_review.py`：86% ✅
+- `service.py`：72%（流式路径已知缺口）
+
+**部署注意：**
+- 工具当前状态 `dev`，上线前管理端改为 `online`
+- 旧产品数据（线上 data/ 目录）本次未迁移，待确认
 
 ---
 
