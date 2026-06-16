@@ -31,6 +31,7 @@ import TiktokWriterPage from './pages/operator/TiktokWriterPage';
 import SellingPointPage from './pages/operator/SellingPointPage';
 import QianchuanReviewPage from './pages/operator/QianchuanReviewPage';
 import QianChuanEditReviewPage from './pages/operator/QianChuanEditReviewPage';
+import LivestreamWriterPage from './pages/operator/LivestreamWriterPage';
 
 function Page403() {
   return (
@@ -83,6 +84,7 @@ export default function App() {
             <Route path="/workspace/selling-point-extractor" element={<SellingPointPage />} />
             <Route path="/workspace/qianchuan-review" element={<QianchuanReviewPage />} />
             <Route path="/workspace/qianchuan-edit-review" element={<QianChuanEditReviewPage />} />
+            <Route path="/workspace/livestream-writer" element={<LivestreamWriterPage />} />
             <Route path="/workspace/kol-intake" element={<OperatorIntakePage />} />
             <Route path="/workspace/kol-intake/chat" element={<OperatorIntakeChatPage />} />
             <Route path="/tasks" element={<TasksPage />} />

@@ -849,3 +849,88 @@ Response（200）：
 
 错误：report 为空 → 400 INVALID_INPUT
 
+---
+
+## 16. Sprint 8 — 直播脚本仿写接口（livestream-writer）
+
+### 16.1 接口列表
+
+| 方法 | 路径 | 角色 | 功能 |
+|------|------|------|------|
+| GET | `/api/tools/livestream-writer/config` | operator/admin | 获取激活的 Prompt + 模型（实时拉取，管理端可配置）|
+| GET | `/api/tools/livestream-writer/kols/personas` | operator/admin | 达人列表（content_plan 和 persona 均非空）|
+| POST | `/api/tools/livestream-writer/parse-file` | operator/admin | 文件解析（.txt/.md/.docx/.pages，不支持 .pdf）|
+| POST | `/api/tools/livestream-writer/chat` | operator/admin | AI 流式对话（raw text stream）|
+| GET | `/api/admin/livestream-writer/configs` | admin | 配置列表 |
+| PUT | `/api/admin/livestream-writer/configs/{key}` | admin | 更新配置（Prompt / 模型 / 激活状态）|
+
+### 16.2 GET `/api/tools/livestream-writer/config`
+
+Response（200）：
+```json
+{
+  "success": true, "code": "OK",
+  "data": {
+    "generate_prompt": "string（首次生成 Prompt 模板，含 {变量}）",
+    "iterate_prompt": "string（多轮迭代 Prompt 模板，含 {变量}）",
+    "model_id": "string（如 claude-opus-4-6-thinking）"
+  }
+}
+```
+
+配置未激活时返回 503 CONFIG_NOT_FOUND。
+
+### 16.3 GET `/api/tools/livestream-writer/kols/personas`
+
+SQL：`WHERE content_plan IS NOT NULL AND persona IS NOT NULL AND deleted_at IS NULL ORDER BY name`
+
+Response（200）：
+```json
+{
+  "success": true, "code": "OK",
+  "data": {
+    "personas": [
+      { "name": "达人名称", "soul": "persona字段内容", "contentPlan": "content_plan字段内容" }
+    ]
+  }
+}
+```
+
+### 16.4 POST `/api/tools/livestream-writer/parse-file`
+
+Request：`multipart/form-data`，字段名 `file`
+
+支持格式：`.txt / .md / .docx / .pages`，**不支持 .pdf**（返回提示字符串而非报错）
+
+Response（200）：
+```json
+{ "success": true, "code": "OK", "data": { "text": "string", "filename": "string" } }
+```
+
+错误：不支持格式 → 400 UNSUPPORTED_FILE_TYPE
+
+### 16.5 POST `/api/tools/livestream-writer/chat`
+
+Request（JSON）：
+```json
+{
+  "messages": [{ "role": "user|assistant", "content": "string" }],
+  "systemPrompt": "string（前端动态构建，已注入变量）",
+  "model": "string（可选，默认 claude-opus-4-6-thinking）",
+  "createJob": true,
+  "jobContext": {
+    "productName": "string",
+    "personaName": "string",
+    "spOrder": "string（如：背书→机制→种草）",
+    "refLength": 1234
+  }
+}
+```
+
+Response：`text/plain; charset=utf-8`（raw text stream，非 SSE）
+
+重试策略：429 时最多 5 次，退避 5/10/15/20/25s。
+
+BackgroundTask（createJob=true 时）：生成结束后写 `task_jobs` + `outputs`。
+
+错误：messages 为空 → 400 INVALID_INPUT；systemPrompt 为空 → 400 INVALID_INPUT

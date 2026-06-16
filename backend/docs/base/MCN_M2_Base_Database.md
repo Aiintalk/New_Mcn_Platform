@@ -431,3 +431,39 @@ CREATE INDEX idx_benchmark_analyses_created ON benchmark_analyses(created_at DES
 | tool_code | tool_name | category | status | sort_order |
 |-----------|-----------|----------|--------|------------|
 | `selling-point-extractor` | 产品卖点提取器 | 选题分析 | `online` | 3 |
+
+---
+
+## 15. livestream_writer_configs 直播脚本仿写配置表（Sprint 8）
+
+**迁移文件**：`021_livestream_writer.sql`
+
+### 15.1 表结构
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | SERIAL | 是 | 配置 ID |
+| `config_key` | VARCHAR(50) | 是 | 唯一键（`generate` / `iterate`） |
+| `ai_model_id` | INTEGER | 否 | 关联 `ai_models.id`，NULL 时用默认模型 `claude-opus-4-6-thinking` |
+| `system_prompt` | TEXT | 否 | AI 系统提示词（含模板变量，由前端注入）|
+| `is_active` | BOOLEAN | 是 | 是否启用 |
+| `created_at` | TIMESTAMPTZ | 是 | 创建时间 |
+| `updated_at` | TIMESTAMPTZ | 是 | 更新时间（触发器自动更新）|
+
+### 15.2 初始数据
+
+迁移 021 插入两条记录：
+
+| config_key | 用途 |
+|------------|------|
+| `generate` | 首次生成开播方案的 System Prompt |
+| `iterate` | 多轮迭代修改的 System Prompt |
+
+两条 Prompt 含动态变量（`{orderLabels}` / `{refLength}` / `{sellingPoints}` / `{refScript}` / `{personaSoul}`），由前端在调用 `/chat` 前完成字符串替换后传入后端。
+
+### 15.3 workspace_tools 注册
+
+| tool_code | tool_name | category | status | sort_order |
+|-----------|-----------|----------|--------|------------|
+| `livestream-writer` | 直播脚本仿写 | 内容创作 | `online` | 自动计算 |
+

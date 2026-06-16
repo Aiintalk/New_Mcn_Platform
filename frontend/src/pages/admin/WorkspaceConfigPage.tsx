@@ -7,6 +7,7 @@ import SellingPointConfigTab from './SellingPointConfigTab';
 import TiktokWriterConfigTab from './TiktokWriterConfigTab';
 import QianchuanReviewConfigTab from './QianchuanReviewConfigTab';
 import QianchuanEditReviewConfigTab from './QianchuanEditReviewConfigTab';
+import LivestreamWriterConfigTab from './LivestreamWriterConfigTab';
 import type { WorkspaceTool } from '../../types/workspace';
 export default function WorkspaceConfigPage() {
   const [tools, setTools] = useState<WorkspaceTool[]>([]);
@@ -85,6 +86,7 @@ export default function WorkspaceConfigPage() {
           { key: 'tiktok-writer', label: 'TikTok 脚本仿写', children: <TiktokWriterConfigTab /> },
           { key: 'qianchuan-review', label: '千川脚本复盘', children: <QianchuanReviewConfigTab /> },
           { key: 'qianchuan-edit-review', label: '千川剪辑预审', children: <QianchuanEditReviewConfigTab /> },
+          { key: 'livestream-writer', label: '直播脚本仿写', children: <LivestreamWriterConfigTab /> },
         ]}
       />
     </>

@@ -1,6 +1,6 @@
 # MCN_PM_Agent — 项目记忆与当前状态（M2）
 
-> 最后更新：2026-06-14（Sprint 7 qianchuan-edit-review 迁移完成）
+> 最后更新：2026-06-16（Sprint 8 livestream-writer 迁移完成，人工验证通过）
 > 更新角色：MCN_PM_Agent
 > 上一份文档：`docs/pm/PM_记忆与状态.md`（M1 阶段，已归档）
 
@@ -75,6 +75,30 @@
 4. SSE 断连空报告标 ready（空内容保护）
 5. 历史记录点击无反应（loadHistoryDetail 加 setStep(3)）
 6. 产出中心预览为空（调详情接口获取 content）
+
+---
+
+### M2 Sprint 8 — 直播脚本仿写（livestream-writer）✅ 完成
+
+**核心流程：** 选达人 → 上传产品卖点卡 → 上传对标直播间文案 → AI 流式生成7模块开播方案 → 多轮迭代修改 → 导出 .txt
+
+| 端 | 状态 | 备注 |
+|----|------|------|
+| 后端 6 个接口 | ✅ 完成 | `operator_livestream_writer.py` / `admin_livestream_writer.py` |
+| 数据库迁移 | ✅ 已执行 | `021_livestream_writer.sql`：`livestream_writer_configs` 表 + workspace_tools 注册 |
+| 自动测试 | ✅ 34/34 通过 | 单元 11 + 集成 23，覆盖率 operator 72% / admin 83% |
+| 前端 API/Types | ✅ 完成 | `livestreamWriter.ts` / `types/livestreamWriter.ts` |
+| 前端页面 | ✅ 完成 | `LivestreamWriterPage.tsx`，路由 `/workspace/livestream-writer` |
+| 管理端配置 Tab | ✅ 完成 | `LivestreamWriterConfigTab.tsx`，挂载到 WorkspaceConfigPage |
+| 人工验证 | ✅ 通过 | 2026-06-16 |
+
+**技术要点：**
+- System Prompt 实时从后端 `livestream_writer_configs` 表拉取（GET /config），管理端可修改后前端自动生效
+- 重试策略：429 最多 5 次，退避 5/10/15/20/25s（比 tiktok-writer 更激进，适配 thinking 模式慢速）
+- `parse_livestream_writer_file`：不支持 .pdf（原工具边界），含日历噪音过滤（复用 `_parse_pages_qianchuan_review`）
+- BackgroundTask 积累完整 chunks，生成结束后一次性写 `task_jobs` + `outputs`
+- kols 查询条件：`content_plan IS NOT NULL AND persona IS NOT NULL`（两个字段均需有内容）
+- autoTrimIfTooLong：前端生成结束后自动检查讲解脚本字数，超出则自动追加压缩请求
 
 ---
 
