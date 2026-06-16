@@ -21,6 +21,7 @@ from app.models.selling_point import SellingPointConfig
 from app.models.tiktok_writer import TiktokWriterConfig
 from app.models.qianchuan_review import QianchuanReviewConfig
 from app.models.qianchuan_edit_review import QianchuanEditReviewConfig
+from app.models.livestream_review import LivestreamReviewConfig
 
 __all__ = [
     "User",
@@ -48,4 +49,5 @@ __all__ = [
     "TiktokWriterConfig",
     "QianchuanReviewConfig",
     "QianchuanEditReviewConfig",
+    "LivestreamReviewConfig",
 ]

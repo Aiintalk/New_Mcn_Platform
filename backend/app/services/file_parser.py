@@ -202,12 +202,7 @@ async def parse_qianchuan_review_file(file: UploadFile) -> str:
 async def parse_livestream_writer_file(file: UploadFile) -> str:
     """
     livestream-writer 专用文件解析，返回纯文本（无截断）。
-
-    支持：.txt / .md / .docx / .pages
-    不支持：.pdf（返回提示文字，原工具未实现）
-    其他格式：抛 ValueError
-
-    .pages 含日历噪声过滤（与 qianchuan-review 逻辑等价）。
+    支持：.txt / .md / .docx / .pages；不支持 .pdf（返回提示文字）。
     """
     filename = file.filename or ""
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
@@ -226,6 +221,14 @@ async def parse_livestream_writer_file(file: UploadFile) -> str:
         return _parse_pages_qianchuan_review(content_bytes)
     else:
         raise ValueError(f"不支持的文件格式: .{ext}（支持 .txt / .md / .docx / .pages）")
+
+
+async def parse_livestream_review_file(file: UploadFile) -> str:
+    """
+    livestream-review 专用文件解析，与 qianchuan-review 逻辑完全相同。
+    支持：.txt / .md / .docx / .pages；不支持 .pdf（返回提示文字）。
+    """
+    return await parse_qianchuan_review_file(file)
 
 
 def _parse_pages_qianchuan_review(content: bytes) -> str:

@@ -43,6 +43,8 @@ from app.routers.tool_export_word import router as tool_export_word_router
 from app.routers.tool_qianchuan_edit_review import router as tool_qianchuan_edit_review_router
 from app.routers.operator_livestream_writer import router as operator_livestream_writer_router
 from app.routers.admin_livestream_writer import router as admin_livestream_writer_router
+from app.routers.operator_livestream_review import router as operator_livestream_review_router
+from app.routers.admin_livestream_review import router as admin_livestream_review_router
 
 
 @asynccontextmanager
@@ -142,3 +144,5 @@ app.include_router(tool_export_word_router, prefix="/api")
 app.include_router(tool_qianchuan_edit_review_router, prefix="/api")
 app.include_router(operator_livestream_writer_router, prefix="/api")
 app.include_router(admin_livestream_writer_router, prefix="/api")
+app.include_router(operator_livestream_review_router, prefix="/api")
+app.include_router(admin_livestream_review_router, prefix="/api")
