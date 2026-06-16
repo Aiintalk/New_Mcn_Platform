@@ -23,7 +23,7 @@ backend/
 │   │   └── seed.py                    #   初始数据填充
 │   ├── middlewares/
 │   │   └── auth.py                    #   JWT 鉴权（get_current_user / require_admin）
-│   ├── models/                        # SQLAlchemy ORM 模型（15 个）
+│   ├── models/                        # SQLAlchemy ORM 模型（18 个）
 │   │   ├── user.py                    #   用户表
 │   │   ├── kol.py                     #   红人表
 │   │   ├── credential.py              #   AI 密钥池表
@@ -34,8 +34,11 @@ backend/
 │   │   ├── persona_report.py          #   人格定位报告表
 │   │   ├── benchmark.py               #   对标分析配置 + 报告表
 │   │   ├── selling_point.py           #   卖点提取配置表
+│   │   ├── tiktok_writer.py           #   TikTok 脚本仿写配置表
+│   │   ├── qianchuan_review.py        #   千川复盘配置表
+│   │   ├── qianchuan_edit_review.py   #   千川剪辑预审配置表
 │   │   └── ...                        #   log / file / output / session / task
-│   ├── routers/                       # API 路由（按角色分文件，25 个）
+│   ├── routers/                       # API 路由（按角色分文件，34 个）
 │   │   ├── auth.py                    #   POST /api/auth/login、/change-password
 │   │   ├── admin_users.py             #   用户管理（admin）
 │   │   ├── admin_kols.py              #   红人管理（admin）
@@ -48,14 +51,23 @@ backend/
 │   │   ├── admin_system.py            #   系统管理（admin）
 │   │   ├── admin_benchmark.py         #   对标分析配置（admin）
 │   │   ├── admin_selling_point.py     #   卖点提取配置（admin）
+│   │   ├── admin_qianchuan_review.py  #   千川复盘配置（admin）
+│   │   ├── admin_qianchuan_edit_review.py # 千川剪辑预审配置（admin）
+│   │   ├── admin_tiktok_writer.py     #   TikTok 仿写配置（admin）
 │   │   ├── operator_homepage.py       #   运营首页数据
 │   │   ├── operator_intake.py         #   入驻问卷（运营端）
 │   │   ├── operator_intake_direct.py  #   运营直发对话
 │   │   ├── operator_benchmark.py      #   对标分析（运营端）
 │   │   ├── operator_tiktok_writer.py  #   TikTok 脚本仿写（运营端）
 │   │   ├── operator_selling_point.py  #   卖点提取器（运营端）
+│   │   ├── operator_qianchuan_review.py #  千川脚本复盘（运营端）
 │   │   ├── persona.py                 #   人格定位（运营端）
 │   │   ├── intake_public.py           #   公开接口（博主填写问卷）
+│   │   ├── tool_chat_stream.py        #   工具：AI 流式对话
+│   │   ├── tool_export_word.py        #   工具：Word 导出
+│   │   ├── tool_extract_frames.py     #   工具：视频抽帧
+│   │   ├── tool_qianchuan_edit_review.py # 工具：千川剪辑预审
+│   │   ├── tool_transcribe.py         #   工具：语音转文字
 │   │   ├── health.py                  #   健康检查
 │   │   ├── files.py                   #   文件上传下载
 │   │   ├── outputs.py                 #   产出管理
@@ -111,14 +123,14 @@ backend/
 │   │   ├── middlewares/               #     auth
 │   │   └── services/                  #     credential_selector / intake_report
 │   ├── integration/                   #   集成测试（需测试数据库 mcn_test）
-│   │   ├── test_convention_guard.py   #     规范守卫（AST 扫描红线 #1 #2）
+│   │   ├── test_convention_guard.py   #     规范守卫（AST 扫描红线 #1 #2 #6 #7）
 │   │   ├── test_credential_pool.py    #     AI 凭证池并发安全（21 条）
-│   │   └── routers/                   #     12 个文件，覆盖全部 router
+│   │   └── routers/                   #     20 个文件，覆盖全部 router
 │   ├── e2e/                           #   端到端测试（待补充）
 │   ├── concurrent/                    #   并发隔离测试
 │   └── intake/                        #   入驻问卷专项测试
 │
-├── migrations/                        # SQL 迁移脚本（001 ~ 015）
+├── migrations/                        # SQL 迁移脚本（001 ~ 020）
 ├── scripts/                           # 工具脚本
 │   ├── init_db.sh                     #   一键初始化数据库
 │   └── run_coverage.py                #   覆盖率门禁脚本

@@ -11,7 +11,7 @@
  * 新增 fetch() 调用时，必须满足以上例外之一，否则应改用 request.ts 的 get/post/put/del。
  * 例外函数也必须手动解包 .data（见 CLAUDE.md §12 #3）。
  */
-import { describe, it, expect } from 'vitest'
+import { describe, it } from 'vitest'
 import { readFileSync, readdirSync } from 'fs'
 import { join, resolve } from 'path'
 

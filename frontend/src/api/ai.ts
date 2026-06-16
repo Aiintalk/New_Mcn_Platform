@@ -34,6 +34,7 @@ export interface AiStatsParams {
   provider?: string;
   start_date?: string;
   end_date?: string;
+  [key: string]: string | undefined;
 }
 
 export interface KeyTestResult {

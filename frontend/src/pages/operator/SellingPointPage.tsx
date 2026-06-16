@@ -12,21 +12,6 @@ import {
 
 interface ChatMsg { role: string; content: string }
 
-function SimpleMarkdown({ text }: { text: string }) {
-  const html = text
-    .replace(/### (.*)/g, '<h3 class="text-xl font-bold mt-8 mb-3 text-gray-800">$1</h3>')
-    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\n\n/g, '</p><p class="mb-3">')
-    .replace(/\n- /g, '<br/>• ')
-    .replace(/\n/g, '<br/>');
-  return (
-    <div
-      className="prose max-w-none text-[15px] leading-relaxed text-gray-700"
-      dangerouslySetInnerHTML={{ __html: `<p class="mb-3">${html}</p>` }}
-    />
-  );
-}
-
 function extractProductName(result: string): string {
   const m = result.match(/资料概览[\s\S]*?\n([\s\S]*?)(?:\n---|\n###)/);
   if (m) {

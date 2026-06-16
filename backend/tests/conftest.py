@@ -67,6 +67,7 @@ _SESSION_LOCAL_PATCH_TARGETS = [
     "app.routers.tool_chat_stream.AsyncSessionLocal",
     "app.routers.operator_livestream_writer.AsyncSessionLocal",
     "app.routers.operator_livestream_review.AsyncSessionLocal",
+    "app.routers.operator_qianchuan_review.AsyncSessionLocal",
 ]
 
 

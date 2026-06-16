@@ -4,7 +4,7 @@ import { getAdminConfigs, updateAdminConfig, getAdminAnalyses, getAdminAnalysisD
 import type { BenchmarkConfig, BenchmarkAnalysis } from '../../types/benchmark';
 
 export default function BenchmarkConfigPage() {
-  const [configs, setConfigs] = useState<BenchmarkConfig[]>([]);
+  const [, setConfigs] = useState<BenchmarkConfig[]>([]);
   const [analyses, setAnalyses] = useState<BenchmarkAnalysis[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);

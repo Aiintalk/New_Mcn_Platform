@@ -35,6 +35,7 @@ export interface TikHubKey {
   status: 'active' | 'inactive';
   active_requests: number;
   max_concurrent: number;
+  max_users: number;
   today_calls: number;
   total_calls: number;
   last_tested_at: string | null;

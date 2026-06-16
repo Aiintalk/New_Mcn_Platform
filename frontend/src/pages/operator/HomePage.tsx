@@ -85,7 +85,7 @@ function ToolUsageChart({ data, total, loading }: {
                  dataKey="percentage" paddingAngle={2}>
               {data.map((_, i) => <Cell key={i} fill={DONUT_COLORS[i % DONUT_COLORS.length]} />)}
             </Pie>
-            <Tooltip formatter={(v: number) => `${v.toFixed(1)}%`} />
+            <Tooltip formatter={(v) => `${Number(v).toFixed(1)}%`} />
           </PieChart>
         </ResponsiveContainer>
         <div style={{

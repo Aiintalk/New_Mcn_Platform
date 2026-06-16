@@ -8,7 +8,7 @@
  *   Step 4 · Rewrite     — AI 仿写 Body + 多轮迭代
  *   Step 5 · Export      — 编辑 finalBody + 导出 Word
  */
-import { useState, useRef, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Button, Input, Select, Steps, message, Radio, Alert } from 'antd';
 import { DownloadOutlined, ReloadOutlined } from '@ant-design/icons';
 import { chatStream, exportWord, getPersonas, getTiktokWriterConfig, type TiktokWriterConfig } from '../../api/tiktokWriter';
@@ -182,7 +182,6 @@ export default function TiktokWriterPage() {
   const [iterateInput, setIterateInput] = useState('');
   const [streamBuffer, setStreamBuffer] = useState('');
   const [toolConfig, setToolConfig] = useState<TiktokWriterConfig | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
 
   function update(patch: Partial<StepState>) {
     setState(prev => ({ ...prev, ...patch }));
