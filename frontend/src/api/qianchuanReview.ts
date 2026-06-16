@@ -1,4 +1,5 @@
 // frontend/src/api/qianchuanReview.ts
+import { get, post } from './request';
 import type { GenerateRequest, OutputsResponse, SaveRequest } from '../types/qianchuanReview';
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
@@ -42,24 +43,10 @@ export async function generateReport(payload: GenerateRequest): Promise<Response
 
 /** 保存报告到产出中心 */
 export async function saveReport(payload: SaveRequest): Promise<{ output_id: number }> {
-  const token = await getToken();
-  const resp = await fetch(`${BASE_URL}${PREFIX}/save`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeaders(token) },
-    body: JSON.stringify(payload),
-  });
-  if (!resp.ok) throw new Error(`保存失败: ${resp.status}`);
-  const data = await resp.json();
-  return data.data;
+  return post<{ output_id: number }>(`${PREFIX}/save`, payload);
 }
 
 /** 查询历史复盘报告列表 */
 export async function getOutputs(page = 1, size = 10): Promise<OutputsResponse> {
-  const token = await getToken();
-  const resp = await fetch(`${BASE_URL}${PREFIX}/outputs?page=${page}&size=${size}`, {
-    headers: authHeaders(token),
-  });
-  if (!resp.ok) throw new Error(`获取历史失败: ${resp.status}`);
-  const data = await resp.json();
-  return data.data;
+  return get<OutputsResponse>(`${PREFIX}/outputs`, { page, size });
 }

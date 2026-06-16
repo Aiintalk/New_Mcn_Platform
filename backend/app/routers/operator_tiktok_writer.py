@@ -10,7 +10,7 @@ import time
 import asyncio
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -19,8 +19,10 @@ from starlette.background import BackgroundTask
 
 from app.adapters import yunwu as yunwu_adapter
 from app.core.database import get_db, AsyncSessionLocal
+from app.core.response import success_response
 from app.middlewares.auth import get_current_user
 from app.models.kol import Kol
+from app.models.log import OperationLog
 from app.models.output import Output
 from app.models.task import TaskJob
 from app.models.tiktok_writer import TiktokWriterConfig
@@ -74,6 +76,13 @@ async def require_operator(current_user: User = Depends(get_current_user)) -> Us
     return current_user
 
 
+def _get_ip(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
 @router.get("/config")
 async def get_config(
     db: AsyncSession = Depends(get_db),
@@ -83,14 +92,11 @@ async def get_config(
     hook_cfg = await _get_tw_config("hook_eval", db)
     struct_cfg = await _get_tw_config("structure", db)
     model_id = await _resolve_tw_model(hook_cfg, db)
-    return {
-        "success": True,
-        "data": {
-            "hook_eval_prompt": hook_cfg.system_prompt or "",
-            "structure_prompt": struct_cfg.system_prompt or "",
-            "model_id": model_id,
-        },
-    }
+    return success_response(data={
+        "hook_eval_prompt": hook_cfg.system_prompt or "",
+        "structure_prompt": struct_cfg.system_prompt or "",
+        "model_id": model_id,
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -108,6 +114,7 @@ class ChatRequest(BaseModel):
 @router.post("/chat")
 async def chat(
     body: ChatRequest,
+    request: Request,
     current_user: User = Depends(require_operator),
 ):
     """AI 流式对话，返回 raw text stream（非 SSE）。"""
@@ -172,6 +179,17 @@ async def chat(
                 created_by=user_id,
             )
             bg_db.add(task_job)
+            bg_db.add(OperationLog(
+                user_id=current_user.id,
+                username=current_user.username,
+                role=current_user.role,
+                action="tiktok_writer_chat",
+                target_type="task_job",
+                target_id=None,
+                detail={"job_context": job_context},
+                ip=_get_ip(request),
+                user_agent=request.headers.get("user-agent"),
+            ))
             await bg_db.commit()
 
     return StreamingResponse(
@@ -195,6 +213,7 @@ class ExportWordRequest(BaseModel):
 @router.post("/export-word")
 async def export_word(
     body: ExportWordRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_operator),
 ):
@@ -228,6 +247,17 @@ async def export_word(
         created_by=current_user.id,
     )
     db.add(output)
+    db.add(OperationLog(
+        user_id=current_user.id,
+        username=current_user.username,
+        role=current_user.role,
+        action="tiktok_export_word",
+        target_type="output",
+        target_id=None,
+        detail={"personaName": body.personaName, "word_count": len(body.content.split())},
+        ip=_get_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    ))
     await db.commit()
 
     filename = f"TikTok_Script_{body.personaName}_{date_str}.docx"
@@ -265,4 +295,4 @@ async def get_kol_personas(
         }
         for row in rows
     ]
-    return {"personas": personas}
+    return success_response(data={"personas": personas})

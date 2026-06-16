@@ -7,7 +7,7 @@ app/routers/admin_qianchuan_review.py
 """
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.response import success_response
 from app.middlewares.auth import require_admin
+from app.models.log import OperationLog
 from app.models.qianchuan_review import QianchuanReviewConfig
 from app.models.user import User
 
@@ -23,6 +24,13 @@ router = APIRouter(prefix="/admin/qianchuan-review", tags=["admin-qianchuan-revi
 
 def _ts(dt) -> str | None:
     return dt.isoformat() if dt else None
+
+
+def _get_ip(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
 
 
 class ConfigIn(BaseModel):
@@ -54,8 +62,9 @@ async def list_configs(
 async def update_config(
     config_key: str,
     body: ConfigIn,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_admin),
+    current_user: User = Depends(require_admin),
 ):
     result = await db.execute(
         update(QianchuanReviewConfig)
@@ -73,5 +82,16 @@ async def update_config(
             status_code=404,
             detail={"code": "RESOURCE_NOT_FOUND", "message": "配置不存在"},
         )
+    db.add(OperationLog(
+        user_id=current_user.id,
+        username=current_user.username,
+        role=current_user.role,
+        action="update_qianchuan_review_config",
+        target_type="config",
+        target_id=None,
+        detail={"config_key": config_key, "ai_model_id": body.ai_model_id},
+        ip=_get_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    ))
     await db.commit()
     return success_response(data={"config_key": config_key})

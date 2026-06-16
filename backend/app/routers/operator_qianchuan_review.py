@@ -10,7 +10,7 @@ app/routers/operator_qianchuan_review.py
 import time
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -18,7 +18,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.background import BackgroundTask
 
 from app.core.database import AsyncSessionLocal, get_db
+from app.core.response import success_response
 from app.middlewares.auth import get_current_user
+from app.models.log import OperationLog
 from app.models.output import Output
 from app.models.qianchuan_review import QianchuanReviewConfig
 from app.models.task import TaskJob
@@ -49,6 +51,13 @@ async def require_operator(current_user: User = Depends(get_current_user)) -> Us
             detail={"code": "PERMISSION_DENIED", "message": "无权限访问"},
         )
     return current_user
+
+
+def _get_ip(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
 
 
 async def _get_qr_config(key: str, db: AsyncSession) -> QianchuanReviewConfig:
@@ -105,7 +114,7 @@ async def parse_file(
             status_code=500,
             detail={"code": "PARSE_ERROR", "message": f"文件解析失败: {str(e)}"},
         ) from e
-    return {"success": True, "data": {"text": text, "filename": file.filename}}
+    return success_response(data={"text": text, "filename": file.filename})
 
 
 # ---------------------------------------------------------------------------
@@ -138,6 +147,7 @@ class GenerateRequest(BaseModel):
 @router.post("/generate")
 async def generate(
     body: GenerateRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_operator),
 ):
@@ -172,6 +182,17 @@ async def generate(
         created_by=current_user.id,
     )
     db.add(task_job)
+    db.add(OperationLog(
+        user_id=current_user.id,
+        username=current_user.username,
+        role=current_user.role,
+        action="qianchuan_review_generate",
+        target_type="task_job",
+        target_id=None,
+        detail={"script_count": len(body.scripts), "has_excel": has_excel},
+        ip=_get_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    ))
     await db.commit()
     await db.refresh(task_job)
     task_id = task_job.id
@@ -251,6 +272,7 @@ class SaveRequest(BaseModel):
 @router.post("/save")
 async def save_report(
     body: SaveRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_operator),
 ):
@@ -278,10 +300,21 @@ async def save_report(
         created_by=current_user.id,
     )
     db.add(output)
+    db.add(OperationLog(
+        user_id=current_user.id,
+        username=current_user.username,
+        role=current_user.role,
+        action="qianchuan_review_save",
+        target_type="output",
+        target_id=None,
+        detail={"script_count": body.script_count, "has_excel": body.has_excel},
+        ip=_get_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    ))
     await db.commit()
     await db.refresh(output)
 
-    return {"success": True, "data": {"output_id": output.id}}
+    return success_response(data={"output_id": output.id})
 
 
 # ---------------------------------------------------------------------------
@@ -327,4 +360,4 @@ async def get_outputs(
             "word_count": r.word_count,
         })
 
-    return {"success": True, "data": {"items": items, "total": total}}
+    return success_response(data={"items": items, "total": total})

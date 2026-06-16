@@ -9,7 +9,7 @@
 ```
 frontend/
 ├── src/                               # 源码
-│   ├── api/                           # API 调用层（20 个模块）
+│   ├── api/                           # API 调用层（22 个模块）
 │   │   ├── request.ts                 #   基础封装（get/post/patch/put/del + 拦截器）
 │   │   ├── auth.ts                    #   登录、改密码
 │   │   ├── users.ts                   #   用户管理
@@ -29,13 +29,15 @@ frontend/
 │   │   ├── persona.ts                 #   人格定位
 │   │   ├── benchmark.ts               #   对标分析
 │   │   ├── tiktokWriter.ts            #   TikTok 脚本仿写
-│   │   └── sellingPoint.ts            #   产品卖点提取器
+│   │   ├── sellingPoint.ts            #   产品卖点提取器
+│   │   ├── qianchuanReview.ts         #   千川脚本复盘
+│   │   └── qianchuanEditReview.ts     #   千川剪辑预审
 │   ├── layouts/                       # 布局组件
 │   │   ├── AdminLayout.tsx            #   管理端布局（左侧菜单 + 内容区）
 │   │   ├── OperatorLayout.tsx         #   运营端布局（左侧菜单 + 内容区）
 │   │   └── AuthLayout.tsx             #   登录/注册页布局
 │   ├── pages/                         # 页面组件
-│   │   ├── admin/                     #   管理端（15 个页面）
+│   │   ├── admin/                     #   管理端（18 个页面）
 │   │   │   ├── KolsPage.tsx           #     红人管理
 │   │   │   ├── UsersPage.tsx          #     用户管理
 │   │   │   ├── AiManagementPage.tsx   #     AI 密钥/模型管理
@@ -50,8 +52,12 @@ frontend/
 │   │   │   ├── ServiceStatusPage.tsx  #     服务状态
 │   │   │   ├── BenchmarkConfigPage.tsx #    对标分析配置
 │   │   │   ├── BenchmarkConfigTab.tsx #     对标分析配置 Tab
-│   │   │   └── SellingPointConfigTab.tsx #  卖点提取配置 Tab
-│   │   ├── operator/                  #   运营端（11 个页面）
+│   │   │   ├── SellingPointConfigTab.tsx #  卖点提取配置 Tab
+│   │   │   ├── QianchuanReviewConfigTab.tsx # 千川复盘配置 Tab
+│   │   │   ├── QianchuanEditReviewConfigTab.tsx # 千川剪辑预审配置 Tab
+│   │   │   ├── TiktokWriterConfigTab.tsx # TikTok 仿写配置 Tab
+│   │   │   └── WorkspaceConfigPage.tsx #    工作空间配置
+│   │   ├── operator/                  #   运营端（13 个页面）
 │   │   │   ├── HomePage.tsx           #     首页（统计卡片 + 趋势图）
 │   │   │   ├── OperatorIntakePage.tsx #     入驻问卷列表
 │   │   │   ├── OperatorIntakeChatPage.tsx #  运营直发对话
@@ -62,7 +68,9 @@ frontend/
 │   │   │   ├── PersonaWriterPage.tsx  #     人设定位（旧版入口）
 │   │   │   ├── BenchmarkPage.tsx      #     对标分析助手
 │   │   │   ├── TiktokWriterPage.tsx   #     TikTok 脚本仿写
-│   │   │   └── SellingPointPage.tsx   #     产品卖点提取器
+│   │   │   ├── SellingPointPage.tsx   #     产品卖点提取器
+│   │   │   ├── QianchuanReviewPage.tsx #    千川脚本复盘
+│   │   │   └── QianChuanEditReviewPage.tsx # 千川剪辑预审
 │   │   ├── auth/                      #   登录/改密码
 │   │   │   ├── LoginPage.tsx
 │   │   │   └── ChangePasswordPage.tsx
@@ -88,7 +96,7 @@ frontend/
 │   │   ├── tiktokWriter.ts            #   TikTok 脚本仿写相关
 │   │   ├── sellingPoint.ts            #   卖点提取器相关
 │   │   └── ...                        #   task / output / log / file / system
-│   ├── __tests__/                     # 测试代码（71 个用例，全部通过）
+│   ├── __tests__/                     # 测试代码（87 个用例，全部通过）
 │   │   ├── unit/                      #   单元测试
 │   │   │   ├── api/                   #     API 层测试（6 个文件）
 │   │   │   │   ├── request.test.ts    #       request 封装
