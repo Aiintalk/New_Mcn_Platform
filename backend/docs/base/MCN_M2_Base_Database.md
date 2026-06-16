@@ -1,7 +1,7 @@
 # MCN Information System Platform · M2 Base Database 说明
 
 > 文档定位：本文件定义 M2 阶段新增的数据库表。M1 表定义见 `docs/base/M1/MCN_M1_Base_Database.md`。
-> M2 包含 Sprint 1（kol-intake 4 张表）、Sprint 3（persona 1 张表 + TikHub 2 张表 + benchmark 2 张表）、Sprint 5（selling_point_configs 1 张表），运营首页复用 M1 已有表，无新增。Sprint 4（tiktok-writer）、Sprint 6（qianchuan-review）、Sprint 7（qianchuan-edit-review）无独立表，复用 outputs + task_jobs。
+> M2 包含 Sprint 1（kol-intake 4 张表）、Sprint 3（persona 1 张表 + TikHub 2 张表 + benchmark 2 张表）、Sprint 4（tiktok_writer_configs 1 张表）、Sprint 5（selling_point_configs 1 张表）、Sprint 6（qianchuan_review_configs 1 张表）、Sprint 7（qianchuan_edit_review_configs 1 张表），运营首页复用 M1 已有表，无新增。各工具的产出记录复用 `outputs` + `task_jobs`。
 
 ---
 
@@ -19,8 +19,11 @@
 | `benchmark_configs` | 对标分析 AI 配置（Prompt + 模型） | Sprint 3 |
 | `benchmark_analyses` | 对标分析记录（账号分析结果） | Sprint 3 |
 | `selling_point_configs` | 卖点提取 AI 配置（Prompt + 模型） | Sprint 5 |
+| `tiktok_writer_configs` | TikTok 脚本仿写 AI 配置（Prompt + 模型） | Sprint 4 |
+| `qianchuan_review_configs` | 千川脚本复盘 AI 配置（Prompt + 模型） | Sprint 6 |
+| `qianchuan_edit_review_configs` | 千川剪辑预审 AI 配置（Prompt + 模型） | Sprint 7 |
 
-> Sprint 4（tiktok-writer）、Sprint 6（qianchuan-review）、Sprint 7（qianchuan-edit-review）无独立表，复用 `outputs` 和 `task_jobs`。
+> 各工具的产出记录统一复用 `outputs` 和 `task_jobs`，不单独建产出表。
 
 ---
 
@@ -36,8 +39,10 @@
 | `014_tiktok_writer_workspace.sql` | Sprint 4 | workspace_tools 注册 tiktok-writer |
 | `015_selling_point_configs.sql` | Sprint 5 | 新建 selling_point_configs 表，注册 selling-point-extractor |
 | `016_qianchuan_review.sql` | Sprint 6 | workspace_tools 注册 qianchuan-review，status=online |
+| `017_tiktok_writer_configs.sql` | Sprint 4 | 新建 tiktok_writer_configs 表（TikTok 脚本仿写 Prompt 配置）|
 | `018_qianchuan_review_configs.sql` | Sprint 6 | 新建 qianchuan_review_configs 表（管理端 Prompt 配置）|
 | `019_qianchuan_edit_review.sql` | Sprint 7 | workspace_tools 注册 qianchuan-edit-review，status=online |
+| `020_qianchuan_edit_review_configs.sql` | Sprint 7 | 新建 qianchuan_edit_review_configs 表（千川剪辑预审 Prompt 配置）|
 
 ---
 
@@ -434,11 +439,101 @@ CREATE INDEX idx_benchmark_analyses_created ON benchmark_analyses(created_at DES
 
 ---
 
-## 15. livestream_writer_configs 直播脚本仿写配置表（Sprint 8）
+## 15. tiktok_writer_configs TikTok 脚本仿写配置表（Sprint 4）
+
+### 15.1 用途
+
+存储 TikTok 脚本仿写的 AI 配置（Prompt + 模型绑定）。管理员在后台「工具配置 → 功能配置」中维护。
+
+### 15.2 字段说明
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | SERIAL | 是 | 配置 ID |
+| `config_key` | VARCHAR(50) | 是 | 唯一键（`hook_eval` / `structure`） |
+| `ai_model_id` | INT | 否 | 关联 `ai_models.id`，NULL 时用默认模型 |
+| `system_prompt` | TEXT | 否 | AI 提示词 |
+| `is_active` | BOOLEAN | 是 | 是否启用 |
+| `created_at` | TIMESTAMPTZ | 是 | 创建时间 |
+| `updated_at` | TIMESTAMPTZ | 是 | 更新时间（触发器自动更新） |
+
+### 15.3 初始数据
+
+迁移 017 插入两条记录：`config_key='hook_eval'`（开头评估）和 `config_key='structure'`（结构分析）。
+
+### 15.4 workspace_tools 注册
+
+| tool_code | tool_name | category | status | sort_order |
+|-----------|-----------|----------|--------|------------|
+| `tiktok-writer` | TikTok 脚本仿写 | 选题分析 | `online` | 1 |
+
+---
+
+## 16. qianchuan_review_configs 千川脚本复盘配置表（Sprint 6）
+
+### 16.1 用途
+
+存储千川脚本复盘的 AI 配置（Prompt + 模型绑定）。管理员在后台「工具配置 → 功能配置」中维护。
+
+### 16.2 字段说明
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | SERIAL | 是 | 配置 ID |
+| `config_key` | VARCHAR(50) | 是 | 唯一键（`with_excel` / `without_excel`） |
+| `ai_model_id` | INT | 否 | 关联 `ai_models.id`，NULL 时用默认模型 |
+| `system_prompt` | TEXT | 否 | AI 提示词 |
+| `is_active` | BOOLEAN | 是 | 是否启用 |
+| `created_at` | TIMESTAMPTZ | 是 | 创建时间 |
+| `updated_at` | TIMESTAMPTZ | 是 | 更新时间（触发器自动更新） |
+
+### 16.3 初始数据
+
+迁移 018 插入两条记录：`config_key='with_excel'`（有数据表）和 `config_key='without_excel'`（无数据表）。
+
+### 16.4 workspace_tools 注册
+
+| tool_code | tool_name | category | status | sort_order |
+|-----------|-----------|----------|--------|------------|
+| `qianchuan-review` | 千川脚本复盘 | 选题分析 | `online` | 4 |
+
+---
+
+## 17. qianchuan_edit_review_configs 千川剪辑预审配置表（Sprint 7）
+
+### 17.1 用途
+
+存储千川剪辑预审的 AI 配置（Prompt + 模型绑定）。管理员在后台「工具配置 → 功能配置」中维护。
+
+### 17.2 字段说明
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | SERIAL | 是 | 配置 ID |
+| `config_key` | VARCHAR(50) | 是 | 唯一键（`review`） |
+| `ai_model_id` | INT | 否 | 关联 `ai_models.id`，NULL 时用默认模型 |
+| `system_prompt` | TEXT | 否 | AI 提示词 |
+| `is_active` | BOOLEAN | 是 | 是否启用 |
+| `created_at` | TIMESTAMPTZ | 是 | 创建时间 |
+| `updated_at` | TIMESTAMPTZ | 是 | 更新时间（触发器自动更新） |
+
+### 17.3 初始数据
+
+迁移 020 插入一条 `config_key='review'` 记录，`system_prompt` 为剪辑预审提示词。
+
+### 17.4 workspace_tools 注册
+
+| tool_code | tool_name | category | status | sort_order |
+|-----------|-----------|----------|--------|------------|
+| `qianchuan-edit-review` | 千川剪辑预审 | 选题分析 | `online` | 5 |
+
+---
+
+## 18. livestream_writer_configs 直播脚本仿写配置表（Sprint 8）
 
 **迁移文件**：`021_livestream_writer.sql`
 
-### 15.1 表结构
+### 18.1 表结构
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
@@ -450,7 +545,7 @@ CREATE INDEX idx_benchmark_analyses_created ON benchmark_analyses(created_at DES
 | `created_at` | TIMESTAMPTZ | 是 | 创建时间 |
 | `updated_at` | TIMESTAMPTZ | 是 | 更新时间（触发器自动更新）|
 
-### 15.2 初始数据
+### 18.2 初始数据
 
 迁移 021 插入两条记录：
 
@@ -461,9 +556,8 @@ CREATE INDEX idx_benchmark_analyses_created ON benchmark_analyses(created_at DES
 
 两条 Prompt 含动态变量（`{orderLabels}` / `{refLength}` / `{sellingPoints}` / `{refScript}` / `{personaSoul}`），由前端在调用 `/chat` 前完成字符串替换后传入后端。
 
-### 15.3 workspace_tools 注册
+### 18.3 workspace_tools 注册
 
 | tool_code | tool_name | category | status | sort_order |
 |-----------|-----------|----------|--------|------------|
 | `livestream-writer` | 直播脚本仿写 | 内容创作 | `online` | 自动计算 |
-

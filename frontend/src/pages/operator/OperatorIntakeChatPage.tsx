@@ -146,7 +146,7 @@ export default function OperatorIntakeChatPage() {
   }
 
   // ── 普通题目 ─────────────────────────────────────────────────────
-  async function handleNormalAnswer(val: string, q: IntakeQuestion, isSkip: boolean, _sid: number) {
+  async function handleNormalAnswer(_val: string, _q: IntakeQuestion, _isSkip: boolean, _sid: number) {
     const nextIdx = currentQIdx + 1;
     const isLast = nextIdx >= questions.length;
 

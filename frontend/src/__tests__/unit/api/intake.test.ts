@@ -64,9 +64,9 @@ describe('intake API — public endpoints', () => {
 
   it('submitIntake calls POST /api/intake/:token/submit', async () => {
     mockPost.mockResolvedValue({ report_status: 'generating' });
-    const result = await submitIntake('abc123', [{ role: 'user', content: 'Hi' }]);
+    const result = await submitIntake('abc123', [{ role: 'user', content: 'Hi', ts: '2026-01-01T00:00:00Z' }]);
     expect(mockPost).toHaveBeenCalledWith('/api/intake/abc123/submit', {
-      messages: [{ role: 'user', content: 'Hi' }],
+      messages: [{ role: 'user', content: 'Hi', ts: '2026-01-01T00:00:00Z' }],
     });
     expect(result.report_status).toBe('generating');
   });
@@ -124,8 +124,8 @@ describe('intake API — admin endpoints', () => {
 
   it('createQuestion calls POST /api/admin/intake/questions', async () => {
     mockPost.mockResolvedValue({ id: 1 });
-    const result = await createQuestion({ order_num: 1, category: 'test', question_text: 'Q?' });
-    expect(mockPost).toHaveBeenCalledWith('/api/admin/intake/questions', { order_num: 1, category: 'test', question_text: 'Q?' });
+    const result = await createQuestion({ order_num: 1, category: 'test', question_text: 'Q?', question_type: 'text', max_items: null, is_required: true });
+    expect(mockPost).toHaveBeenCalledWith('/api/admin/intake/questions', { order_num: 1, category: 'test', question_text: 'Q?', question_type: 'text', max_items: null, is_required: true });
     expect(result.id).toBe(1);
   });
 

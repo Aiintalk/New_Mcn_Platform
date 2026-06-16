@@ -81,9 +81,6 @@ function parseFansField(raw: string | undefined): FansItem[] {
   }
 }
 
-const genderLabel = (name: string) => name === 'female' ? '女性' : '男性';
-const pct = (value: number) => (value * 100).toFixed(1) + '%';
-
 function FansPanel({ data, onFetch, fetching, updatedAt }: {
   data?: TikhubFansData | null;
   onFetch: () => void;

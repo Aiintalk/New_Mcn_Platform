@@ -500,7 +500,7 @@ export default function PersonaPage() {
                     background: m.role === 'user' ? 'var(--brand)' : 'var(--bg-page)', color: m.role === 'user' ? '#fff' : 'var(--text-primary)' }}>
                     <pre style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{m.content}</pre>
                     {m.role === 'assistant' && (
-                      <button className="btn btn-ghost btn-sm" style={{ marginTop: 8, color: m.role === 'user' ? '#fff' : undefined }}
+                      <button className="btn btn-ghost btn-sm" style={{ marginTop: 8 }}
                         onClick={() => handleAdoptOptimize(m.content)}>采纳此版本</button>
                     )}
                   </div>

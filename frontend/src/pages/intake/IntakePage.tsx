@@ -32,7 +32,7 @@ export default function IntakePage() {
   const [kolName, setKolName] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
-  const [sending, setSending] = useState(false);
+  const [sending] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [reportStatus, setReportStatus] = useState<string>('pending');
   const [pollCount, setPollCount] = useState(0);
@@ -140,7 +140,7 @@ export default function IntakePage() {
   }
 
   // ── 普通题目 ─────────────────────────────────────────────────────
-  function handleNormalAnswer(val: string, q: IntakeQuestion, isSkip: boolean) {
+  function handleNormalAnswer(_val: string, _q: IntakeQuestion, _isSkip: boolean) {
     const nextIdx = currentQIdx + 1;
     const isLast = nextIdx >= questions.length;
 
