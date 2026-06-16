@@ -79,7 +79,7 @@ backend/
 │   │   ├── MCN_M1_Base_Database.md    #     M1 阶段数据库契约
 │   │   ├── MCN_M2_Base_API.md         #     M2 阶段 API 契约
 │   │   └── MCN_M2_Base_Database.md    #     M2 阶段数据库契约
-│   ├── tasks/                         #   任务单 + 验收文档（29 个）
+│   ├── tasks/                         #   任务单 + 验收文档（35 个）
 │   │   ├── M1_Sprint0.md ~ Sprint4.md          #  M1 各 Sprint
 │   │   ├── M1_Sprint5_TikHub_独立池化.md        #  TikHub 独立池化
 │   │   ├── M2_Sprint1_kol_intake.md            #  入驻问卷主任务
@@ -88,6 +88,9 @@ backend/
 │   │   ├── M2_Sprint3_persona_positioning*.md  #  人设定位 + v2 修复
 │   │   ├── M2_Sprint04_后端任务_tiktok-writer*.md     #  TikTok 脚本仿写 v1 + v2 修复
 │   │   ├── M2_Sprint05_后端任务_selling-point-extractor*.md  #  卖点提取器 v1 + v2 修复
+│   │   ├── M2_Sprint06_后端任务_qianchuan-review_v1.md       #  千川脚本复盘 v1
+│   │   ├── M2_Sprint07_后端任务_qianchuan-edit-review_v1.md  #  千川剪辑预审 v1
+│   │   ├── M2_Sprint07_后端_开发验收_qianchuan-edit-review_v1.md  #  千川剪辑预审验收
 │   │   └── BugFix_*.md                         #  BugFix（3 个）
 │   └── tests/                         #   测试报告 + 测试任务
 │       ├── MCN_M1_Test_Task.md                        #  M1 测试任务
@@ -98,6 +101,8 @@ backend/
 │       ├── M2_Sprint3_测试报告.md                       #  M2 Sprint3 测试报告（persona + TikHub）
 │       ├── M2_Sprint04_测试报告_tiktok-writer_v1.md     #  M2 Sprint4 测试报告
 │       ├── M2_Sprint05_测试报告_selling-point-extractor_v1.md  #  M2 Sprint5 测试报告
+│       ├── M2_Sprint06_测试报告_qianchuan-review_v1.md  #  M2 Sprint6 测试报告
+│       ├── M2_Sprint07_测试报告_qianchuan-edit-review_v1.md  #  M2 Sprint7 测试报告
 │       └── MCN_Integration_Test_Fix_Report_2026-06-11.md  #  集成测试修复报告
 │
 ├── tests/                             # 测试代码

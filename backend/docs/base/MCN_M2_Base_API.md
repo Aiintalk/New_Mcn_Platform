@@ -1,7 +1,7 @@
 # MCN Information System Platform · M2 Base API 说明
 
 > 文档定位：本文件定义 M2 阶段新增的所有 API 接口。M1 接口见 `docs/base/M1/MCN_M1_Base_API.md`。
-> M2 包含 Sprint 1（kol-intake 红人入驻问卷）、Sprint 2（运营首页重设计）、Sprint 3（人格定位 + TikHub 管理）、Sprint 4（tiktok-writer）、Sprint 5（selling-point-extractor）。
+> M2 包含 Sprint 1（kol-intake 红人入驻问卷）、Sprint 2（运营首页重设计）、Sprint 3（人格定位 + TikHub 管理）、Sprint 4（tiktok-writer）、Sprint 5（selling-point-extractor）、Sprint 6（qianchuan-review）、Sprint 7（qianchuan-edit-review）。
 
 ---
 
@@ -46,6 +46,18 @@
 |------|--------|----------|
 | 运营端 | 5 | `/api/tools/selling-point-extractor` |
 | 管理端 | 2 | `/api/admin/selling-point` |
+
+### 1.7 Sprint 6 — 千川脚本复盘
+
+| 分类 | 接口数 | 路由前缀 |
+|------|--------|----------|
+| 运营端 | 4 | `/api/tools/qianchuan-review` |
+
+### 1.8 Sprint 7 — 千川剪辑预审
+
+| 分类 | 接口数 | 路由前缀 |
+|------|--------|----------|
+| 工具接口（截帧/转录/流式/Word导出/保存报告） | 5 | `/api/tools/` |
 
 ---
 
@@ -669,3 +681,256 @@ Response:
 |------|------|------|
 | 400 | `INVALID_INPUT` | messages 为空 / systemPrompt 为空 / content 为空 |
 
+---
+
+## 14. Sprint 6 — 千川脚本复盘接口（qianchuan-review）
+
+> 路由文件：`backend/app/routers/operator_qianchuan_review.py`
+> 权限：operator / admin，需 JWT + `password_changed_at IS NOT NULL`
+
+### POST `/api/tools/qianchuan-review/parse-file` — 解析脚本文件
+
+Request：multipart，`file` 字段（.txt/.md/.docx/.pages，不支持 .pdf）
+
+Response（200）：
+```json
+{ "success": true, "code": "OK", "data": { "text": "string", "filename": "string" } }
+```
+
+错误：不支持格式 → 400 UNSUPPORTED_FORMAT
+
+---
+
+### POST `/api/tools/qianchuan-review/generate` — 流式生成复盘报告
+
+Request（JSON）：
+```json
+{
+  "scripts": [{ "title": "string", "content": "string" }],
+  "excel_data": [{ "video_theme": "string", "spend": 1234.5, "roi": 2.1, ... }],
+  "has_excel": false
+}
+```
+
+Response：`text/event-stream`（SSE），Response Header 含 `X-Task-Id: {number}`
+
+业务规则：
+- `scripts` 为空 → 400 INVALID_INPUT
+- `scripts.length > 30` → 400 SCRIPTS_LIMIT_EXCEEDED（"不能超过30条"）
+- 流开始前创建 task_jobs(status=processing)；流结束后更新 status=success
+
+---
+
+### POST `/api/tools/qianchuan-review/save` — 保存报告
+
+Request（JSON）：
+```json
+{ "task_id": 1, "report": "string" }
+```
+
+Response（200）：
+```json
+{ "success": true, "code": "OK", "data": { "output_id": 1 } }
+```
+
+错误：report 为空 → 400 INVALID_INPUT
+
+---
+
+### GET `/api/tools/qianchuan-review/outputs` — 历史列表
+
+Query：`page`（默认1）、`size`（默认20）
+
+Response（200）：
+```json
+{
+  "success": true, "code": "OK",
+  "data": {
+    "items": [{ "id": 1, "title": "string", "created_at": "ISO8601", "word_count": 100 }],
+    "total": 10, "page": 1, "size": 20
+  }
+}
+```
+
+业务规则：operator 只看自己（created_by 过滤），admin 看全部
+
+---
+
+## 15. Sprint 7 — 千川剪辑预审接口（qianchuan-edit-review）
+
+> 路由文件：`backend/app/routers/tool_extract_frames.py` / `tool_transcribe.py` / `tool_chat_stream.py` / `tool_export_word.py` / `tool_qianchuan_edit_review.py`
+> 权限：operator / admin，需 JWT + `password_changed_at IS NOT NULL`
+
+### POST `/api/tools/extract-frames` — 截帧
+
+Request：multipart，`file` 字段（视频文件），`count` 字段（默认8，截帧数量）
+
+Response（200）：
+```json
+{
+  "success": true, "code": "OK",
+  "data": {
+    "frames": [{ "time": 0.0, "base64": "data:image/jpeg;base64,..." }],
+    "duration": 32.5
+  }
+}
+```
+
+错误：无文件字段 → 422；ffprobe 读取失败 → 400 EXTRACT_FAILED；超时（60s）→ 400
+
+---
+
+### POST `/api/tools/transcribe` — 转录
+
+Request：multipart，`file` 字段（视频/音频文件），`language` 字段（默认 zh）
+
+Response（200）：
+```json
+{ "success": true, "code": "OK", "data": { "text": "string" } }
+```
+
+错误：文件 > 25MB → 400 FILE_TOO_LARGE；上游 API 失败 → 502 UPSTREAM_ERROR
+
+业务规则：429 时重试，`_RETRY_DELAYS=[3,6]`，共 3 次
+
+---
+
+### POST `/api/tools/chat-stream` — 多模态 SSE 流式对话
+
+Request（JSON）：
+```json
+{
+  "messages": [{ "role": "user", "content": [{ "type": "text", "text": "..." }, { "type": "image_url", "image_url": { "url": "data:image/..." } }] }],
+  "system_prompt": "string",
+  "model": "gpt-4o",
+  "max_tokens": 8000
+}
+```
+
+Response：`text/plain; charset=utf-8`（raw text stream，非 SSE event 格式）
+
+错误：messages 为空 → 400 INVALID_INPUT；system_prompt 为空 → 400 INVALID_INPUT
+
+---
+
+### POST `/api/tools/export-word` — 导出 Word
+
+Request（JSON）：
+```json
+{ "content": "# 标题\n\n内容...", "title": "千川剪辑预审报告" }
+```
+
+Response：`application/vnd.openxmlformats-officedocument.wordprocessingml.document`（文件流，非标准信封）
+- Header：`Content-Disposition: attachment; filename*=UTF-8''%E5%8D%83...docx`（RFC5987 编码）
+- 文件名格式：`千川预审报告_{YYYYMMDD}.docx`
+
+错误：content 为空 → 400 INVALID_INPUT
+
+---
+
+### POST `/api/tools/qianchuan-edit-review/outputs` — 保存报告
+
+Request（JSON）：
+```json
+{
+  "title": "千川剪辑预审_2026-06-14",
+  "report": "string",
+  "original_duration": 32.5,
+  "ours_duration": 28.0,
+  "original_frame_count": 8,
+  "ours_frame_count": 8
+}
+```
+
+Response（200）：
+```json
+{ "success": true, "code": "OK", "data": { "id": 1, "created_at": "ISO8601" } }
+```
+
+错误：report 为空 → 400 INVALID_INPUT
+
+---
+
+## 16. Sprint 8 — 直播脚本仿写接口（livestream-writer）
+
+### 16.1 接口列表
+
+| 方法 | 路径 | 角色 | 功能 |
+|------|------|------|------|
+| GET | `/api/tools/livestream-writer/config` | operator/admin | 获取激活的 Prompt + 模型（实时拉取，管理端可配置）|
+| GET | `/api/tools/livestream-writer/kols/personas` | operator/admin | 达人列表（content_plan 和 persona 均非空）|
+| POST | `/api/tools/livestream-writer/parse-file` | operator/admin | 文件解析（.txt/.md/.docx/.pages，不支持 .pdf）|
+| POST | `/api/tools/livestream-writer/chat` | operator/admin | AI 流式对话（raw text stream）|
+| GET | `/api/admin/livestream-writer/configs` | admin | 配置列表 |
+| PUT | `/api/admin/livestream-writer/configs/{key}` | admin | 更新配置（Prompt / 模型 / 激活状态）|
+
+### 16.2 GET `/api/tools/livestream-writer/config`
+
+Response（200）：
+```json
+{
+  "success": true, "code": "OK",
+  "data": {
+    "generate_prompt": "string（首次生成 Prompt 模板，含 {变量}）",
+    "iterate_prompt": "string（多轮迭代 Prompt 模板，含 {变量}）",
+    "model_id": "string（如 claude-opus-4-6-thinking）"
+  }
+}
+```
+
+配置未激活时返回 503 CONFIG_NOT_FOUND。
+
+### 16.3 GET `/api/tools/livestream-writer/kols/personas`
+
+SQL：`WHERE content_plan IS NOT NULL AND persona IS NOT NULL AND deleted_at IS NULL ORDER BY name`
+
+Response（200）：
+```json
+{
+  "success": true, "code": "OK",
+  "data": {
+    "personas": [
+      { "name": "达人名称", "soul": "persona字段内容", "contentPlan": "content_plan字段内容" }
+    ]
+  }
+}
+```
+
+### 16.4 POST `/api/tools/livestream-writer/parse-file`
+
+Request：`multipart/form-data`，字段名 `file`
+
+支持格式：`.txt / .md / .docx / .pages`，**不支持 .pdf**（返回提示字符串而非报错）
+
+Response（200）：
+```json
+{ "success": true, "code": "OK", "data": { "text": "string", "filename": "string" } }
+```
+
+错误：不支持格式 → 400 UNSUPPORTED_FILE_TYPE
+
+### 16.5 POST `/api/tools/livestream-writer/chat`
+
+Request（JSON）：
+```json
+{
+  "messages": [{ "role": "user|assistant", "content": "string" }],
+  "systemPrompt": "string（前端动态构建，已注入变量）",
+  "model": "string（可选，默认 claude-opus-4-6-thinking）",
+  "createJob": true,
+  "jobContext": {
+    "productName": "string",
+    "personaName": "string",
+    "spOrder": "string（如：背书→机制→种草）",
+    "refLength": 1234
+  }
+}
+```
+
+Response：`text/plain; charset=utf-8`（raw text stream，非 SSE）
+
+重试策略：429 时最多 5 次，退避 5/10/15/20/25s。
+
+BackgroundTask（createJob=true 时）：生成结束后写 `task_jobs` + `outputs`。
+
+错误：messages 为空 → 400 INVALID_INPUT；systemPrompt 为空 → 400 INVALID_INPUT

@@ -113,7 +113,7 @@ frontend/
 │   ├── tests/                         #   测试报告
 │   │   ├── MCN_Frontend_Test_Task_M1M2.md              #  前端测试任务单
 │   │   └── MCN_Frontend_Test_Fix_Report_2026-06-11.md  #  前端测试修复报告
-│   └── tasks/                         #   任务单 + 验收文档（29 个）
+│   └── tasks/                         #   任务单 + 验收文档（33 个）
 │       ├── M1_Sprint0.md ~ Sprint4.md           #  M1 各 Sprint
 │       ├── M1_Sprint5_TikHub_独立池化.md         #  TikHub 独立池化
 │       ├── M2_Sprint1_kol_intake.md             #  入驻问卷主任务
@@ -122,7 +122,10 @@ frontend/
 │       ├── M2_Sprint3_persona_positioning.md    #  人设定位
 │       ├── M2_Sprint3_前端任务_benchmark_v2_修复Bug.md  #  对标分析修复
 │       ├── M2_Sprint04_前端任务_tiktok-writer_v1.md     #  TikTok 脚本仿写
-│       └── M2_Sprint05_前端任务_selling-point-extractor_v1.md  #  卖点提取器
+│       ├── M2_Sprint05_前端任务_selling-point-extractor_v1.md  #  卖点提取器
+│       ├── M2_Sprint06_前端任务_qianchuan-review_v1.md  #  千川脚本复盘
+│       ├── M2_Sprint07_前端任务_qianchuan-edit-review_v1.md  #  千川剪辑预审
+│       └── M2_Sprint07_前端_开发验收_qianchuan-edit-review_v1.md  #  千川剪辑预审验收
 │
 ├── vitest.config.ts                   # Vitest 测试配置
 ├── vite.config.ts                     # Vite 构建配置

@@ -1,7 +1,7 @@
 # MCN Information System Platform · M2 Base Database 说明
 
 > 文档定位：本文件定义 M2 阶段新增的数据库表。M1 表定义见 `docs/base/M1/MCN_M1_Base_Database.md`。
-> M2 包含 Sprint 1（kol-intake 4 张表）、Sprint 3（persona 1 张表 + TikHub 2 张表 + benchmark 2 张表）、Sprint 5（selling_point_configs 1 张表），运营首页复用 M1 已有表，无新增。Sprint 4（tiktok-writer）无独立表，复用 outputs + task_jobs。
+> M2 包含 Sprint 1（kol-intake 4 张表）、Sprint 3（persona 1 张表 + TikHub 2 张表 + benchmark 2 张表）、Sprint 5（selling_point_configs 1 张表），运营首页复用 M1 已有表，无新增。Sprint 4（tiktok-writer）、Sprint 6（qianchuan-review）、Sprint 7（qianchuan-edit-review）无独立表，复用 outputs + task_jobs。
 
 ---
 
@@ -20,7 +20,24 @@
 | `benchmark_analyses` | 对标分析记录（账号分析结果） | Sprint 3 |
 | `selling_point_configs` | 卖点提取 AI 配置（Prompt + 模型） | Sprint 5 |
 
-> Sprint 4（tiktok-writer）无独立表，复用 `outputs` 和 `task_jobs`。
+> Sprint 4（tiktok-writer）、Sprint 6（qianchuan-review）、Sprint 7（qianchuan-edit-review）无独立表，复用 `outputs` 和 `task_jobs`。
+
+---
+
+## 1a. M2 迁移文件清单
+
+| 迁移文件 | Sprint | 操作说明 |
+|---------|--------|---------|
+| `007_benchmark.sql` | Sprint 3 | 新建 benchmark_configs、benchmark_analyses 表 |
+| `008_tikhub_credentials.sql` | Sprint 3 | 新建 tikhub_credentials 表 |
+| `009_persona_reports.sql` | Sprint 3 | 新建 persona_reports 表 |
+| `010_tikhub_call_logs.sql` | Sprint 3 | 新建 tikhub_call_logs 表 |
+| `011_workspace_tools.sql` | Sprint 3 | 初始化 workspace_tools 表及各工具入口 |
+| `014_tiktok_writer_workspace.sql` | Sprint 4 | workspace_tools 注册 tiktok-writer |
+| `015_selling_point_configs.sql` | Sprint 5 | 新建 selling_point_configs 表，注册 selling-point-extractor |
+| `016_qianchuan_review.sql` | Sprint 6 | workspace_tools 注册 qianchuan-review，status=online |
+| `018_qianchuan_review_configs.sql` | Sprint 6 | 新建 qianchuan_review_configs 表（管理端 Prompt 配置）|
+| `019_qianchuan_edit_review.sql` | Sprint 7 | workspace_tools 注册 qianchuan-edit-review，status=online |
 
 ---
 
@@ -414,3 +431,39 @@ CREATE INDEX idx_benchmark_analyses_created ON benchmark_analyses(created_at DES
 | tool_code | tool_name | category | status | sort_order |
 |-----------|-----------|----------|--------|------------|
 | `selling-point-extractor` | 产品卖点提取器 | 选题分析 | `online` | 3 |
+
+---
+
+## 15. livestream_writer_configs 直播脚本仿写配置表（Sprint 8）
+
+**迁移文件**：`021_livestream_writer.sql`
+
+### 15.1 表结构
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | SERIAL | 是 | 配置 ID |
+| `config_key` | VARCHAR(50) | 是 | 唯一键（`generate` / `iterate`） |
+| `ai_model_id` | INTEGER | 否 | 关联 `ai_models.id`，NULL 时用默认模型 `claude-opus-4-6-thinking` |
+| `system_prompt` | TEXT | 否 | AI 系统提示词（含模板变量，由前端注入）|
+| `is_active` | BOOLEAN | 是 | 是否启用 |
+| `created_at` | TIMESTAMPTZ | 是 | 创建时间 |
+| `updated_at` | TIMESTAMPTZ | 是 | 更新时间（触发器自动更新）|
+
+### 15.2 初始数据
+
+迁移 021 插入两条记录：
+
+| config_key | 用途 |
+|------------|------|
+| `generate` | 首次生成开播方案的 System Prompt |
+| `iterate` | 多轮迭代修改的 System Prompt |
+
+两条 Prompt 含动态变量（`{orderLabels}` / `{refLength}` / `{sellingPoints}` / `{refScript}` / `{personaSoul}`），由前端在调用 `/chat` 前完成字符串替换后传入后端。
+
+### 15.3 workspace_tools 注册
+
+| tool_code | tool_name | category | status | sort_order |
+|-----------|-----------|----------|--------|------------|
+| `livestream-writer` | 直播脚本仿写 | 内容创作 | `online` | 自动计算 |
+

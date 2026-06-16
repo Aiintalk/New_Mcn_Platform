@@ -195,6 +195,39 @@ async def parse_qianchuan_review_file(file: UploadFile) -> str:
         raise ValueError(f"不支持的文件格式: .{ext}（支持 .txt / .md / .docx / .pages）")
 
 
+# ---------------------------------------------------------------------------
+# livestream-writer 专用解析函数
+# ---------------------------------------------------------------------------
+
+async def parse_livestream_writer_file(file: UploadFile) -> str:
+    """
+    livestream-writer 专用文件解析，返回纯文本（无截断）。
+
+    支持：.txt / .md / .docx / .pages
+    不支持：.pdf（返回提示文字，原工具未实现）
+    其他格式：抛 ValueError
+
+    .pages 含日历噪声过滤（与 qianchuan-review 逻辑等价）。
+    """
+    filename = file.filename or ""
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    content_bytes = await file.read()
+
+    if ext in ("txt", "md"):
+        return content_bytes.decode("utf-8", errors="replace")
+    elif ext == "docx":
+        try:
+            return _parse_docx(content_bytes)
+        except Exception as e:
+            raise ValueError(f".docx 文件解析失败: {e}") from e
+    elif ext == "pdf":
+        return "[暂不支持 PDF 格式，请转为 .docx 或 .txt 后上传]"
+    elif ext == "pages":
+        return _parse_pages_qianchuan_review(content_bytes)
+    else:
+        raise ValueError(f"不支持的文件格式: .{ext}（支持 .txt / .md / .docx / .pages）")
+
+
 def _parse_pages_qianchuan_review(content: bytes) -> str:
     """
     解析 Apple Pages 文件（qianchuan-review 版本）。
