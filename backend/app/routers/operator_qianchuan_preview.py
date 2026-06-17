@@ -92,7 +92,7 @@ class GenerateRequest(BaseModel):
 async def generate(
     body: GenerateRequest,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_operator),
+    current_user: User = Depends(require_operator),
 ):
     """SSE 流式生成预审报告。"""
     if not body.script_a.strip():
@@ -123,14 +123,19 @@ async def generate(
             model_id = model_row[0]
 
     user_content = f"## 文案A\n{body.script_a}\n\n---\n\n## 文案B\n{body.script_b}"
-    messages = [{"role": "user", "content": user_content}]
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_content},
+    ]
 
     async def stream_generator():
         try:
             async for chunk in yunwu_adapter.chat_stream(
                 messages=messages,
-                system_prompt=system_prompt,
-                model=model_id,
+                db=db,
+                model_id=model_id,
+                user_id=current_user.id,
+                feature="qianchuan_preview_generate",
             ):
                 yield chunk
         except GeneratorExit:

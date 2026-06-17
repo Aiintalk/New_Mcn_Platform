@@ -7,12 +7,24 @@
 
 ## 1. M2 新增表清单
 
-| 表名 | 用途 | Sprint |
-|------|------|--------|
-| `kol_intake_questions` | 24 道题目配置（AI 对话引导提纲） | Sprint 1 |
-| `kol_intake_configs` | AI 配置（对话 bridge + 报告生成两条记录） | Sprint 1 |
-| `kol_intake_links` | 运营生成的一次性分享链接 | Sprint 1 |
-| `kol_intake_submissions` | 博主对话记录 + 生成报告 | Sprint 1 |
+| 表名 | 用途 | Sprint | 迁移文件 |
+|------|------|--------|---------|
+| `kol_intake_questions` | 24 道题目配置（AI 对话引导提纲） | Sprint 1 | 006/007 |
+| `kol_intake_configs` | AI 配置（对话 bridge + 报告生成两条记录） | Sprint 1 | 006/007 |
+| `kol_intake_links` | 运营生成的一次性分享链接 | Sprint 1 | 006/007 |
+| `kol_intake_submissions` | 博主对话记录 + 生成报告 | Sprint 1 | 006/007 |
+| `persona_reports` | 人格定位报告 | Sprint 3 | 009 |
+| `tikhub_credentials` | TikHub 独立 Key 池 | Sprint 3 | 010 |
+| `tikhub_call_logs` | TikHub 调用日志 | Sprint 3 | 011 |
+| `benchmark_configs` | 对标分析配置 | Sprint 3-benchmark | 007 |
+| `benchmark_analyses` | 对标分析结果 | Sprint 3-benchmark | 007 |
+| `selling_point_configs` | 产品卖点提取器配置（Prompt+模型） | Sprint 5 | 015 |
+| `qianchuan_review_configs` | 千川脚本复盘配置 | Sprint 6 | 016 |
+| `qianchuan_edit_review_configs` | 千川剪辑预审配置 | Sprint 7 | 019 |
+| `livestream_writer_configs` | 直播脚本仿写配置 | Sprint 8 | 021 |
+| `livestream_review_configs` | 直播间脚本复盘配置 | Sprint 9 | 020 |
+| `persona_review_configs` | 人设脚本复盘配置 | Sprint 10 | 023 |
+| `qianchuan_preview_configs` | 千川文案预审配置（Prompt+模型） | Sprint 11 | 024 |
 
 ---
 
@@ -195,5 +207,25 @@ Migration 文件位于 `backend/alembic/versions/` 或 `backend/migrations/`，S
 2. `kol_intake_submissions.link_id` 有唯一约束，重复提交需在应用层拦截，返回 409。
 3. 不允许物理删除 `kol_intake_submissions` 记录。
 4. `messages` 字段保存完整对话，前端维护，后端只追加/覆盖，不截断。
+
+---
+
+## 8. Sprint 11 — qianchuan_preview_configs 表（迁移 024）
+
+```sql
+CREATE TABLE qianchuan_preview_configs (
+    id            SERIAL PRIMARY KEY,
+    config_key    VARCHAR(50)  NOT NULL UNIQUE,        -- 配置键，目前只有 'default'
+    ai_model_id   INTEGER      REFERENCES ai_models(id) ON DELETE SET NULL,
+    system_prompt TEXT,                                 -- 管理端可配置的 System Prompt
+    is_active     BOOLEAN      NOT NULL DEFAULT TRUE,
+    created_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    updated_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW()   -- 触发器自动维护
+);
+```
+
+初始数据：`config_key='default'`，`system_prompt` 为千川文案审核 Prompt（含4个审核维度 + 6节输出格式），`is_active=true`。
+
+`workspace_tools` 注册：`tool_code='qianchuan-preview'`，`status='online'`，分类 `千川`。
 5. 报告文件只存路径，不存文件内容至数据库。
 6. 不允许 operator 查看其他 operator 的 links 和 submissions。

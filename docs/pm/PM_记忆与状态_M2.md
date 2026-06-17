@@ -1,6 +1,6 @@
 # MCN_PM_Agent — 项目记忆与当前状态（M2）
 
-> 最后更新：2026-06-17（Sprint 10 persona-review 完成 + 部署阶段修复：路由懒加载 / PDF 跨平台字体 / 对话页 UX / TS 错误）
+> 最后更新：2026-06-18（Sprint 11 qianchuan-preview 完成：后端5接口+前端页面+功能验证+文档落地）
 > 更新角色：MCN_PM_Agent
 > 上一份文档：`docs/pm/PM_记忆与状态.md`（M1 阶段，已归档）
 
@@ -9,9 +9,9 @@
 ## 一、项目基本信息
 
 - **项目名**：MCN Information System Platform
-- **当前阶段**：M2 阶段 — Sprint 10 进行中（测试通过，待提交）
+- **当前阶段**：M2 阶段 — Sprint 11 已完成，待 push + 下一个 Sprint 待定
 - **GitHub**：https://github.com/Aiintalk/New_Mcn_Platform
-- **工作目录**：`/Users/zhangchong/ai_intalk/New_Mcn_Platform/`
+- **工作目录**：`/Users/zhangchong/Desktop/mcn_platform/New_Mcn_Platform/`（注意：2026-06-18 路径变更，旧路径 `/Users/zhangchong/ai_intalk/New_Mcn_Platform/`）
 - **后端**：`backend/`（FastAPI + PostgreSQL）
 - **前端**：`frontend/`（React + Vite + TypeScript + Ant Design 5.x）
 
@@ -26,6 +26,38 @@
 ---
 
 ## 二、M2 阶段（当前）
+
+### M2 Sprint 11 — 千川文案预审（qianchuan-preview）✅ 完成
+
+**核心流程：** 上传/粘贴两段文案（原版爆款 + 我方文案）→ AI 流式对比分析 → 生成预审报告 → 导出 Word / 复制
+
+| 端 | 状态 | 备注 |
+|----|------|------|
+| 数据库迁移 024 | ✅ 已执行 | `qianchuan_preview_configs` 表 + workspace_tools 注册（status=online） |
+| 后端 5 个接口 | ✅ 完成 | `operator_qianchuan_preview.py`（parse-file/generate/export-word）+ `admin_qianchuan_preview.py`（GET/PUT configs） |
+| System Prompt | ✅ 完成 | `tools/qianchuan_preview/prompts.py`，DB 管理端可配置 |
+| SQLAlchemy 模型 | ✅ 完成 | `app/models/qianchuan_preview.py` |
+| main.py 注册 | ✅ 完成 | 两个 router 已 include |
+| 自动化测试 | ✅ 25/25 | 单元 7 + 集成 18 |
+| 前端页面 | ✅ 完成 | `QianchuanPreviewPage.tsx`，路由 `/workspace/qianchuan-preview` |
+| 管理端 Tab | ✅ 完成 | `QianchuanPreviewConfigTab.tsx` |
+| 功能验证 | ✅ 通过 | 5 项验证全 PASS，2026-06-18 |
+| 契约文档 | ✅ 已更新 | Base_API §18、Base_Database 迁移 024 已登记 |
+
+**关键修复（功能验证时）：**
+- generate 接口原版 `yunwu_adapter.chat_stream()` 使用了不存在的 `system_prompt=` 参数，修正为将 system_prompt 放入 messages 列表首位 `{"role":"system","content":...}`，并补传 `db`/`user_id`/`feature`
+
+**与同类工具差异：**
+- 无历史记录（轻量工具，不保存报告）
+- 无 parse-file 的日历噪声过滤（复用 `parse_qianchuan_review_file` 但文案类文件通常不含日历噪声）
+- 工具状态直接 `online`（旧工具已上线，无 dev 阶段）
+
+**覆盖率：**
+- `operator_qianchuan_preview.py`：40%（流式路径已知缺口）
+- `admin_qianchuan_preview.py`：83% ✅
+- `tools/qianchuan_preview/prompts.py`：100% ✅
+
+---
 
 ### M2 Sprint 1 — 红人入驻问卷（kol-intake） ✅ 完成
 
@@ -373,16 +405,14 @@
 |------|---------|
 | 并发测试 4/4 失败 | 本地环境问题，需在测试服验证 |
 | antd `message` 静态方法警告 | 仅 BenchmarkPage 已修复，其余 25 个文件待批量迁移 |
-| file_parser.py 新增函数覆盖率 82% | 差 8%，未来可补充 OS 级异常路径测试 |
-| tool_extract_frames.py 覆盖率 34% | ffmpeg subprocess 路径无法在集成测试中执行，后续可补充 mock 路径测试 |
+| Sprint 9/10 convention_guard OperationLog 违规（5处） | 预存问题，admin PUT 接口未写 OperationLog，待后续统一修复 |
 
 **下一步优先级：**
-1. ✅ 已完成：qianchuan-edit-review 迁移（Sprint 7）
-2. 规划 M2 Sprint 8（下一个待迁移工具，参考 `Ai_Toolbox/` 目录和工具迁移方案）
-3. 批量修复 antd `message` 静态方法 → `App.useApp()` hook（25 个文件）
-4. 补充 operator_tiktok_writer.py 单元测试（覆盖率提升至 70%+）
+1. ✅ 已完成：Sprint 11 qianchuan-preview 迁移
+2. push 3+N commits 到 GitHub（Sprint 11 代码 + 文档落地）
+3. 确认下一个待迁移工具（参考 `Ai_Toolbox_new/` 目录）
+4. 批量修复 antd `message` 静态方法 → `App.useApp()` hook（25 个文件）
 5. 测试服部署并验证并发测试
-6. 浏览器 UI 功能测试（Playwright browser 安装完成后补做 Sprint 7 页面截图验证）
 
 ---
 
@@ -392,6 +422,10 @@
 
 | 文件 | 说明 | 状态 |
 |------|------|------|
+| `docs/pm/M2_Sprint11_qianchuan-preview_需求文档.md` | Sprint 11 需求文档 | ✅ 已完成 |
+| `backend/docs/tasks/M2_Sprint11_后端任务_qianchuan-preview_v1.md` | Sprint 11 后端任务单 | ✅ 已完成 |
+| `frontend/docs/tasks/M2_Sprint11_前端任务_qianchuan-preview_v1.md` | Sprint 11 前端任务单 | ✅ 已完成 |
+
 | `docs/pm/M2_Sprint09_livestream-review_需求文档.md` | Sprint 9 需求文档 | ✅ 已完成 |
 | `backend/docs/tasks/M2_Sprint10_后端任务_persona-review_v1.md` | Sprint 10 后端任务单 | ✅ 已执行 |
 | `frontend/docs/tasks/M2_Sprint10_前端任务_persona-review_v1.md` | Sprint 10 前端任务单 | 🔄 待执行 |
@@ -419,11 +453,13 @@
 
 | 文件 | 说明 | 状态 |
 |------|------|------|
+| `backend/docs/tests/M2_Sprint11_测试报告_qianchuan-preview_v1.md` | Sprint 11 测试报告（25/25 自动化 + 5 项功能验证）| ✅ 已完成 |
 | `backend/docs/tests/M2_Sprint07_测试报告_qianchuan-edit-review_v1.md` | Sprint 7 测试报告（21/21 集成测试 + 9 项功能验证）| ✅ 已完成 |
 | `backend/docs/tests/M2_Sprint06_测试报告_qianchuan-review_v1.md` | Sprint 6 测试报告（57/57 后端，verify PASS）| ✅ 已完成 |
 | `backend/docs/tests/M2_Sprint05_测试报告_selling-point-extractor_v1.md` | Sprint 5 测试报告（43/43 后端 + 86/86 前端）| ✅ 已完成 |
 | `backend/docs/tests/M2_Sprint04_测试报告_tiktok-writer_v1.md` | Sprint 4 测试报告（317/317 后端）| ✅ 已完成 |
 | `backend/docs/tests/M2_Sprint3_测试报告.md` | Sprint 3 测试报告（371/371） | ✅ 已完成 |
+
 
 ### 基础文档
 

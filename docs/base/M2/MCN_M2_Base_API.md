@@ -330,6 +330,115 @@ Response:
 
 ---
 
+## §18. Sprint 11 — 千川文案预审（qianchuan-preview）
+
+> 路由前缀：`/api/tools/qianchuan-preview`（operator/admin 鉴权）  
+> 管理端前缀：`/api/admin/qianchuan-preview`（admin 鉴权）  
+> 数据库迁移：`024_qianchuan_preview.sql`
+
+### 18.1 operator 接口
+
+#### POST /api/tools/qianchuan-preview/parse-file
+
+上传文案文件，解析返回文本。
+
+请求：`multipart/form-data`，`file` 字段（`.txt` / `.md` / `.docx` / `.pages`）
+
+响应（标准信封）：
+```json
+{
+  "success": true,
+  "data": {
+    "text": "解析出的文本内容",
+    "filename": "原文件名.txt"
+  }
+}
+```
+
+错误：400 `UNSUPPORTED_FORMAT`（不支持的文件格式）/ 400 `PARSE_ERROR`
+
+---
+
+#### POST /api/tools/qianchuan-preview/generate
+
+SSE 流式生成文案预审报告。
+
+请求 body：
+```json
+{
+  "script_a": "原版爆款文案内容",
+  "script_b": "我方文案内容"
+}
+```
+
+响应：`StreamingResponse`（`text/plain; charset=utf-8`），流式输出 AI 报告文本。  
+System Prompt 和 AI 模型从 `qianchuan_preview_configs` 表的 `default` 配置读取。
+
+错误：400 `INVALID_INPUT`（script_a 或 script_b 为空）
+
+---
+
+#### POST /api/tools/qianchuan-preview/export-word
+
+将预审报告导出为 Word 文件。
+
+请求 body：
+```json
+{
+  "content": "报告 Markdown 内容",
+  "title": "千川文案预审报告"
+}
+```
+
+响应：`StreamingResponse`（`.docx` 二进制），`Content-Disposition: attachment; filename*=UTF-8''...`
+
+错误：400 `INVALID_INPUT`（内容为空）
+
+---
+
+### 18.2 admin 接口
+
+#### GET /api/admin/qianchuan-preview/configs
+
+获取预审配置列表。
+
+响应（标准信封）：
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 1,
+      "config_key": "default",
+      "ai_model_id": null,
+      "system_prompt": "...",
+      "is_active": true,
+      "updated_at": "2026-06-18T..."
+    }
+  ]
+}
+```
+
+---
+
+#### PUT /api/admin/qianchuan-preview/configs/{config_key}
+
+更新指定 config_key 的配置。
+
+请求 body：
+```json
+{
+  "system_prompt": "新的 Prompt 内容",
+  "ai_model_id": null
+}
+```
+
+响应（标准信封）：更新后的配置对象。
+
+错误：404 `CONFIG_NOT_FOUND`（config_key 不存在）
+
+---
+
 ## 8. AI 开发硬性要求
 
 1. 公开接口 `/api/intake/*` 不得加 JWT 鉴权中间件。
