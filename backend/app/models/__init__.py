@@ -22,6 +22,7 @@ from app.models.tiktok_writer import TiktokWriterConfig
 from app.models.qianchuan_review import QianchuanReviewConfig
 from app.models.qianchuan_edit_review import QianchuanEditReviewConfig
 from app.models.livestream_review import LivestreamReviewConfig
+from app.models.persona_review import PersonaReviewConfig
 
 __all__ = [
     "User",
@@ -50,4 +51,5 @@ __all__ = [
     "QianchuanReviewConfig",
     "QianchuanEditReviewConfig",
     "LivestreamReviewConfig",
+    "PersonaReviewConfig",
 ]

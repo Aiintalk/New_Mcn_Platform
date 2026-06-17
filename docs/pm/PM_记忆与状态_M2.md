@@ -1,6 +1,6 @@
 # MCN_PM_Agent — 项目记忆与当前状态（M2）
 
-> 最后更新：2026-06-16（Sprint 9 livestream-review 迁移完成，人工验证通过）
+> 最后更新：2026-06-17（Sprint 10 persona-review 人工验证通过，本 Sprint 全部完成）
 > 更新角色：MCN_PM_Agent
 > 上一份文档：`docs/pm/PM_记忆与状态.md`（M1 阶段，已归档）
 
@@ -9,7 +9,7 @@
 ## 一、项目基本信息
 
 - **项目名**：MCN Information System Platform
-- **当前阶段**：M2 阶段 — Sprint 9 完成
+- **当前阶段**：M2 阶段 — Sprint 10 进行中（测试通过，待提交）
 - **GitHub**：https://github.com/Aiintalk/New_Mcn_Platform
 - **工作目录**：`/Users/zhangchong/ai_intalk/New_Mcn_Platform/`
 - **后端**：`backend/`（FastAPI + PostgreSQL）
@@ -75,6 +75,46 @@
 4. SSE 断连空报告标 ready（空内容保护）
 5. 历史记录点击无反应（loadHistoryDetail 加 setStep(3)）
 6. 产出中心预览为空（调详情接口获取 content）
+
+---
+
+### M2 Sprint 10 — 人设脚本复盘（persona-review）✅ 完成
+
+**核心流程：** 上传人设脚本（txt，多视频）→ 可选上传运营 Excel → AI 流式生成复盘报告（内容质量/投放效率）→ 保存/历史管理
+
+| 端 | 状态 | 备注 |
+|----|------|------|
+| 数据库迁移 023 | ✅ 已执行 | `persona_review_configs` 表 + workspace_tools 注册（status=dev） |
+| 后端 5 个接口 | ✅ 完成 | `operator_persona_review.py`（generate/save/outputs）+ `admin_persona_review.py`（GET/PUT configs） |
+| System Prompt | ✅ 完成 | `tools/persona_review/prompts.py`，with_excel/without_excel 两版，DB 管理端可配置 |
+| 服务层 | ✅ 完成 | `service.py`：merge/hasExcel/build_user_message/generate_review_stream |
+| SQLAlchemy 模型 | ✅ 补建 | `app/models/persona_review.py`（PersonaReviewConfig），注册到 Base.metadata |
+| main.py 注册 | ✅ 完成 | 两个 router 已 include |
+| conftest.py 注册 | ✅ 完成 | `operator_persona_review.AsyncSessionLocal` 已在 patch 列表 |
+| 自动化测试 | ✅ 54/54 通过 | Prompt 精确比对(16) + service 单元(16) + 集成(22) |
+| 契约文档 | ✅ 已更新 | Base_API §17、Base_Database 迁移 023 已登记 |
+| 人工验证 | ✅ 通过 | 2026-06-17 |
+| 前端配置页 | ✅ 完成 | `PersonaReviewConfigTab.tsx` 对齐标准模式（empty-state/色标/destroyOnHidden） |
+
+**关键修复（本次会话）：**
+1. 补建 `app/models/persona_review.py`：原先缺失 SQLAlchemy 模型，测试库 `create_all` 无法建表，集成测试全 ERROR
+2. service.py 排序 bug：旧代码先追加未匹配 Excel 行再全局排序，导致高点赞未匹配行排到最前；修复为先排有脚本内容的行，再追加未匹配行到末尾（符合需求文档）
+3. 测试用例修正：`test_title_replaced_by_video_theme_on_match` 原数据不满足匹配条件（旧版"通过"是排序副作用假阳性），修正为前6字相同的真实匹配数据
+
+**差异点（与 livestream-review）：**
+- 无 parse-file 接口（txt 前端直读）
+- 匹配字段：`video_theme`（非 `live_theme`）
+- 未匹配 Excel 行追加末尾且不参与排序（livestream-review 不追加）
+- 内容截断 2000 字（非 3000）
+- hasExcel 判断：`completion_rate | ad_spend | likes`
+
+**覆盖率：**
+- `operator_persona_review.py`：84% ✅
+- `admin_persona_review.py`：85% ✅
+- `service.py`：92% ✅
+
+**部署注意：**
+- 工具当前状态 `dev`，上线前管理端改为 `online`
 
 ---
 
@@ -320,6 +360,9 @@
 
 | 文件 | 说明 | 状态 |
 |------|------|------|
+| `docs/pm/M2_Sprint09_livestream-review_需求文档.md` | Sprint 9 需求文档 | ✅ 已完成 |
+| `backend/docs/tasks/M2_Sprint10_后端任务_persona-review_v1.md` | Sprint 10 后端任务单 | ✅ 已执行 |
+| `frontend/docs/tasks/M2_Sprint10_前端任务_persona-review_v1.md` | Sprint 10 前端任务单 | 🔄 待执行 |
 | `docs/pm/M2_Sprint06_qianchuan-review_需求文档.md` | Sprint 6 需求文档 | ✅ 已完成 |
 | `backend/docs/tasks/M2_Sprint06_后端任务_qianchuan-review_v1.md` | Sprint 6 后端任务单 | ✅ 已执行 |
 | `frontend/docs/tasks/M2_Sprint06_前端任务_qianchuan-review_v1.md` | Sprint 6 前端任务单 | ✅ 已执行 |

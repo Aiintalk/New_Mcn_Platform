@@ -46,6 +46,8 @@ from app.routers.operator_livestream_writer import router as operator_livestream
 from app.routers.admin_livestream_writer import router as admin_livestream_writer_router
 from app.routers.operator_livestream_review import router as operator_livestream_review_router
 from app.routers.admin_livestream_review import router as admin_livestream_review_router
+from app.routers.operator_persona_review import router as operator_persona_review_router
+from app.routers.admin_persona_review import router as admin_persona_review_router
 
 
 @asynccontextmanager
@@ -142,3 +144,5 @@ app.include_router(operator_livestream_writer_router, prefix="/api")
 app.include_router(admin_livestream_writer_router, prefix="/api")
 app.include_router(operator_livestream_review_router, prefix="/api")
 app.include_router(admin_livestream_review_router, prefix="/api")
+app.include_router(operator_persona_review_router, prefix="/api")
+app.include_router(admin_persona_review_router, prefix="/api")

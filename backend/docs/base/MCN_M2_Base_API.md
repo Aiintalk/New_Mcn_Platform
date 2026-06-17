@@ -934,3 +934,109 @@ Response：`text/plain; charset=utf-8`（raw text stream，非 SSE）
 BackgroundTask（createJob=true 时）：生成结束后写 `task_jobs` + `outputs`。
 
 错误：messages 为空 → 400 INVALID_INPUT；systemPrompt 为空 → 400 INVALID_INPUT
+
+---
+
+## 17. 人设脚本复盘（persona-review）— Sprint 10
+
+### 17.1 POST `/api/tools/persona-review/generate`
+
+流式生成复盘报告（SSE）。
+
+Request（JSON）：
+```json
+{
+  "scripts": [{ "title": "string", "content": "string" }],
+  "excel_data": [
+    {
+      "video_theme": "string",
+      "date": "string（可选）",
+      "video_type": "string（可选）",
+      "total_plays": "string（可选）",
+      "completion_rate": "string（可选）",
+      "five_sec_rate": "string（可选）",
+      "likes": "string（可选）",
+      "comments": "string（可选）",
+      "ad_spend": "string（可选）"
+    }
+  ]
+}
+```
+
+Response：`text/event-stream`（SSE）
+
+Response Headers：`X-Task-Id: <task_job_id>`
+
+前置校验：`scripts` 不能为空 → 400 SCRIPTS_REQUIRED
+
+hasExcel 判断：merged 结果中任意一条含 `completion_rate` / `ad_spend` / `likes` 即为 true。
+
+合并规则：
+- 按 `video_theme` 模糊匹配（双向6字前缀）
+- 匹配时 title 使用 Excel 的 `video_theme`；有脚本内容的行按点赞数降序排列
+- 未匹配的 Excel 行（有 video_theme）**追加到末尾**，`content=""`，不参与排序
+- 内容截断：2000 字
+
+Prompt 来源：从 `persona_review_configs` 表读取（`with_excel` / `without_excel`），fallback 到 `prompts.py` 常量。
+
+### 17.2 POST `/api/tools/persona-review/save`
+
+保存报告到 outputs 表。
+
+Request（JSON）：
+```json
+{
+  "task_id": 1,
+  "report": "string",
+  "script_count": 3,
+  "has_excel": true
+}
+```
+
+Response（200）：
+```json
+{ "success": true, "code": "OK", "data": { "output_id": 1 } }
+```
+
+错误：report 为空 → 400 REPORT_EMPTY
+
+### 17.3 GET `/api/tools/persona-review/outputs`
+
+历史列表（当前用户，分页）。
+
+Query：`page=1&page_size=10`
+
+Response（200）：
+```json
+{
+  "success": true, "code": "OK",
+  "data": {
+    "items": [{ "id": 1, "title": "string", "content": "string", "created_at": "string" }],
+    "total": 5, "page": 1, "page_size": 10
+  }
+}
+```
+
+### 17.4 GET `/api/admin/persona-review/configs`
+
+管理端读取 Prompt 配置（仅 admin）。
+
+Response（200）：
+```json
+{
+  "success": true, "code": "OK",
+  "data": [
+    { "id": 1, "config_key": "with_excel", "system_prompt": "string", "ai_model_id": null, "is_active": true }
+  ]
+}
+```
+
+### 17.5 PUT `/api/admin/persona-review/configs/{config_key}`
+
+管理端更新 Prompt 配置（仅 admin）。
+
+Request（JSON）：`{ "system_prompt": "string", "ai_model_id": 1 }`
+
+Response（200）：`{ "success": true, "code": "OK", "data": { "config_key": "with_excel" } }`
+
+错误：config_key 不存在 → 404 CONFIG_NOT_FOUND

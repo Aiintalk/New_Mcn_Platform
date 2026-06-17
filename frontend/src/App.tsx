@@ -33,6 +33,7 @@ import QianchuanReviewPage from './pages/operator/QianchuanReviewPage';
 import QianChuanEditReviewPage from './pages/operator/QianChuanEditReviewPage';
 import LivestreamWriterPage from './pages/operator/LivestreamWriterPage';
 import LivestreamReviewPage from './pages/operator/LivestreamReviewPage';
+import PersonaReviewPage from './pages/operator/PersonaReviewPage';
 
 function Page403() {
   return (
@@ -87,6 +88,7 @@ export default function App() {
             <Route path="/workspace/qianchuan-edit-review" element={<QianChuanEditReviewPage />} />
             <Route path="/workspace/livestream-writer" element={<LivestreamWriterPage />} />
             <Route path="/workspace/livestream-review" element={<LivestreamReviewPage />} />
+            <Route path="/workspace/persona-review" element={<PersonaReviewPage />} />
             <Route path="/workspace/kol-intake" element={<OperatorIntakePage />} />
             <Route path="/workspace/kol-intake/chat" element={<OperatorIntakeChatPage />} />
             <Route path="/tasks" element={<TasksPage />} />

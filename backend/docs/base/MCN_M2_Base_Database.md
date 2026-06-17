@@ -43,6 +43,9 @@
 | `018_qianchuan_review_configs.sql` | Sprint 6 | 新建 qianchuan_review_configs 表（管理端 Prompt 配置）|
 | `019_qianchuan_edit_review.sql` | Sprint 7 | workspace_tools 注册 qianchuan-edit-review，status=online |
 | `020_qianchuan_edit_review_configs.sql` | Sprint 7 | 新建 qianchuan_edit_review_configs 表（千川剪辑预审 Prompt 配置）|
+| `021_livestream_writer.sql` | Sprint 8 | 新建 livestream_writer_configs 表，注册 livestream-writer（status=dev）|
+| `022_livestream_review.sql` | Sprint 9 | 新建 livestream_review_configs 表，注册 livestream-review（status=dev）|
+| `023_persona_review.sql` | Sprint 10 | 新建 persona_review_configs 表，注册 persona-review（status=dev）|
 
 ---
 
