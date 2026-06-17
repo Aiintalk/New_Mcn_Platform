@@ -101,12 +101,18 @@ def generate_pdf(submission_id: int | str, ai_report: str, kol_name: str | None 
 
     _ensure_dir()
 
-    # 尝试注册中文字体（Windows 系统字体）
+    # 尝试注册中文字体（跨平台：Windows / Linux / macOS）
     font_name = "Helvetica"
     for font_path, name in [
-        ("C:/Windows/Fonts/msyh.ttc",    "MsYaHei"),
-        ("C:/Windows/Fonts/simsun.ttc",   "SimSun"),
-        ("C:/Windows/Fonts/simhei.ttf",   "SimHei"),
+        # Windows
+        ("C:/Windows/Fonts/msyh.ttc",               "MsYaHei"),
+        ("C:/Windows/Fonts/simhei.ttf",              "SimHei"),
+        # Linux（需安装：sudo apt install fonts-wqy-microhei 或 fonts-noto-cjk）
+        ("/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",         "WQYMicrohei"),
+        ("/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",           "WQYZenhei"),
+        ("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", "NotoSansCJK"),
+        # macOS
+        ("/System/Library/Fonts/PingFang.ttc",       "PingFang"),
     ]:
         if os.path.exists(font_path):
             try:
