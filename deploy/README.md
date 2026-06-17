@@ -437,3 +437,55 @@ npm install @ant-design/v5-patch-for-react-19
 #   import '@ant-design/v5-patch-for-react-19';
 npm run build
 ```
+
+### 7.5 ERR_TOO_MANY_REDIRECTS（API 尾部斜杠重定向）
+
+**症状**：浏览器报 `net::ERR_TOO_MANY_REDIRECTS`，页面或 API 请求无限重定向。
+
+**根因**：FastAPI 默认 `redirect_slashes=True`，当请求带尾部斜杠（如 `/api/outputs/`）时会 307 重定向到无斜杠路径。但重定向的 `Location` 头使用内部地址 `http://127.0.0.1:8000/api/outputs`，通过 Nginx 反代后浏览器无法连接该内网地址 → 循环。
+
+**修复（已在代码中内置，部署时确认即可）**：
+
+```python
+# backend/app/main.py — FastAPI 实例已设置 redirect_slashes=False
+app = FastAPI(..., redirect_slashes=False)
+```
+
+```nginx
+# deploy/nginx/mcn-m1.conf — Nginx 层面 301 去掉尾部斜杠
+rewrite ^(/api/.*)/$ $1 permanent;
+```
+
+> 两处配合：FastAPI 不再自动重定向，Nginx 在请求进入后端前就去掉尾部斜杠。
+
+### 7.6 AI 对话返回空内容（credentials base_url 缺少路径后缀）
+
+**症状**：AI 功能（卖点提取、TikTok 仿写、千川复盘等）页面显示空白或保存历史报 400，但后端不报错，credentials 表有数据且状态 active。
+
+**根因**：`credentials` 表的 `base_url` 字段缺少 API 路径后缀。例如填了 `https://yunwu.ai` 而非 `https://yunwu.ai/v1`，请求打到服务商的网页前端返回 HTML，AI 响应为空字符串。
+
+**排查**：
+
+```bash
+# 检查 credentials 表的 base_url
+cd backend && source .venv/bin/activate
+python -c "
+import asyncio
+from app.core.database import AsyncSessionLocal
+from sqlalchemy import text
+async def check():
+    async with AsyncSessionLocal() as s:
+        r = await s.execute(text(\"SELECT id, provider, base_url FROM credentials WHERE status='active'\"))
+        for row in r: print(row)
+asyncio.run(check())
+"
+```
+
+**修复**：
+
+```sql
+-- 确保 base_url 包含 /v1 后缀
+UPDATE credentials SET base_url = 'https://yunwu.ai/v1' WHERE provider = 'yunwu';
+```
+
+或在管理端「工具配置 → 凭证管理」编辑，`base_url` 填 `https://yunwu.ai/v1`（必须带 `/v1`）。

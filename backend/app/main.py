@@ -61,6 +61,7 @@ app = FastAPI(
     version="0.1.0",
     description="M1 Base API",
     lifespan=lifespan,
+    redirect_slashes=False,
 )
 
 
