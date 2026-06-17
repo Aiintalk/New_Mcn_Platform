@@ -21,6 +21,11 @@ MCN 红人孵化管理平台，支持多用户、多并发场景，集成 AI 能
 - **对标分析助手**：抖音号解析 → 自动抓取 TOP10/近30天视频 → AI 生成对标分析报告 → 导出 Word → 历史管理
 - **TikTok 脚本仿写**：达人人设 + TikTok 链接 → AI 流式仿写脚本 → 导出 Word
 - **产品卖点提取器**：上传产品 Brief + 达人文案 → AI 提炼机制/背书/口碑/产品力四板块极致卖点卡 → 多轮追问 → 历史管理
+- **千川脚本复盘**：上传千川脚本（文件/粘贴）+ 投放数据 Excel → AI 流式生成复盘报告 → 保存/导出/复制
+- **千川剪辑预审**：上传原版爆款视频 + 我方成片 → 截帧 + 转录 → 多模态 SSE 流式预审 → 导出 Word / 保存报告
+- **直播脚本仿写**：选达人 + 上传产品卖点卡 + 对标直播间文案 → AI 流式生成 7 模块开播方案 → 多轮迭代 → 导出 .txt
+- **直播间脚本复盘**：上传直播脚本（多场）+ 直播数据 Excel → AI 流式生成复盘报告（话术效果 + 留人转化）→ 保存/导出/复制
+- **人设脚本复盘**：上传人设脚本（多视频）+ 可选运营 Excel → AI 流式生成复盘报告（内容质量 / 投放效率）→ 保存/历史管理
 - **运营首页**：数据概览，产出趋势，常用工具
 - **产出中心**：AI 产出记录，入驻报告管理，分享链接管理
 
@@ -38,14 +43,14 @@ mcn-platform/
 │   │   ├── adapters/                  #     外部服务适配器（AI、TikHub、OSS、ASR）
 │   │   ├── core/                      #     配置、数据库、安全、响应封装
 │   │   ├── middlewares/               #     JWT 鉴权中间件
-│   │   ├── models/                    #     SQLAlchemy ORM 模型（15 个文件）
-│   │   ├── routers/                   #     API 路由（按角色分文件，25 个）
+│   │   ├── models/                    #     SQLAlchemy ORM 模型（22 个文件）
+│   │   ├── routers/                   #     API 路由（按角色分文件，41 个）
 │   │   ├── schemas/                   #     Pydantic schema
 │   │   └── services/                  #     业务逻辑服务
 │   ├── docs/                          #   后端文档
 │   │   ├── README.md                  #     架构说明 + 文档索引
 │   │   ├── base/                      #     接口契约 + 数据库契约
-│   │   ├── tasks/                     #     任务单 + 验收文档（29 个）
+│   │   ├── tasks/                     #     任务单 + 验收文档（35 个）
 │   │   └── tests/                     #     测试报告 + 测试任务
 │   ├── tests/                         #   测试代码
 │   │   ├── unit/                      #     单元测试
@@ -53,24 +58,24 @@ mcn-platform/
 │   │   ├── e2e/                       #     端到端测试
 │   │   ├── concurrent/                #     并发隔离测试
 │   │   └── intake/                    #     入驻问卷专项测试
-│   ├── migrations/                    #   SQL 迁移脚本（001 ~ 015）
+│   ├── migrations/                    #   SQL 迁移脚本（001 ~ 023）
 │   └── scripts/                       #   工具脚本（init_db.sh、init_test_db.sh、run_coverage.py）
 │
 ├── frontend/                          ← 前端（React + Vite）
 │   ├── src/                           #   源码
-│   │   ├── api/                       #     API 调用层（20 个模块）
+│   │   ├── api/                       #     API 调用层（25 个模块）
 │   │   ├── layouts/                   #     布局组件（Admin / Operator / Auth）
-│   │   ├── pages/                     #     页面组件（admin 15 个 / operator 11 个 / auth 2 个 / intake 1 个）
+│   │   ├── pages/                     #     页面组件（admin 20 个 / operator 16 个 / auth 2 个 / intake 1 个）
 │   │   ├── routes/                    #     路由守卫
 │   │   ├── store/                     #     Zustand 状态管理
 │   │   ├── styles/                    #     CSS 变量 + 全局样式
-│   │   ├── types/                     #     TypeScript 类型定义（15 个模块）
+│   │   ├── types/                     #     TypeScript 类型定义（17 个模块）
 │   │   └── __tests__/                 #     前端测试
 │   ├── docs/                          #   前端文档
 │   │   ├── README.md                  #     架构说明 + 文档索引
 │   │   ├── 前端规范.md                  #     前端唯一规范文档
 │   │   ├── base/                      #     前端基础文档
-│   │   └── tasks/                     #     任务单 + 验收文档（29 个）
+│   │   └── tasks/                     #     任务单 + 验收文档（38 个）
 │   ├── vitest.config.ts               #   Vitest 测试配置
 │   └── vite.config.ts                 #   Vite 构建配置
 │
@@ -193,7 +198,14 @@ npx vitest
 
 ## 部署
 
-参考 `deploy/docs/tasks/M2_测试服首次部署.md`，支持 PM2 + Nginx 生产部署。
+参考 `deploy/README.md`（部署架构 + §7 常见问题排查 6 个案例：CORS / 端口占用 / 502 / antd React 19 / ERR_TOO_MANY_REDIRECTS / AI 返回空）和 `deploy/docs/tasks/M2_测试服首次部署.md`，支持 PM2 + Nginx 生产部署。
+
+### 部署侧关键优化（M2 阶段）
+
+- 前端路由懒加载（`React.lazy()`），首屏 JS 从 ~2.2MB 降到 ~90KB（gzip）
+- Nginx `gzip_types` 含 `application/javascript`，传输再压缩 60-80%
+- FastAPI `redirect_slashes=False` + Nginx rewrite 解决 `ERR_TOO_MANY_REDIRECTS`
+- PDF 生成跨平台字体（Linux 需 `apt install fonts-wqy-microhei`）
 
 ## 环境变量说明
 

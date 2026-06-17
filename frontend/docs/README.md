@@ -9,7 +9,7 @@
 ```
 frontend/
 ├── src/                               # 源码
-│   ├── api/                           # API 调用层（22 个模块）
+│   ├── api/                           # API 调用层（25 个模块）
 │   │   ├── request.ts                 #   基础封装（get/post/patch/put/del + 拦截器）
 │   │   ├── auth.ts                    #   登录、改密码
 │   │   ├── users.ts                   #   用户管理
@@ -31,13 +31,16 @@ frontend/
 │   │   ├── tiktokWriter.ts            #   TikTok 脚本仿写
 │   │   ├── sellingPoint.ts            #   产品卖点提取器
 │   │   ├── qianchuanReview.ts         #   千川脚本复盘
-│   │   └── qianchuanEditReview.ts     #   千川剪辑预审
+│   │   ├── qianchuanEditReview.ts     #   千川剪辑预审
+│   │   ├── livestreamWriter.ts        #   直播脚本仿写
+│   │   ├── livestreamReview.ts        #   直播间脚本复盘
+│   │   └── personaReview.ts           #   人设脚本复盘
 │   ├── layouts/                       # 布局组件
 │   │   ├── AdminLayout.tsx            #   管理端布局（左侧菜单 + 内容区）
 │   │   ├── OperatorLayout.tsx         #   运营端布局（左侧菜单 + 内容区）
 │   │   └── AuthLayout.tsx             #   登录/注册页布局
 │   ├── pages/                         # 页面组件
-│   │   ├── admin/                     #   管理端（18 个页面）
+│   │   ├── admin/                     #   管理端（20 个：13 页面 + 7 ConfigTab）
 │   │   │   ├── KolsPage.tsx           #     红人管理
 │   │   │   ├── UsersPage.tsx          #     用户管理
 │   │   │   ├── AiManagementPage.tsx   #     AI 密钥/模型管理
@@ -56,8 +59,9 @@ frontend/
 │   │   │   ├── QianchuanReviewConfigTab.tsx # 千川复盘配置 Tab
 │   │   │   ├── QianchuanEditReviewConfigTab.tsx # 千川剪辑预审配置 Tab
 │   │   │   ├── TiktokWriterConfigTab.tsx # TikTok 仿写配置 Tab
-│   │   │   └── WorkspaceConfigPage.tsx #    工作空间配置
-│   │   ├── operator/                  #   运营端（13 个页面）
+│   │   │   ├── LivestreamWriterConfigTab.tsx # 直播脚本仿写配置 Tab
+│   │   │   └── PersonaReviewConfigTab.tsx # 人设脚本复盘配置 Tab
+│   │   ├── operator/                  #   运营端（16 个页面）
 │   │   │   ├── HomePage.tsx           #     首页（统计卡片 + 趋势图）
 │   │   │   ├── OperatorIntakePage.tsx #     入驻问卷列表
 │   │   │   ├── OperatorIntakeChatPage.tsx #  运营直发对话
@@ -70,7 +74,10 @@ frontend/
 │   │   │   ├── TiktokWriterPage.tsx   #     TikTok 脚本仿写
 │   │   │   ├── SellingPointPage.tsx   #     产品卖点提取器
 │   │   │   ├── QianchuanReviewPage.tsx #    千川脚本复盘
-│   │   │   └── QianChuanEditReviewPage.tsx # 千川剪辑预审
+│   │   │   ├── QianChuanEditReviewPage.tsx # 千川剪辑预审
+│   │   │   ├── LivestreamWriterPage.tsx #   直播脚本仿写
+│   │   │   ├── LivestreamReviewPage.tsx #   直播间脚本复盘
+│   │   │   └── PersonaReviewPage.tsx  #     人设脚本复盘
 │   │   ├── auth/                      #   登录/改密码
 │   │   │   ├── LoginPage.tsx
 │   │   │   └── ChangePasswordPage.tsx
@@ -84,7 +91,7 @@ frontend/
 │   ├── styles/                        # 全局样式
 │   │   ├── variables.css              #   CSS 变量（品牌色、字号、间距）
 │   │   └── admin.css                  #   管理端/运营端共享样式
-│   ├── types/                         # TypeScript 类型定义（15 个模块）
+│   ├── types/                         # TypeScript 类型定义（17 个模块）
 │   │   ├── api.ts                     #   ApiResponse<T> / PagedData<T>
 │   │   ├── user.ts                    #   UserInfo
 │   │   ├── kol.ts                     #   KolInfo
@@ -121,7 +128,7 @@ frontend/
 │   ├── tests/                         #   测试报告
 │   │   ├── MCN_Frontend_Test_Task_M1M2.md              #  前端测试任务单
 │   │   └── MCN_Frontend_Test_Fix_Report_2026-06-11.md  #  前端测试修复报告
-│   └── tasks/                         #   任务单 + 验收文档（33 个）
+│   └── tasks/                         #   任务单 + 验收文档（38 个）
 │       ├── M1_Sprint0.md ~ Sprint4.md           #  M1 各 Sprint
 │       ├── M1_Sprint5_TikHub_独立池化.md         #  TikHub 独立池化
 │       ├── M2_Sprint1_kol_intake.md             #  入驻问卷主任务

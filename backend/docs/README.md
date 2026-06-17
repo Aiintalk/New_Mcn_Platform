@@ -23,7 +23,7 @@ backend/
 │   │   └── seed.py                    #   初始数据填充
 │   ├── middlewares/
 │   │   └── auth.py                    #   JWT 鉴权（get_current_user / require_admin）
-│   ├── models/                        # SQLAlchemy ORM 模型（18 个）
+│   ├── models/                        # SQLAlchemy ORM 模型（22 个文件）
 │   │   ├── user.py                    #   用户表
 │   │   ├── kol.py                     #   红人表
 │   │   ├── credential.py              #   AI 密钥池表
@@ -37,8 +37,11 @@ backend/
 │   │   ├── tiktok_writer.py           #   TikTok 脚本仿写配置表
 │   │   ├── qianchuan_review.py        #   千川复盘配置表
 │   │   ├── qianchuan_edit_review.py   #   千川剪辑预审配置表
+│   │   ├── livestream_writer.py       #   直播脚本仿写配置表
+│   │   ├── livestream_review.py       #   直播间脚本复盘配置表
+│   │   ├── persona_review.py          #   人设脚本复盘配置表
 │   │   └── ...                        #   log / file / output / session / task
-│   ├── routers/                       # API 路由（按角色分文件，34 个）
+│   ├── routers/                       # API 路由（按角色分文件，41 个）
 │   │   ├── auth.py                    #   POST /api/auth/login、/change-password
 │   │   ├── admin_users.py             #   用户管理（admin）
 │   │   ├── admin_kols.py              #   红人管理（admin）
@@ -54,6 +57,9 @@ backend/
 │   │   ├── admin_qianchuan_review.py  #   千川复盘配置（admin）
 │   │   ├── admin_qianchuan_edit_review.py # 千川剪辑预审配置（admin）
 │   │   ├── admin_tiktok_writer.py     #   TikTok 仿写配置（admin）
+│   │   ├── admin_livestream_writer.py #   直播脚本仿写配置（admin）
+│   │   ├── admin_livestream_review.py #   直播间脚本复盘配置（admin）
+│   │   ├── admin_persona_review.py    #   人设脚本复盘配置（admin）
 │   │   ├── operator_homepage.py       #   运营首页数据
 │   │   ├── operator_intake.py         #   入驻问卷（运营端）
 │   │   ├── operator_intake_direct.py  #   运营直发对话
@@ -61,6 +67,9 @@ backend/
 │   │   ├── operator_tiktok_writer.py  #   TikTok 脚本仿写（运营端）
 │   │   ├── operator_selling_point.py  #   卖点提取器（运营端）
 │   │   ├── operator_qianchuan_review.py #  千川脚本复盘（运营端）
+│   │   ├── operator_livestream_writer.py # 直播脚本仿写（运营端）
+│   │   ├── operator_livestream_review.py # 直播间脚本复盘（运营端）
+│   │   ├── operator_persona_review.py #  人设脚本复盘（运营端）
 │   │   ├── persona.py                 #   人格定位（运营端）
 │   │   ├── intake_public.py           #   公开接口（博主填写问卷）
 │   │   ├── tool_chat_stream.py        #   工具：AI 流式对话
@@ -82,6 +91,7 @@ backend/
 │       ├── file_parser.py             #   文件解析（.docx/.pdf/.txt/.md/.pages）
 │       ├── word_export.py             #   Word 文档导出
 │       ├── benchmark_report.py        #   对标分析报告生成
+│       ├── qianchuan_review_service.py #  千川复盘业务服务
 │       └── persona_docx.py            #   人格定位报告导出
 │
 ├── docs/                              # ===== 本目录 =====
@@ -130,7 +140,7 @@ backend/
 │   ├── concurrent/                    #   并发隔离测试
 │   └── intake/                        #   入驻问卷专项测试
 │
-├── migrations/                        # SQL 迁移脚本（001 ~ 020）
+├── migrations/                        # SQL 迁移脚本（001 ~ 023）
 ├── scripts/                           # 工具脚本
 │   ├── init_db.sh                     #   一键初始化数据库
 │   └── run_coverage.py                #   覆盖率门禁脚本
