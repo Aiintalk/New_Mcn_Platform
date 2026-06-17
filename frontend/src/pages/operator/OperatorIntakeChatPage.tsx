@@ -51,6 +51,7 @@ export default function OperatorIntakeChatPage() {
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // 挂载时去掉 .main-body 的 padding 和 overflow，卸载时恢复
   useEffect(() => {
@@ -67,20 +68,37 @@ export default function OperatorIntakeChatPage() {
     };
   }, []);
 
-  // 页面挂载：并行加载会话 + 题目列表
-  useEffect(() => {
-    Promise.all([
-      startDirectSession({}),
-      getIntakeQuestions(),
-    ]).then(([sessionRes, qs]) => {
+  // 初始化会话 + 题目列表（页面挂载和重新采集共用）
+  async function initSession() {
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+    setPhase('loading');
+    setMessages([]);
+    setInput('');
+    setCurrentQIdx(-1);
+    setCollectCount(0);
+    setDone(false);
+    setAiReport(null);
+    setReportStatus('pending');
+    setPollCount(0);
+    try {
+      const [sessionRes, qs] = await Promise.all([
+        startDirectSession({}),
+        getIntakeQuestions(),
+      ]);
       const activeQs = qs.filter(q => q.is_active !== false);
       setQuestions(activeQs);
       setSessionId(sessionRes.session_id);
       setKolName(sessionRes.kol_name);
       setPhase('chat');
       showWelcome();
-    }).catch(() => setPhase('error'));
+    } catch {
+      setPhase('error');
+    }
+  }
 
+  // 页面挂载：初始化
+  useEffect(() => {
+    initSession();
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -88,6 +106,11 @@ export default function OperatorIntakeChatPage() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, sending]);
+
+  // 发送完成后自动聚焦回输入框（disabled 切换会导致焦点丢失）
+  useEffect(() => {
+    if (!sending) inputRef.current?.focus();
+  }, [sending]);
 
   // ── 开场白 ──────────────────────────────────────────────────────
   function showWelcome() {
@@ -293,6 +316,9 @@ export default function OperatorIntakeChatPage() {
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+            <button className="btn btn-ghost btn-sm" onClick={() => initSession()}>
+              重新采集
+            </button>
             <button className="btn btn-ghost btn-sm" onClick={() => handleDownload('pdf')}>
               下载 PDF
             </button>
@@ -493,6 +519,7 @@ export default function OperatorIntakeChatPage() {
           ) : (
             <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
               <textarea
+                ref={inputRef}
                 value={input}
                 onChange={e => setInput(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
