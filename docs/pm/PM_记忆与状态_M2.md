@@ -1,6 +1,6 @@
 # MCN_PM_Agent — 项目记忆与当前状态（M2）
 
-> 最后更新：2026-06-17（Sprint 10 persona-review 人工验证通过，本 Sprint 全部完成）
+> 最后更新：2026-06-17（Sprint 10 persona-review 完成 + 部署阶段修复：路由懒加载 / PDF 跨平台字体 / 对话页 UX / TS 错误）
 > 更新角色：MCN_PM_Agent
 > 上一份文档：`docs/pm/PM_记忆与状态.md`（M1 阶段，已归档）
 
@@ -145,6 +145,34 @@
 **部署注意：**
 - 工具当前状态 `dev`，上线前管理端改为 `online`
 - 旧产品数据（线上 data/ 目录）本次未迁移，待确认
+
+---
+
+### M2 部署阶段修复（2026-06-17）✅ 完成
+
+测试服（120.26.111.136 Ubuntu + Nginx）部署后集中发现的 4 个问题，**不归特定 Sprint，归部署阶段**：
+
+| # | 问题 | 修复 | 文档 |
+|---|------|------|------|
+| 1 | 前端 JS 包 2.2MB，首屏慢 | `App.tsx` 28 个页面改 `React.lazy()`，按路由拆分；首屏 ~2.2MB → ~90KB（gzip） | `frontend/docs/tasks/M2_Sprint09_前端任务_路由懒加载与TS修复_v1.md` |
+| 2 | `npm run build` 暴露 3 个预存 TS 错误（dev 用 esbuild 不查类型） | 删未用变量/属性/import（`LivestreamReviewPage`/`LivestreamWriterPage`） | 同上 |
+| 3 | 测试服 PDF 中文显示黑块（服务器无中文字体，回退 Helvetica） | `intake_report.py` 字体注册加 Linux/macOS 路径；服务器需 `apt install fonts-wqy-microhei` | `backend/docs/tasks/M2_Sprint1_kol_intake_PDF跨平台字体_v1_修复Bug.md` |
+| 4 | kol-intake 对话页：回车发送后输入框失焦；报告页无重新采集按钮 | `OperatorIntakeChatPage.tsx` 加 `inputRef + useEffect` focus；抽 `initSession()`；报告页加重新采集按钮 | `frontend/docs/tasks/M2_Sprint1_kol_intake_对话页UX修复_v1_修复Bug.md` |
+
+**构建产物对比**（路由懒加载）：
+
+| 场景 | 改造前 | 改造后（gzip） |
+|------|--------|--------------|
+| 单 bundle | ~2.2MB（一个文件） | 60+ chunks（按页面） |
+| 登录页首屏 | ~2.2MB | **~90 KB** |
+
+**测试**：87/87 前端测试通过；`npm run build` 15.43s 成功。
+
+**部署侧已配套修复（前后会话）**：
+- `redirect_slashes=False`（FastAPI）+ Nginx `rewrite ^(/api/.*)/$ $1 permanent` 解决 `ERR_TOO_MANY_REDIRECTS`
+- Nginx `gzip_types` 加 `application/javascript`
+- `credentials.base_url` 必须带 `/v1` 后缀（已加 `deploy/README.md` §7.6）
+- 详见 `deploy/README.md` §7 常见问题排查（6 个 case）
 
 ---
 
@@ -332,6 +360,10 @@
 | 6 | **旧后端进程残留**：旧路径 uvicorn 占用 8000 端口，新路由不生效，功能测试全 404 | Sprint 7 | 功能测试前先 `curl /openapi.json` 确认新路由存在，否则 kill 旧进程重启新后端 |
 | 7 | **operator 首次登录鉴权**：新建 operator 的 `password_changed_at` 为 NULL，`require_password_changed` 拦截所有请求 | Sprint 7 | 测试账号创建后用 `psql UPDATE users SET password_changed_at=NOW() WHERE username='...'` |
 | 8 | **文档欠账跨 Sprint 累积**：代码 commit 后只更新 PM 记忆，未将任务单/验收文档/测试报告就近归位，契约文档（Base_API/Base_Database）也未同步，导致 Sprint 6/7 共欠 9 份文档，在 Sprint 7 结束后才集中补写 | Sprint 7（根因回顾）| **每次 Sprint commit 前先过 CLAUDE.md §五交付物清单，逐项核对，缺一项不得声明完成；契约文档随接口/表变更当次同步，不攒到 Sprint 末尾**。失误根因：把「代码完成」等同于「任务完成」，跳过了节点 A（需求文档确认）和节点 B 归位签收两个闸门 |
+| 9 | **路由懒加载缺失**：单 bundle 2.2MB，首屏慢；新项目首日就应在 `App.tsx` 用 `React.lazy()` 拆路由 | 部署阶段（2026-06-17） | 前端规范应补「新增页面默认 lazy」约定；Layout/守卫保持静态（壳子每路由都用） |
+| 10 | **跨平台本地资源路径**：字体/文件路径代码只写一套（Windows），部署到 Linux 服务器后失效；dev 模式测不出来 | 部署阶段（2026-06-17） | 涉及本地资源的代码必须列 Win/Linux/macOS 三套路径；CI 应在 Linux 跑 |
+| 11 | **`tsc -b` 强类型检查缺失**：dev 用 esbuild 不查类型，预存 TS 错误（未用变量、重复属性）攒到 `npm run build` 才爆 | 部署阶段（2026-06-17） | CI 跑 `tsc -b`（强校验）而非只 `tsc --noEmit`；commit 前推荐 `npm run build` |
+| 12 | **测试服部署后才发现问题**：本地 dev 全绿，部署到测试服（Ubuntu + Nginx + 真实链路）才暴露 redirect loop / 字体缺失 / gzip 配置等部署侧问题 | 部署阶段（2026-06-17） | M2 收尾阶段必须有「部署 + 真实链路测试」环节，不能只靠本地 dev 通过就声明完成 |
 
 ---
 
@@ -363,6 +395,9 @@
 | `docs/pm/M2_Sprint09_livestream-review_需求文档.md` | Sprint 9 需求文档 | ✅ 已完成 |
 | `backend/docs/tasks/M2_Sprint10_后端任务_persona-review_v1.md` | Sprint 10 后端任务单 | ✅ 已执行 |
 | `frontend/docs/tasks/M2_Sprint10_前端任务_persona-review_v1.md` | Sprint 10 前端任务单 | 🔄 待执行 |
+| `frontend/docs/tasks/M2_Sprint09_前端任务_路由懒加载与TS修复_v1.md` | 部署阶段：路由懒加载 + 3 个 TS 修复（首屏 2.2MB→90KB） | ✅ 已完成（2026-06-17） |
+| `frontend/docs/tasks/M2_Sprint1_kol_intake_对话页UX修复_v1_修复Bug.md` | kol-intake 对话页 focus + 重新采集按钮 | ✅ 已完成（2026-06-17） |
+| `backend/docs/tasks/M2_Sprint1_kol_intake_PDF跨平台字体_v1_修复Bug.md` | PDF 跨平台字体（修复测试服黑块） | ✅ 已完成（2026-06-17） |
 | `docs/pm/M2_Sprint06_qianchuan-review_需求文档.md` | Sprint 6 需求文档 | ✅ 已完成 |
 | `backend/docs/tasks/M2_Sprint06_后端任务_qianchuan-review_v1.md` | Sprint 6 后端任务单 | ✅ 已执行 |
 | `frontend/docs/tasks/M2_Sprint06_前端任务_qianchuan-review_v1.md` | Sprint 6 前端任务单 | ✅ 已执行 |
