@@ -7,7 +7,7 @@
  *   Step 3 · 锁定对标   — 文件/粘贴 + 确认锁定
  *   Step 4 · 生成方案   — AI 流式生成 + 多轮迭代 + .txt 导出
  */
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Button, Select, Steps, message, Radio, Upload, Input, Spin } from 'antd';
 import { UploadOutlined, DownloadOutlined, LockOutlined } from '@ant-design/icons';
 import type { UploadFile } from 'antd';

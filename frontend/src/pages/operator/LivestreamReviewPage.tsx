@@ -124,9 +124,7 @@ function SimpleMarkdown({ text }: { text: string }) {
 
 /* ── 颜色常量 ── */
 const GREEN = '#10b981';
-const GREEN_DARK = '#059669';
 const GREEN_BG = '#f0fdf4';
-const GREEN_BORDER = '#d1fae5';
 
 /* ── 主组件 ── */
 export default function LivestreamReviewPage() {
@@ -312,7 +310,7 @@ export default function LivestreamReviewPage() {
         </div>
         <button
           onClick={loadHistory}
-          style={{ fontSize: 13, color: GREEN, background: 'none', border: 'none', cursor: 'pointer', padding: '6px 12px', borderRadius: 8, background: GREEN_BG }}
+          style={{ fontSize: 13, color: GREEN, background: GREEN_BG, border: 'none', cursor: 'pointer', padding: '6px 12px', borderRadius: 8 }}
         >
           历史报告
         </button>
