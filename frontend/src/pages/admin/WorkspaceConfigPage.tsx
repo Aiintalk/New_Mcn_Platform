@@ -9,6 +9,7 @@ import QianchuanReviewConfigTab from './QianchuanReviewConfigTab';
 import QianchuanEditReviewConfigTab from './QianchuanEditReviewConfigTab';
 import LivestreamWriterConfigTab from './LivestreamWriterConfigTab';
 import PersonaReviewConfigTab from './PersonaReviewConfigTab';
+import QianchuanPreviewConfigTab from './QianchuanPreviewConfigTab';
 import type { WorkspaceTool } from '../../types/workspace';
 export default function WorkspaceConfigPage() {
   const [tools, setTools] = useState<WorkspaceTool[]>([]);
@@ -89,6 +90,7 @@ export default function WorkspaceConfigPage() {
           { key: 'qianchuan-edit-review', label: '千川剪辑预审', children: <QianchuanEditReviewConfigTab /> },
           { key: 'livestream-writer', label: '直播脚本仿写', children: <LivestreamWriterConfigTab /> },
           { key: 'persona-review', label: '人设脚本复盘', children: <PersonaReviewConfigTab /> },
+          { key: 'qianchuan-preview', label: '千川文案预审', children: <QianchuanPreviewConfigTab /> },
         ]}
       />
     </>
