@@ -54,6 +54,12 @@
 - 存储统计（基于 files 表 + 阿里云计量 API）
 - outputs 产出迁移到 OSS
 - ASR 服务接入
+- **service_credentials 凭证加密（Fernet）**：2026-06-18 摸过现状后决定**延后**。
+  - 现状：`secret_enc` 字段明文存储（admin_credentials.py:116），3 个 adapter 直接读明文（ai.py:54 / tikhub.py:24 / oss.py:62）
+  - 历史遗留：`mcn_m1` 库 id=1、2 两条 ai 凭证（label=openai-main / openai-test）的 `secret_enc` 已是 Fernet 密文格式（`gAAAAABq...`），但代码无解密逻辑 → 这两条实际是坏的（adapter 拿密文字符串当 api_key 必然 401）。**建议用户手动删除或重建**
+  - 改造影响面：1 写入点 + 3 读取点 + 新增 `app/utils/crypto.py` + requirements.txt 加 `cryptography` + 数据迁移脚本（5 条明文 → 加密）
+  - 改造决策：复用 `.env.example` 已有的 `ENCRYPTION_KEY`（HKDF 派生 Fernet key，用户无需改 .env 格式），独立 PR `feature/credential-encryption`
+  - 触发时机：生产部署前再做（当前本地开发明文风险可控）
 
 ---
 
