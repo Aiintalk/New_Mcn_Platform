@@ -52,6 +52,7 @@ from app.routers.operator_qianchuan_preview import router as operator_qianchuan_
 from app.routers.admin_qianchuan_preview import router as admin_qianchuan_preview_router
 from app.routers.operator_qianchuan_collection import router as operator_qianchuan_collection_router
 from app.routers import operator_tiktok_review
+from app.routers import admin_tiktok_review
 
 
 @asynccontextmanager
@@ -154,3 +155,4 @@ app.include_router(operator_qianchuan_preview_router, prefix="/api")
 app.include_router(admin_qianchuan_preview_router, prefix="/api")
 app.include_router(operator_qianchuan_collection_router, prefix="/api")
 app.include_router(operator_tiktok_review.router, prefix="/api")
+app.include_router(admin_tiktok_review.router, prefix="/api")
