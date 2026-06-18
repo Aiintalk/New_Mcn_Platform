@@ -26,6 +26,8 @@ from app.models.output import Output
 from app.models.task import TaskJob
 from app.models.tiktok_review import TiktokReviewConfig
 from app.models.user import User
+from urllib.parse import quote
+
 from app.services import word_export
 
 router = APIRouter(prefix="/tools/tiktok-review", tags=["tiktok-review"])
@@ -330,9 +332,7 @@ async def export_word_doc(
 
     filename_ascii = f"TT_review_{date_str}.docx"
     filename_utf8 = f"TT复盘报告_{date_str}.docx"
-    encoded = filename_utf8.encode("utf-8").hex()
     # RFC 5987 格式：同时提供 ASCII fallback 和 UTF-8 编码文件名
-    from urllib.parse import quote
     content_disposition = (
         f'attachment; filename="{filename_ascii}"; '
         f"filename*=UTF-8''{quote(filename_utf8)}"
