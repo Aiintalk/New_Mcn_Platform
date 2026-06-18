@@ -34,7 +34,7 @@
 | 端 | 状态 | 备注 |
 |----|------|------|
 | OSS adapter 重写 | ✅ 完成 | `app/adapters/oss.py`：3 公开函数（`upload_file` / `get_download_url` / `delete_file`）+ 2 内部 helper（`_get_oss_credential` / `_make_bucket`） |
-| 单元测试 | ✅ 8/8 | `tests/unit/services/test_oss_adapter.py`（纯 mock），覆盖率 **89%**（adapter 门禁 ≥ 60%） |
+| 单元测试 | ✅ 9/9 | `tests/unit/services/test_oss_adapter.py`（纯 mock），覆盖率 **89%**（adapter 门禁 ≥ 60%） |
 | 连通性测试 | ✅ 已就位（默认跳过） | `tests/integration/test_oss_live.py`（`pytestmark = skipif(not OSS_LIVE_TEST)`），用户配凭证后启用 |
 | pytest.ini | ✅ 加 markers | `live: tests requiring real external services` |
 | 文档 | ✅ 落地 | 任务单 + 测试报告 + README 更新 + PM 记忆（本文） |
@@ -44,7 +44,7 @@
 - `oss2` 是同步库 → 全部 `asyncio.to_thread` 包装，不阻塞事件循环
 - `_get_oss_credential` 在 try **外**调用（凭证缺失 / config 缺字段时直接抛 KeyError，不 report_failure 因为没 cred_id）
 - oss2 操作在 try **内**（失败 → report_failure + 包装为 RuntimeError 传播）
-- 凭证字段映射：`label`=AccessKey ID，`secret_enc`=Secret，`config.bucket`/`config.endpoint` 从 JSONB 读
+- **字段映射与通用 API 对齐**：`label`=备注名 / `secret_enc`=Secret / `config.access_key_id`=AK ID / `config.bucket`+`endpoint`+`region` 从 JSONB 读（不在 label 里）
 
 **全量回归**：4 failed + 4 errors 全是预存技术债（5 个其他 router 缺 OperationLog / snappy 模块缺失 / intake conftest pytest_plugins 位置），OSS 改动**零回归**。
 

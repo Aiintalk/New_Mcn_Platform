@@ -6,14 +6,17 @@ app/adapters/oss.py
 凭证配置来自 service_credentials 表（provider="oss"），
 config JSONB 字段结构：
 {
+    "access_key_id": "LTAI...",                 # AccessKey ID
     "bucket": "your-bucket-name",
     "endpoint": "oss-cn-hangzhou.aliyuncs.com",
-    "region": "cn-hangzhou"  # 可选
+    "region": "cn-hangzhou"                      # 可选
 }
 
-字段映射：
-- label = AccessKey ID
+字段映射（与通用凭证管理 API `/api/admin/config/credentials` 约定一致）：
+- label = 备注名（人类可读，如 "杭州生产环境"，管理员自定义）
 - secret_enc = AccessKey Secret（Sprint 3 阶段明文）
+- config.access_key_id = AccessKey ID
+- config.bucket / endpoint / region = OSS 元数据
 """
 import asyncio
 
@@ -52,9 +55,10 @@ async def _get_oss_credential(
     config = credential.config or {}
     bucket = config["bucket"]
     endpoint = config["endpoint"]
+    access_key_id = config["access_key_id"]
     return (
         credential.id,
-        credential.label,
+        access_key_id,
         credential.secret_enc,
         bucket,
         endpoint,

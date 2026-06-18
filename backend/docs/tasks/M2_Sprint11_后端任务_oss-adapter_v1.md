@@ -53,13 +53,14 @@
 | `_get_oss_credential(db)` | `→ (cred_id, ak_id, ak_secret, bucket, endpoint)` | 内部 helper |
 | `_make_bucket(ak_id, ak_secret, endpoint, bucket)` | `→ oss2.Bucket` | 工厂函数（便于 mock） |
 
-### 凭证字段映射
+### 凭证字段映射（与通用凭证管理 API `/api/admin/config/credentials` 约定一致）
 
 | `service_credentials` 字段 | OSS 含义 |
 |----|----|
 | `provider` | `"oss"` |
-| `label` | AccessKey ID |
+| `label` | **备注名**（人类可读，如 "杭州生产环境"，管理员自定义） |
 | `secret_enc` | AccessKey Secret（Sprint 3 阶段明文） |
+| `config.access_key_id` | AccessKey ID |
 | `config.bucket` | OSS Bucket 名 |
 | `config.endpoint` | OSS Endpoint（如 `oss-cn-hangzhou.aliyuncs.com`） |
 | `config.region` | OSS Region（如 `cn-hangzhou`，可选） |
@@ -70,6 +71,7 @@
 - `_get_oss_credential` 在 try **外**（凭证缺失/config 缺字段时直接抛，无法 report_failure 因为没 cred_id）
 - oss2 操作在 try **内**（失败 → report_failure + 异常传播）
 - 复用 `credential_selector.py` 的 `pick_credential` / `report_success` / `report_failure`（cooldown 机制）
+- **字段映射与通用 API 对齐**：`label`=备注名 / `secret_enc`=Secret / `config.access_key_id`=AK ID（不在 label 里）
 
 ## 六、测试策略
 
@@ -100,21 +102,50 @@ async def test_oss_upload_download_delete_round_trip():
 
 ## 七、用户配置凭证（任务完成后用户自己执行）
 
+两种方式（任选）：
+
+### 方式 A：通过管理端 UI（推荐）
+
+前端调通用凭证管理 API（已实现，无需新后端）：
+
+```http
+POST /api/admin/config/credentials
+{
+  "provider": "oss",
+  "label": "杭州生产环境",
+  "api_key": "<AccessKeySecret>",
+  "weight": 1,
+  "config": {
+    "access_key_id": "<AccessKeyID>",
+    "bucket": "<bucket-name>",
+    "endpoint": "oss-cn-hangzhou.aliyuncs.com",
+    "region": "cn-hangzhou"
+  }
+}
+```
+
+### 方式 B：直接 SQL（脚本/调试用）
+
 ```sql
 INSERT INTO service_credentials
   (provider, label, secret_enc, secret_tail, status, weight, config)
 VALUES (
   'oss',
-  '<AccessKeyID>',                    -- label = AccessKey ID
+  '杭州生产环境',                     -- label = 备注名（人类可读）
   '<AccessKeySecret>',                -- secret_enc = AccessKey Secret（当前明文，Sprint 4 加密）
   '<Secret末4位>',                    -- secret_tail，UI 展示用
   'enabled',
   1,
-  '{"bucket": "<bucket-name>", "endpoint": "oss-cn-hangzhou.aliyuncs.com", "region": "cn-hangzhou"}'
+  '{
+    "access_key_id": "<AccessKeyID>",
+    "bucket": "<bucket-name>",
+    "endpoint": "oss-cn-hangzhou.aliyuncs.com",
+    "region": "cn-hangzhou"
+  }'::jsonb
 );
 ```
 
-连通性测试还需在环境变量设 `OSS_ACCESS_KEY_ID` / `OSS_ACCESS_KEY_SECRET`（或从 `service_credentials` 表读凭证 —— **推荐**后者，与生产同路径）。
+> 注：方式 A 的前端 UI 是**独立任务**（管理端 OSS 面板），不在本次范围。本次只需 SQL 方式验证连通性。
 
 ## 八、验收标准
 

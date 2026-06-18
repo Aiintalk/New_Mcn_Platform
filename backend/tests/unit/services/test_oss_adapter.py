@@ -208,10 +208,30 @@ async def test_get_credential_missing_endpoint_raises(mock_pick):
 
     cred = MagicMock()
     cred.id = 42
-    cred.label = "AKIDxxx"
+    cred.label = "杭州生产"
     cred.secret_enc = "SECRETxxx"
-    cred.config = {"bucket": "my-bucket"}  # 没有 endpoint
+    cred.config = {"bucket": "my-bucket", "access_key_id": "AKIDxxx"}  # 没有 endpoint
     mock_pick.return_value = cred
 
     with pytest.raises(KeyError, match="endpoint"):
+        await _get_oss_credential(db=MagicMock())
+
+
+@patch("app.adapters.oss.pick_credential", new_callable=AsyncMock)
+async def test_get_credential_missing_access_key_id_raises(mock_pick):
+    """config 缺 access_key_id：KeyError 直接传播。"""
+    from app.adapters.oss import _get_oss_credential
+
+    cred = MagicMock()
+    cred.id = 42
+    cred.label = "杭州生产"
+    cred.secret_enc = "SECRETxxx"
+    cred.config = {
+        "bucket": "my-bucket",
+        "endpoint": "oss-cn-hangzhou.aliyuncs.com",
+        # 没有 access_key_id
+    }
+    mock_pick.return_value = cred
+
+    with pytest.raises(KeyError, match="access_key_id"):
         await _get_oss_credential(db=MagicMock())

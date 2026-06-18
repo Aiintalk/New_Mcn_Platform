@@ -10,8 +10,8 @@
 
 | 文件 | 操作 | 说明 |
 |------|------|------|
-| `backend/app/adapters/oss.py` | 重写 | Mock 占位 → 真实阿里云 OSS 实现（`upload_file` / `get_download_url` / `delete_file` / `_get_oss_credential` / `_make_bucket`） |
-| `backend/tests/unit/services/test_oss_adapter.py` | 新增 | 8 个单元测试（纯 mock） |
+| `backend/app/adapters/oss.py` | 重写 | Mock 占位 → 真实阿里云 OSS 实现（`upload_file` / `get_download_url` / `delete_file` / `_get_oss_credential` / `_make_bucket`）；字段映射与通用凭证 API 对齐（`label`=备注名，`config.access_key_id`=AK ID） |
+| `backend/tests/unit/services/test_oss_adapter.py` | 新增 | 9 个单元测试（纯 mock） |
 | `backend/tests/integration/test_oss_live.py` | 新增 | 连通性测试（`skipif` + `@pytest.mark.live`，默认跳过） |
 | `backend/pytest.ini` | 修改 | 加 `markers = live: ...` |
 | `backend/docs/tasks/M2_Sprint11_后端任务_oss-adapter_v1.md` | 新增 | PM 任务单 |
@@ -26,13 +26,13 @@
 
 | 测试文件 | 通过 / 总计 |
 |---------|------------|
-| `tests/unit/services/test_oss_adapter.py` | 8 / 8 ✅ |
+| `tests/unit/services/test_oss_adapter.py` | 9 / 9 ✅ |
 
 覆盖点：
 - `upload_file`：成功路径（to_thread put_object + report_success）、失败路径（oss2 异常 → report_failure + 包装为 RuntimeError 传播）
 - `get_download_url`：成功路径（to_thread sign_url + report_success）、失败路径
 - `delete_file`：成功路径（to_thread delete_object + report_success）、失败路径
-- `_get_oss_credential` 边界：config 缺 `bucket` → KeyError；config 缺 `endpoint` → KeyError（都在 try 块外，不 report_failure）
+- `_get_oss_credential` 边界：config 缺 `bucket` / 缺 `endpoint` / 缺 `access_key_id` → 各自抛 KeyError（都在 try 块外，不 report_failure）
 
 ### 覆盖率
 
@@ -85,11 +85,14 @@ OSS 改动**零回归**：上述 4 failed + 4 errors 在 main 分支已存在，
 
 ### 凭证字段映射（service_credentials 表）
 
+字段映射与通用凭证管理 API `/api/admin/config/credentials` 约定一致：
+
 | 字段 | OSS 含义 |
 |------|----------|
 | `provider` | `'oss'` |
-| `label` | AccessKey ID |
+| `label` | **备注名**（人类可读，如 "杭州生产环境"，管理员自定义） |
 | `secret_enc` | AccessKey Secret（Sprint 3 阶段明文） |
+| `config.access_key_id` | AccessKey ID |
 | `config.bucket` | OSS Bucket 名 |
 | `config.endpoint` | OSS Endpoint（如 `oss-cn-hangzhou.aliyuncs.com`） |
 | `config.region` | OSS Region（可选） |
@@ -98,18 +101,47 @@ OSS 改动**零回归**：上述 4 failed + 4 errors 在 main 分支已存在，
 
 ## 四、用户配置凭证（任务完成后用户自己执行）
 
+两种方式（任选）：
+
+### 方式 A：通过管理端 UI（推荐，UI 是后续独立任务）
+
+调通用凭证管理 API：
+
+```http
+POST /api/admin/config/credentials
+{
+  "provider": "oss",
+  "label": "杭州生产环境",
+  "api_key": "<AccessKeySecret>",
+  "weight": 1,
+  "config": {
+    "access_key_id": "<AccessKeyID>",
+    "bucket": "<bucket-name>",
+    "endpoint": "oss-cn-hangzhou.aliyuncs.com",
+    "region": "cn-hangzhou"
+  }
+}
+```
+
+### 方式 B：直接 SQL（脚本/调试用，本次验证连通性走这条）
+
 ```sql
 -- 在 mcn_m1（生产）和 mcn_test（测试）库都执行
 INSERT INTO service_credentials
   (provider, label, secret_enc, secret_tail, status, weight, config)
 VALUES (
   'oss',
-  '<AccessKeyID>',
-  '<AccessKeySecret>',
+  '杭州生产环境',                     -- label = 备注名
+  '<AccessKeySecret>',                -- secret_enc = Secret（明文，Sprint 4 加密）
   '<Secret末4位>',
   'enabled',
   1,
-  '{"bucket": "<bucket-name>", "endpoint": "oss-cn-hangzhou.aliyuncs.com", "region": "cn-hangzhou"}'
+  '{
+    "access_key_id": "<AccessKeyID>",
+    "bucket": "<bucket-name>",
+    "endpoint": "oss-cn-hangzhou.aliyuncs.com",
+    "region": "cn-hangzhou"
+  }'::jsonb
 );
 ```
 
