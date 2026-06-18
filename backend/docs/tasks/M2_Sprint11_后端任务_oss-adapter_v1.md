@@ -100,13 +100,32 @@ async def test_oss_upload_download_delete_round_trip():
 
 **覆盖率影响**：无凭证时 `skipif` 自动跳过，不计入分母。
 
-## 七、用户配置凭证（任务完成后用户自己执行）
+## 七、用户配置凭证
 
-两种方式（任选）：
+### 方式 A：连通性测试（env var 注入，本次已用 ✅）
 
-### 方式 A：通过管理端 UI（推荐）
+通过环境变量传入（**Secret 不进代码、不进 git、不进 SQL**）：
 
-前端调通用凭证管理 API（已实现，无需新后端）：
+```bash
+export OSS_LIVE_TEST=1
+export OSS_ACCESS_KEY_ID=LTAI...                    # 24 位，LTAI 开头
+export OSS_ACCESS_KEY_SECRET=...                    # 30 位
+export OSS_BUCKET=your-bucket
+# 可选（不设用默认值）
+export OSS_ENDPOINT=oss-cn-hangzhou.aliyuncs.com    # 默认值
+export OSS_REGION=cn-hangzhou                       # 默认值
+
+cd backend
+.venv311/Scripts/python -m pytest tests/integration/test_oss_live.py -v -m live --override-ini="addopts="
+```
+
+测试内部把凭证动态插入 `mcn_test` 库（conftest 自动建表），session 结束自动 `drop_all` 清理。Secret 只在 shell 中存在，跑完关闭 shell 或 `unset` 即可。
+
+**本次执行结果**：PASSED（2026-06-18，bucket=`aitoolboxte`，6.97 秒）。
+
+### 方式 B：生产部署（通过管理端 UI，待实现）
+
+UI 接通后通过通用凭证管理 API（已实现，无需新后端）：
 
 ```http
 POST /api/admin/config/credentials
@@ -124,28 +143,7 @@ POST /api/admin/config/credentials
 }
 ```
 
-### 方式 B：直接 SQL（脚本/调试用）
-
-```sql
-INSERT INTO service_credentials
-  (provider, label, secret_enc, secret_tail, status, weight, config)
-VALUES (
-  'oss',
-  '杭州生产环境',                     -- label = 备注名（人类可读）
-  '<AccessKeySecret>',                -- secret_enc = AccessKey Secret（当前明文，Sprint 4 加密）
-  '<Secret末4位>',                    -- secret_tail，UI 展示用
-  'enabled',
-  1,
-  '{
-    "access_key_id": "<AccessKeyID>",
-    "bucket": "<bucket-name>",
-    "endpoint": "oss-cn-hangzhou.aliyuncs.com",
-    "region": "cn-hangzhou"
-  }'::jsonb
-);
-```
-
-> 注：方式 A 的前端 UI 是**独立任务**（管理端 OSS 面板），不在本次范围。本次只需 SQL 方式验证连通性。
+UI 入口（独立任务）：管理端 → 工具配置 → OSS 配置 Tab（参考 AI/TikHub 独立 Tab 模式）。
 
 ## 八、验收标准
 

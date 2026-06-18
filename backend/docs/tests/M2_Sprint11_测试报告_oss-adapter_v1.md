@@ -42,18 +42,34 @@
 
 未覆盖行：`_make_bucket` 函数体（被 mock，不实际执行 oss2.Auth）+ `if result.status != 200` 防御性检查（oss2 在非 2xx 时会抛 OssError，正常不会到这里）。
 
-### 连通性测试（默认跳过）
+### 连通性测试（默认跳过，本次已通过 ✅）
 
 | 测试文件 | 默认状态 | 启用方式 |
 |---------|---------|---------|
-| `tests/integration/test_oss_live.py` | SKIPPED | `OSS_LIVE_TEST=1 pytest tests/integration/test_oss_live.py -v -m live` |
+| `tests/integration/test_oss_live.py` | SKIPPED | `OSS_LIVE_TEST=1 + OSS_ACCESS_KEY_ID/SECRET/BUCKET env vars` |
 
 启用前置条件：
-1. `mcn_test` 库的 `service_credentials` 表插入 `provider='oss'` 凭证
-2. 阿里云 OSS Bucket 已创建，AccessKey 有读写权限
-3. 设置环境变量 `OSS_LIVE_TEST=1`
+1. 阿里云 OSS Bucket 已创建，RAM 子账号有读写权限
+2. 设置环境变量（详见任务单 §7）：
+   - `OSS_LIVE_TEST=1`
+   - `OSS_ACCESS_KEY_ID` / `OSS_ACCESS_KEY_SECRET` / `OSS_BUCKET`
+   - 可选：`OSS_ENDPOINT` / `OSS_REGION`
 
-**本次未执行连通性测试**（用户后续配置凭证后自行运行）。
+**本次执行结果**：✅ PASSED（2026-06-18，bucket=`aitoolboxte`，6.97 秒）
+
+完整链路（已验证）：
+1. 测试启动 → conftest 在 `mcn_test` 库 `create_all` 建表
+2. live test 从 env 读凭证 → INSERT 到 `service_credentials` 表
+3. `upload_file` → 真实 PUT 到 OSS bucket
+4. `get_download_url` → 生成签名 URL
+5. httpx GET 验证 → HTTP 200 + 内容字节一致
+6. `delete_file` → DELETE 清理 OSS 对象
+7. 测试结束 → conftest `drop_all` 清表（凭证自然消失）
+
+设计要点：
+- 凭证通过 env var 传入（**不写进代码、不写进 SQL 文件**）
+- 测试内部动态插凭证，依赖 mcn_test 库 conftest 自动建表
+- Secret 只在 shell 中存在，关 shell / unset 即消失
 
 ### 全量回归
 
@@ -99,13 +115,28 @@ OSS 改动**零回归**：上述 4 failed + 4 errors 在 main 分支已存在，
 
 ---
 
-## 四、用户配置凭证（任务完成后用户自己执行）
+## 四、用户配置凭证
 
-两种方式（任选）：
+### 方式 A：连通性测试（env var 注入，本次已用 ✅）
 
-### 方式 A：通过管理端 UI（推荐，UI 是后续独立任务）
+```bash
+export OSS_LIVE_TEST=1
+export OSS_ACCESS_KEY_ID=LTAI...
+export OSS_ACCESS_KEY_SECRET=...
+export OSS_BUCKET=your-bucket
+# 可选
+export OSS_ENDPOINT=oss-cn-hangzhou.aliyuncs.com  # 默认值
+export OSS_REGION=cn-hangzhou                      # 默认值
 
-调通用凭证管理 API：
+cd backend
+.venv311/Scripts/python -m pytest tests/integration/test_oss_live.py -v -m live --override-ini="addopts="
+```
+
+Secret 只在 shell 中存在，不写进代码、不写进 SQL 文件、不进 git。
+
+### 方式 B：生产部署（管理端 UI，待实现）
+
+UI 接通后通过通用凭证管理 API：
 
 ```http
 POST /api/admin/config/credentials
@@ -123,27 +154,7 @@ POST /api/admin/config/credentials
 }
 ```
 
-### 方式 B：直接 SQL（脚本/调试用，本次验证连通性走这条）
-
-```sql
--- 在 mcn_m1（生产）和 mcn_test（测试）库都执行
-INSERT INTO service_credentials
-  (provider, label, secret_enc, secret_tail, status, weight, config)
-VALUES (
-  'oss',
-  '杭州生产环境',                     -- label = 备注名
-  '<AccessKeySecret>',                -- secret_enc = Secret（明文，Sprint 4 加密）
-  '<Secret末4位>',
-  'enabled',
-  1,
-  '{
-    "access_key_id": "<AccessKeyID>",
-    "bucket": "<bucket-name>",
-    "endpoint": "oss-cn-hangzhou.aliyuncs.com",
-    "region": "cn-hangzhou"
-  }'::jsonb
-);
-```
+UI 入口（独立任务）：管理端 → 工具配置 → OSS 配置 Tab（参考 AI/TikHub 独立 Tab 模式）。
 
 配置完成后跑连通性测试：
 ```bash

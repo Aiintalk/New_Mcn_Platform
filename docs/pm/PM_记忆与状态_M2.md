@@ -35,10 +35,10 @@
 |----|------|------|
 | OSS adapter 重写 | ✅ 完成 | `app/adapters/oss.py`：3 公开函数（`upload_file` / `get_download_url` / `delete_file`）+ 2 内部 helper（`_get_oss_credential` / `_make_bucket`） |
 | 单元测试 | ✅ 9/9 | `tests/unit/services/test_oss_adapter.py`（纯 mock），覆盖率 **89%**（adapter 门禁 ≥ 60%） |
-| 连通性测试 | ✅ 已就位（默认跳过） | `tests/integration/test_oss_live.py`（`pytestmark = skipif(not OSS_LIVE_TEST)`），用户配凭证后启用 |
+| 连通性测试 | ✅ PASSED | `tests/integration/test_oss_live.py`（env var 注入凭证），2026-06-18 真实阿里云 OSS 验证通过（bucket=`aitoolboxte`，6.97s） |
 | pytest.ini | ✅ 加 markers | `live: tests requiring real external services` |
 | 文档 | ✅ 落地 | 任务单 + 测试报告 + README 更新 + PM 记忆（本文） |
-| 凭证配置 | ⏳ 待用户配 | `service_credentials` 表插 `provider='oss'` 记录，详见任务单 §7 |
+| 凭证配置 | ✅ 验证通过 | env var 方式（OSS_LIVE_TEST=1 + AK_ID/SECRET/BUCKET）；后续 UI 接通用 API |
 
 **关键设计点：**
 - `oss2` 是同步库 → 全部 `asyncio.to_thread` 包装，不阻塞事件循环
