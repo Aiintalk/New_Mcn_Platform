@@ -24,6 +24,7 @@ from app.models.qianchuan_edit_review import QianchuanEditReviewConfig
 from app.models.livestream_review import LivestreamReviewConfig
 from app.models.persona_review import PersonaReviewConfig
 from app.models.qianchuan_preview import QianchuanPreviewConfig
+from app.models.qianchuan_collection import QianchuanCollectionPersona, QianchuanCollectionScript
 
 __all__ = [
     "User",
@@ -54,4 +55,6 @@ __all__ = [
     "LivestreamReviewConfig",
     "PersonaReviewConfig",
     "QianchuanPreviewConfig",
+    "QianchuanCollectionPersona",
+    "QianchuanCollectionScript",
 ]

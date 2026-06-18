@@ -1,6 +1,6 @@
 # MCN_PM_Agent — 项目记忆与当前状态（M2）
 
-> 最后更新：2026-06-18（Sprint 11 qianchuan-preview 完成：后端5接口+前端页面+功能验证+文档落地）
+> 最后更新：2026-06-18（Sprint 12 qianchuan-collection 完成：DB迁移025+后端7接口+前端页面+功能验证+文档落地）
 > 更新角色：MCN_PM_Agent
 > 上一份文档：`docs/pm/PM_记忆与状态.md`（M1 阶段，已归档）
 
@@ -26,6 +26,32 @@
 ---
 
 ## 二、M2 阶段（当前）
+
+### M2 Sprint 12 — 千川爆文合集（qianchuan-collection）✅ 完成
+
+**核心定位**：纯手工脚本收集库，无 AI 调用。全网爆款池（41 条种子数据）+ 达人爆款池（按达人分组管理）。
+
+| 端 | 状态 | 备注 |
+|----|------|------|
+| 数据库迁移 025 | ✅ 已执行 | `qianchuan_collection_personas` + `qianchuan_collection_scripts` 表 + workspace_tools 注册（status=online）+ 41 条种子数据 |
+| 后端 7 个接口 | ✅ 完成 | `operator_qianchuan_collection.py`（personas CRUD + scripts CRUD + parse-file） |
+| SQLAlchemy 模型 | ✅ 完成 | `app/models/qianchuan_collection.py` |
+| main.py 注册 | ✅ 完成 | router 已 include |
+| 自动化测试 | ✅ 31/31 | 集成测试 31 条 + 前端单元测试 8 条 |
+| 前端页面 | ✅ 完成 | `QianchuanCollectionPage.tsx`，路由 `/workspace/qianchuan-collection` |
+| 功能验证 | ✅ 通过 | 12 项验证全 PASS，2026-06-18 |
+| 契约文档 | ✅ 已更新 | Base_API §19、Base_Database §19-20 迁移 025 已登记 |
+
+**架构特点（与其他工具差异）：**
+- 无 AI 调用 → 无 yunwu adapter、无 AiCallLog、无 Prompt 配置、无管理端专属 Tab
+- 无 AsyncSessionLocal 直接导入 → 无需注册 conftest.py
+- 软删除（is_deleted）贯穿达人和脚本，级联软删靠 UPDATE 实现（不靠 FK CASCADE）
+- 种子数据 41 条通过 migration 025 INSERT，frontmatter 解析自旧工具 .md 文件
+
+**覆盖率：**
+- `operator_qianchuan_collection.py`：72% ✅（目标 ≥ 70%）
+
+---
 
 ### M2 Sprint 11 — 千川文案预审（qianchuan-preview）✅ 完成
 
@@ -408,8 +434,8 @@
 | Sprint 9/10 convention_guard OperationLog 违规（5处） | 预存问题，admin PUT 接口未写 OperationLog，待后续统一修复 |
 
 **下一步优先级：**
-1. ✅ 已完成：Sprint 11 qianchuan-preview 迁移
-2. push 3+N commits 到 GitHub（Sprint 11 代码 + 文档落地）
+1. ✅ 已完成：Sprint 12 qianchuan-collection 迁移
+2. push commits 到 GitHub（Sprint 12 代码 + 文档落地）
 3. 确认下一个待迁移工具（参考 `Ai_Toolbox_new/` 目录）
 4. 批量修复 antd `message` 静态方法 → `App.useApp()` hook（25 个文件）
 5. 测试服部署并验证并发测试
@@ -425,6 +451,9 @@
 | `docs/pm/M2_Sprint11_qianchuan-preview_需求文档.md` | Sprint 11 需求文档 | ✅ 已完成 |
 | `backend/docs/tasks/M2_Sprint11_后端任务_qianchuan-preview_v1.md` | Sprint 11 后端任务单 | ✅ 已完成 |
 | `frontend/docs/tasks/M2_Sprint11_前端任务_qianchuan-preview_v1.md` | Sprint 11 前端任务单 | ✅ 已完成 |
+| `docs/pm/M2_Sprint12_qianchuan-collection_需求文档.md` | Sprint 12 需求文档 | ✅ 已完成 |
+| `backend/docs/tasks/M2_Sprint12_后端任务_qianchuan-collection_v1.md` | Sprint 12 后端任务单 | ✅ 已完成 |
+| `frontend/docs/tasks/M2_Sprint12_前端任务_qianchuan-collection_v1.md` | Sprint 12 前端任务单 | ✅ 已完成 |
 
 | `docs/pm/M2_Sprint09_livestream-review_需求文档.md` | Sprint 9 需求文档 | ✅ 已完成 |
 | `backend/docs/tasks/M2_Sprint10_后端任务_persona-review_v1.md` | Sprint 10 后端任务单 | ✅ 已执行 |
@@ -454,6 +483,7 @@
 | 文件 | 说明 | 状态 |
 |------|------|------|
 | `backend/docs/tests/M2_Sprint11_测试报告_qianchuan-preview_v1.md` | Sprint 11 测试报告（25/25 自动化 + 5 项功能验证）| ✅ 已完成 |
+| `backend/docs/tests/M2_Sprint12_测试报告_qianchuan-collection_v1.md` | Sprint 12 测试报告（31/31 集成 + 8/8 前端 + 12 项功能验证）| ✅ 已完成 |
 | `backend/docs/tests/M2_Sprint07_测试报告_qianchuan-edit-review_v1.md` | Sprint 7 测试报告（21/21 集成测试 + 9 项功能验证）| ✅ 已完成 |
 | `backend/docs/tests/M2_Sprint06_测试报告_qianchuan-review_v1.md` | Sprint 6 测试报告（57/57 后端，verify PASS）| ✅ 已完成 |
 | `backend/docs/tests/M2_Sprint05_测试报告_selling-point-extractor_v1.md` | Sprint 5 测试报告（43/43 后端 + 86/86 前端）| ✅ 已完成 |

@@ -1040,3 +1040,99 @@ Request（JSON）：`{ "system_prompt": "string", "ai_model_id": 1 }`
 Response（200）：`{ "success": true, "code": "OK", "data": { "config_key": "with_excel" } }`
 
 错误：config_key 不存在 → 404 CONFIG_NOT_FOUND
+
+---
+
+## 19. Sprint 12 — 千川爆文合集（qianchuan-collection）
+
+**前缀**：`/api/tools/qianchuan-collection`  
+**鉴权**：所有接口要求 `role in ('operator','admin')` 且 `password_changed_at IS NOT NULL`  
+**特点**：纯手工收集库，无 AI 调用，无 SSE，无文件下载流
+
+### 19.1 GET /personas
+
+获取达人列表（排除软删除，含每位达人的脚本数量）。
+
+Response（200）：
+```json
+{ "success": true, "code": "OK", "data": { "personas": [{ "name": "达人A", "script_count": 5 }] } }
+```
+
+### 19.2 POST /personas
+
+新建达人分组。
+
+Request（JSON）：`{ "name": "达人A" }`
+
+Response（200）：`{ "success": true, "code": "OK", "data": { "name": "达人A" } }`
+
+错误：名称重复 → 409 PERSONA_EXISTS；名称为空 → 422
+
+### 19.3 DELETE /personas/{persona_name}
+
+软删除达人（同时级联软删该达人下所有脚本）。
+
+Response（200）：`{ "success": true, "code": "OK", "data": { "ok": true } }`
+
+错误：达人不存在 → 404 PERSONA_NOT_FOUND
+
+### 19.4 GET /scripts
+
+获取脚本列表，支持分页和筛选。
+
+Query 参数：
+
+| 参数 | 类型 | 默认 | 说明 |
+|------|------|------|------|
+| `pool` | string | 必填 | `global` 或 `persona` |
+| `persona_name` | string | — | pool=persona 时必填 |
+| `q` | string | — | 关键词搜索（title + content ILIKE） |
+| `page` | int | 1 | 页码 |
+| `page_size` | int | 20 | 每页条数（最大 100） |
+
+Response（200）：
+```json
+{
+  "success": true, "code": "OK",
+  "data": {
+    "scripts": [{ "id": 1, "pool": "global", "persona_name": null, "title": "...", "content": "...",
+                  "likes": 50000, "source": "抖音", "source_account": null,
+                  "script_date": "2026-05-19", "created_at": "2026-06-18T10:00:00Z" }],
+    "total": 41, "page": 1, "page_size": 20
+  }
+}
+```
+
+错误：pool 无效 → 400；pool=persona 但未传 persona_name → 400
+
+### 19.5 POST /scripts
+
+新增脚本。
+
+Request（JSON）：
+```json
+{ "pool": "global", "persona_name": null, "title": "脚本标题", "content": "正文...",
+  "likes": 50000, "source": "抖音", "source_account": "某账号", "script_date": "2026-06-18" }
+```
+
+Response（200）：`{ "success": true, "code": "OK", "data": { "id": 123 } }`
+
+错误：title/content 为空 → 422；pool=persona 时 persona_name 为空 → 400；达人不存在 → 400 PERSONA_NOT_FOUND；script_date 格式错误 → 400
+
+### 19.6 DELETE /scripts/{script_id}
+
+软删除脚本。
+
+Response（200）：`{ "success": true, "code": "OK", "data": { "ok": true } }`
+
+错误：脚本不存在或已删除 → 404 SCRIPT_NOT_FOUND
+
+### 19.7 POST /parse-file
+
+上传文件解析返回文本（multipart/form-data，字段名 `file`）。
+
+支持格式：`.txt` / `.md` / `.docx` / `.pdf`
+
+Response（200）：`{ "success": true, "code": "OK", "data": { "text": "...", "filename": "原文件名" } }`
+
+错误：不支持的格式 → 400 UNSUPPORTED_FORMAT

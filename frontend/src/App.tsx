@@ -36,6 +36,7 @@ const SellingPointPage = lazy(() => import('./pages/operator/SellingPointPage'))
 const QianchuanReviewPage = lazy(() => import('./pages/operator/QianchuanReviewPage'));
 const QianChuanEditReviewPage = lazy(() => import('./pages/operator/QianChuanEditReviewPage'));
 const QianchuanPreviewPage = lazy(() => import('./pages/operator/QianchuanPreviewPage'));
+const QianchuanCollectionPage = lazy(() => import('./pages/operator/QianchuanCollectionPage'));
 const LivestreamWriterPage = lazy(() => import('./pages/operator/LivestreamWriterPage'));
 const LivestreamReviewPage = lazy(() => import('./pages/operator/LivestreamReviewPage'));
 
@@ -101,6 +102,7 @@ export default function App() {
               <Route path="/workspace/qianchuan-review" element={<QianchuanReviewPage />} />
               <Route path="/workspace/qianchuan-edit-review" element={<QianChuanEditReviewPage />} />
               <Route path="/workspace/qianchuan-preview" element={<QianchuanPreviewPage />} />
+              <Route path="/workspace/qianchuan-collection" element={<QianchuanCollectionPage />} />
               <Route path="/workspace/livestream-writer" element={<LivestreamWriterPage />} />
               <Route path="/workspace/livestream-review" element={<LivestreamReviewPage />} />
               <Route path="/workspace/persona-review" element={<PersonaReviewPage />} />

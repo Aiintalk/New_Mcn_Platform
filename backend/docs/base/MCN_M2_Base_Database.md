@@ -564,3 +564,50 @@ CREATE INDEX idx_benchmark_analyses_created ON benchmark_analyses(created_at DES
 | tool_code | tool_name | category | status | sort_order |
 |-----------|-----------|----------|--------|------------|
 | `livestream-writer` | 直播脚本仿写 | 内容创作 | `online` | 自动计算 |
+
+---
+
+## 19. qianchuan_collection_personas 达人分组表（Sprint 12）
+
+**迁移文件**：`025_qianchuan_collection.sql`
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | SERIAL | 是 | 主键 |
+| `name` | VARCHAR(100) UNIQUE | 是 | 达人名称（唯一） |
+| `is_deleted` | BOOLEAN | 是 | 软删除标志，默认 false |
+| `created_at` | TIMESTAMPTZ | 是 | 创建时间 |
+| `updated_at` | TIMESTAMPTZ | 是 | 更新时间（触发器自动） |
+
+---
+
+## 20. qianchuan_collection_scripts 脚本表（Sprint 12）
+
+**迁移文件**：`025_qianchuan_collection.sql`
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | SERIAL | 是 | 主键 |
+| `pool` | VARCHAR(20) | 是 | 脚本池：`global`（全网爆款）/ `persona`（达人爆款） |
+| `persona_name` | VARCHAR(100) | 否 | 达人名称（pool=persona 时有值） |
+| `title` | VARCHAR(200) | 是 | 脚本标题 |
+| `content` | TEXT | 是 | 脚本正文 |
+| `likes` | INTEGER | 否 | 点赞数 |
+| `source` | VARCHAR(100) | 否 | 来源平台 |
+| `source_account` | VARCHAR(100) | 否 | 来源账号 |
+| `script_date` | DATE | 否 | 脚本日期（默认写入当天） |
+| `is_deleted` | BOOLEAN | 是 | 软删除标志，默认 false |
+| `created_at` | TIMESTAMPTZ | 是 | 创建时间 |
+| `updated_at` | TIMESTAMPTZ | 是 | 更新时间（触发器自动） |
+
+**索引**：
+- `(pool, is_deleted)` — 列表查询主路径
+- `(persona_name, is_deleted)` — 按达人查脚本
+
+**种子数据**：迁移 025 写入 41 条全网爆款脚本（从旧工具 `data/global/scripts/` 迁入）
+
+### 20.1 workspace_tools 注册
+
+| tool_code | tool_name | category | status | sort_order |
+|-----------|-----------|----------|--------|------------|
+| `qianchuan-collection` | 千川爆文合集 | 千川 | `online` | 自动计算 |
