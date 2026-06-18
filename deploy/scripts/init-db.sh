@@ -5,7 +5,7 @@ set -e
 
 DB_USER=${DB_USER:-postgres}
 DB_HOST=${DB_HOST:-localhost}
-DB_PASSWORD=${DB_PASSWORD:-admin123}
+DB_PASSWORD=${DB_PASSWORD:-postgres2026}
 SQL_FILE=${SQL_FILE:-../backend/migrations/001_init.sql}
 
 echo "执行建表脚本：$SQL_FILE"

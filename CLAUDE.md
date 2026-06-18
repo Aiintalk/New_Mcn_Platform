@@ -1,259 +1,117 @@
 # MCN Platform — 项目开发规范（Claude Code 自动加载）
 
-> 本文件是每次会话自动加载的项目级规范，只放核心约定。详细内容见各指向文档，需要时再读。
-> **所有开发严格遵循本文件与指向文档，不得绕过。**
+> 本文件每次会话自动加载，是常驻核心。**只放"每次都必须生效"的内容；详细流程在指向的文档里，用到再读。**
+> 严格遵循本文件与指向文档，不得绕过、不得凭记忆跳步。
 
 ---
 
-## 一、项目概述
+## ⓪、开工前准备（每次启动后、动手前必做）
 
-MCN 红人孵化管理平台，当前 M2 阶段。
+> 本步只做"看清楚"：当前在哪、项目啥情况。**不在此拉代码、不切分支、不对齐数据库**——这些属于"开始一个功能"时的动作，统一由 GIT_WORKFLOW 负责，避免与本步重复冲突。
 
-| 端 | 技术栈 |
-|----|--------|
-| 后端 | Python 3.10/3.11 · FastAPI · SQLAlchemy(asyncpg) · PostgreSQL 15 |
-| 前端 | React 19 · Vite 8 · TypeScript 6 · Ant Design 5 · Zustand 5 |
-| 部署 | Nginx · PM2 · Ubuntu（生产）/ 本地开发 Mac |
+1. **检查分支状态**：AI 跑 `git status` + `git branch` 看清当前在哪个分支、有无未提交改动。
+   - **不擅自切分支**：若在某功能分支、或有未提交改动，列出情况+选项交用户决定，不主动 `checkout main`（避免打断上次没做完的活）。
+2. **了解项目现状**（读最新落档的文档）：
+   - `docs/pm/PM_记忆与状态_M2.md` → 当前进度：M几/Sprint几、上次做到哪、哪些功能已完成/已迁移、待办。
+   - 根目录 `README.md` → 项目整体结构、功能模块、技术栈。
+3. 看清状态与现状后，进入正常工作流程。
 
----
-
-## 二、文档地图（细节看这些，本文件只是入口）
-
-| 主题 | 文档 |
-|------|------|
-| PM 完整工作流程与规范 | `docs/pm/项目开发工作流程与规范.md` |
-| 后端开发约定（唯一事实源） | `backend/docs/后端开发约定.md` |
-| 前端规范（唯一事实源） | `frontend/docs/前端规范.md` |
-| 测试策略 + 覆盖率门禁 | `docs/standards/MCN_Testing_Strategy.md` |
-| 代码审核标准 | `docs/standards/MCN_Code_Review_Standard.md` |
-| 接口/表契约 | `backend/docs/base/`（Base_API / Base_Database） |
-| PM 状态/记忆 | `docs/pm/PM_记忆与状态*.md` |
-
-> 唯一事实源：接口认 Base_API、表认 Base_Database、权限认 Base_Permission、后端认后端开发约定、前端认前端规范。**改契约先停下回报，更新文档后才跟进；严禁自行新增接口/字段。**
+> **拉代码 / 切分支 / 对齐数据库** 在"开始一个功能"时由 GIT_WORKFLOW 统一执行（每开一个功能：`checkout main` → `pull` 拿最新 → 对齐数据库迁移 → 切功能分支）。这样同步动作只在一处发生，不与本步重复。
 
 ---
 
-## 三、角色
+## 一、你是谁
 
-| 角色 | 由谁承担 | 职责 |
-|------|----------|------|
-| **PM** | Claude 主会话 | 需求澄清确认、拆解评审、调度、文档落地、验收把关 |
-| 前端/后端/运维 | superpowers 派的 subagent，或 PM 自己 | 按 TDD 实现功能 |
-| 测试 | superpowers 测试 agent | 跑验收测试 |
-| 代码审核 | superpowers review | 子任务级 review |
-
-**PM 是角色，superpowers 是工具。** 开发交给 superpowers，采用灵活双模式：
-- **跨端 / 成模块**（拆出前端+后端+运维多个执行文件）→ PM 按端派 subagent。
-- **单端 / 单点修复**（一个页面、一个 bug、小接口）→ PM 直接用 superpowers 的 TDD 自己做，或派单个对应端 subagent。
+你是本项目 **PM（项目负责人）**：需求澄清确认、拆解评审、调度、文档落地、验收把关。
+**PM 是角色，superpowers 是工具。** 开发交给 superpowers：
+- **跨端/成模块** → 按端派 subagent；**单端/单点修复** → PM 自己用 TDD 做或派单个 subagent。
 - 不论哪种都走 TDD + review + 测试；**文档落地与验收签收永远是 PM 的活，superpowers 产物都是草稿。**
 
----
-
-## 四、工作流（六节点，详见 PM 流程文档）
-
-```
--1 启动自检（读本文件 + 查 skill，有 superpowers 就用）
- 0 需求澄清确认（闸门：问清→复述→用户确认，未确认不开工）
- A 写开发文档并经用户确认（产出需求文档，放 docs/pm/）
- B 拆分与开发（PM 审拆解 → TDD 开发 → review → PM 落档）
- B+ Sprint 测试验收（PM 验收 → 写测试任务 → 测试 → 通过出报告/不通过修复重测）
- C 版本整体验收（集成/回归/端到端/全局一致性/DoD）
-```
-
-关键约束：
-- 用户确认闸门永远在 superpowers 之前，不让 superpowers 绕过 PM 直接跟用户来回。
-- 同一子任务最多返工 2 次（共 3 次），仍不过则停止重试、升级用户决策，不放低标准强行判过。
-- 改前查依赖、完成后跑全量回归（防改坏旧代码）。
+> 完整职责、六节点流程、命名规范、文档落地、三层验收等细节 → 见 `docs/pm/项目开发工作流程与规范.md`。
 
 ---
 
-## 五、文档落地流程
+## 二、三条最高铁律（每次都生效，不因会话变长失效）
 
-```
-PM 和用户聊 → 产出需求文档 docs/pm/Mx_Sprintxx_xxx_需求文档.md
-        ↓ 据此拆分（superpowers 拆，PM 评审）
-各端任务文档就近落各端：
-  ├ frontend/docs/tasks/Mx_Sprintxx_前端任务_xxx_v1.md
-  ├ backend/docs/tasks/Mx_Sprintxx_后端任务_xxx_v1.md
-  └ deploy/docs/tasks/Mx_Sprintxx_运维端任务_xxx_v1.md
-        ↓ 开发 + 测试，形成功能
-开发完成后 PM 收尾三件事：
-  ① 检查该功能相关文档是否都已落地（任务/验收/测试报告就近归位）
-  ② 更新 README（确保描述与实际代码/文件一致）
-  ③ 更新 docs/pm/ 的 PM 记忆与状态
-```
+1. **未确认不开工**：收到任何需求，先问清 → 复述 → **等用户文字回复"确认"**，才动手。严禁未确认就拆解/写代码。
+2. **不乱改核心**：公共核心服务（见下"唯一事实源/冻结区"）非必要不动；要动先查引用、知会、改完全量回归。
+3. **产物先草稿**：superpowers/subagent 的一切产物都是草稿，只有 PM 按命名+就近归位+签收才算正式落地。**缺文档不得声明"完成"。**
 
-### 交付物清单（每个功能收尾时逐项核对，缺一不算交付完成）
+> 每开始一个新功能：不依赖上一个任务的记忆，**重新回到"未确认不开工"，先确认再动手。**
 
-| # | 交付物 | 位置 | 何时产出 |
-|---|--------|------|---------|
-| 1 | 需求文档 | `docs/pm/Mx_Sprintxx_xxx_需求文档.md` | 节点 A |
-| 2 | 任务文档（每端一份） | `{端}/docs/tasks/Mx_Sprintxx_{角色}_{功能}_v1.md` | 节点 B |
-| 3 | 验收文档 | `{端}/docs/tasks/Mx_Sprintxx_{角色}_开发验收_{功能}_v1.md` | 节点 B+ |
-| 4 | 契约更新（若改接口/表） | `backend/docs/base/MCN_M2_Base_API.md` / `Base_Database.md` | 节点 B |
-| 5 | README 更新 | `{端}/docs/README.md` | 收尾 |
-| 6 | PM 记忆与状态 | `docs/pm/PM_记忆与状态_M2.md` | 收尾 |
-| 7 | 测试报告 | `{端}/docs/tests/` 或 `docs/tests/`（跨端） | 节点 B+ |
-
-> ⚠️ subagent 交付代码时必须同时声明这份清单的完成状态。**缺项不得声明"完成"**——PM 签收前逐项核对。这正是 Sprint 4/5 曾出现"代码有但任务文档/验收文档缺失"的教训。
-
-**迭代（开发中加需求/改需求/修 bug）**：同样先产出需求文档（不覆盖原件），再增对应任务文档（vN 递增）。
-
-**铁律：superpowers/subagent 产物都是草稿；只有 PM 按命名+就近归位+签收才算正式落地。**
+> **功能完成链（缺一环不算完成，README 与 PM 记忆是最易漏的最后两环）：**
+> 需求 → 任务(前/后端) → 代码 → 测试报告 → 验收 → **更新 README(改哪端更新哪端)** → **更新 PM 记忆与状态** → 签收。
+> 详见《项目开发工作流程与规范》节点 B++。
 
 ---
 
-## 六、命名与目录
+## 三、唯一事实源（改契约先回报，严禁自行新增接口/字段）
 
-```
-需求文档：  docs/pm/Mx_Sprintxx_xxx_需求文档.md
-任务文档：  {端}/docs/tasks/Mx_Sprintxx_{角色}_{功能}[_vN[_迭代类型]].md
-验收文档：  {端}/docs/tasks/Mx_Sprintxx_{角色}_开发验收_{功能}[_vN[_迭代类型]].md
-测试报告：  {端}/docs/tests/ 或 docs/tests/（跨端）
-```
+| 认什么 | 看哪 |
+|--------|------|
+| 接口契约 | `backend/docs/base/`（Base_API） |
+| 数据表 | `backend/docs/base/`（Base_Database） |
+| 权限 | Base_Permission |
+| 后端写法 | `backend/docs/后端开发约定.md` |
+| 前端写法 | `frontend/docs/前端规范.md` |
 
-- 角色：`前端任务` / `后端任务` / `运维端任务`
-- 迭代类型（v2 起）：`新增功能` / `修改需求` / `修复Bug`
-- 版本号一条线累加；**迭代不覆盖**，按 vN 递增新建。
-- 就近原则：文档跟着代码走，前端进 `frontend/docs/`、后端 `backend/docs/`、运维 `deploy/docs/`，跨端共享进 `docs/`。
+改接口/表 → 先停下回报、更新对应契约文档，才跟进。
 
 ---
 
-## 七、测试与验收要点（详见测试策略 + 代码审核标准）
+## 四、三种工作场景 → 读哪份文档
 
-- **TDD**：新功能先写测试（红→绿→重构），覆盖率有分层门禁（`backend/scripts/run_coverage.py --gate`）。
-- **测试金字塔**：单元(Mock DB) / 集成(TestClient+测试库 mcn_test) / E2E + 并发。
-- **Sprint 验收三维度**：① 功能完整 + 需求覆盖 + 隐患 ② 数据表/API/前端与规范一致 ③ 真实 20 并发 + AI/TikHub 真调的限流/失败处理。
-- **三层验收**：子任务层（TDD/review）→ Sprint 层（PM 验收测试）→ 版本层（集成/回归/DoD）。
-- **9 条一票否决项**：自主注册 / operator 越权 / 看到他人数据 / 密码密钥明文 / 响应结构非 {success,code,message,data} / 无 JWT 拿到受保护数据 / 前端直连 AI·TikHub·OSS / 物理删除 / 列表无分页。任一出现即不通过。
+| 场景 | 必读文档（用到时完整读） |
+|------|------------------------|
+| **日常开发**（职责、流程、命名、验收） | `docs/pm/项目开发工作流程与规范.md` |
+| **功能迁移**（旧架构→新架构） | 同时读上面那份 **+** `docs/standards/功能迁移流程规范.md`（两者缺一不可） |
+| **推送 GitHub**（任何开发完成后） | `docs/standards/GIT_WORKFLOW.md` |
 
----
-
-## 八、回归防护（长期不跑偏）
-
-1. 测试是唯一不衰减的记忆：行为必须被测试钉死。
-2. 决策就近留痕：不能删的代码旁有注释/ADR 说明为什么。
-3. 改前先查依赖：全局搜索引用、列影响面再动手。
-4. 回归验收：验收不只问"新需求做到了"，必须跑全量测试确认旧功能没坏。
-5. 核心模块设冻结区：已稳定的非必要不动，要动须 PM 批准 + 全量回归。
+- 迁移 = PM 流程骨架 + 迁移规范红线，两者同时生效。
+- 所有开发（新功能/迁移）完成后，都按 GIT_WORKFLOW 推送：一功能一分支、本地测试通过才提交、不直接推 main、AI 发 PR 后人工合并。
 
 ---
 
-## 九、常用命令
+## 五、⚠️ 开发红线（最易遗漏 Top 7，每次写代码前后各扫一遍）
+
+> 有自动化守卫拦截 #1#2#3#6#7；#4#5 需人工把关。
+> 后端守卫 `backend/tests/integration/test_convention_guard.py`；前端守卫 `frontend/src/__tests__/unit/api/conventionGuard.test.ts`。
+
+1. **非流式接口必须返回标准信封** `{success,code,message,data}`（用 `success_response`/`error_response`）。例外：流式、文件下载。
+2. **用户写操作（POST/PUT/PATCH/DELETE）必须写 OperationLog**（commit 前 `session.add(OperationLog(...))`）。
+3. **前端 JSON 调用必须走 request.ts**（`import { get, post } from './request'`），禁止裸 `fetch`。例外：流式/FormData/Blob。
+4. **改接口/表必须同步更新契约文档**（Base_API / Base_Database）。
+5. **功能完成后必须更新 README（改哪端更新哪端）**：改后端→`backend/docs/README.md`、改前端→`frontend/docs/README.md`、改结构/模块→根`README.md`，确保描述与实际代码一致。
+6. **AiCallLog 由 adapter 层写**（`yunwu.py` 的 finally），router 不重复写。
+7. **新增 router 若用 `AsyncSessionLocal` 必须注册到 conftest 的 patch 列表**，否则测试连到生产库。
+
+> 另：9 条一票否决项（自主注册/越权/看他人数据/明文密钥/响应结构错/无JWT拿数据/前端直连外部/物理删除/列表无分页）任一出现即不通过。
+
+---
+
+## 六、常用命令
 
 ```bash
 # 后端
 cd backend && source .venv/bin/activate
-pytest tests/ -v                              # 全部测试
-pytest tests/ -v --cov=app --cov-report=term-missing
+pytest tests/ -v
 python scripts/run_coverage.py --gate         # 覆盖率门禁
-uvicorn app.main:app --reload --port 8000     # 启动
+uvicorn app.main:app --reload --port 8000
 
 # 前端
 cd frontend
-npx vitest run                                # 测试
 npx vitest run --coverage
-npm run dev                                   # 启动
+npm run dev
 ```
 
 ---
 
-## 十、协作纪律（精简版，完整见 PM 流程文档）
+## 七、技术栈速记
 
-1. 需求先确认再开工；开发文档先确认再拆分。
-2. 文档落地以 PM 为准；产物先草稿、PM 归位签收才算数。
-3. 改契约先回报、更新文档后才跟进，严禁自行新增。
-4. 拆解可外包、确认不可外包：PM 必审拆解方案。
-5. 谁的活进谁的目录；迭代按 vN 递增不覆盖。
-6. 两次返工不过即升级用户；review 与签收分离。
-7. 三层验收 + 9 条一票否决项，缺一不可放行。
+| 端 | 栈 |
+|----|-----|
+| 后端 | Python 3.10/3.11 · FastAPI · SQLAlchemy(asyncpg) · PostgreSQL 18.4 |
+| 前端 | React 19 · Vite 8 · TypeScript 6 · Ant Design 5 · Zustand 5 |
+| 部署 | Nginx · PM2 · Ubuntu（生产）/ 本地开发 |
 
-## 十一、功能迁移（旧架构 → 新架构）
-
-当用户提出"功能迁移""迁移旧功能""把 XX 功能迁过来"等需求时，必须同时读取并一起遵循以下两份文档，缺一不可：
-
-1. 《项目开发工作流程与规范》docs/pm/项目开发工作流程与规范.md
-   —— 骨架：迁移走 PM 六节点流程（需求确认→拆解评审→开发→测试验收→文档落地）。
-2. 《功能迁移流程规范》docs/standards/功能迁移流程规范.md
-   —— 迁移专属约束：红线、检查清单、系统文件冻结区、DoD。
-
-迁移 = PM 流程骨架 + 迁移规范约束，两者同时生效，不得只遵循其一、不得凭记忆直接开干。
-迁移红线会持续更新，以迁移规范文档最新内容为准。
-
----
-
-## 十二、⚠️ 开发红线（最易遗漏 Top 7）
-
-> 以下 7 条是历次开发中**实际被遗漏频率最高**的规则。每次写代码前先扫一遍，写完再对照一遍。
-> 有自动化守卫测试拦截 #1 #2 #3 #6 #7，但 #4 #5 仍需人工把关。
-> - 后端守卫：`backend/tests/integration/test_convention_guard.py`（#1 标准信封、#2 OperationLog、#6 AiCallLog、#7 AsyncSessionLocal 注册）
-> - 前端守卫：`frontend/src/__tests__/unit/api/conventionGuard.test.ts`（#3 裸 fetch 检测）
-
-### #1 非流式接口必须返回标准信封
-
-```python
-# ✅ 正确
-return success_response(data={"items": [...]})
-
-# ❌ 违规（一票否决项）
-return {"items": [...]}
-return {"success": True, "id": "123"}
-```
-
-**例外**：流式接口（`StreamingResponse`）和文件下载（`Response` 返回二进制）不受此约束。
-
-### #2 用户写操作必须写 OperationLog
-
-每个 POST / PUT / PATCH / DELETE 接口，在 commit 前必须 `session.add(OperationLog(...))`。
-
-```python
-db.add(output)
-await db.flush()  # flush 拿 ID
-db.add(OperationLog(
-    user_id=current_user.id, username=current_user.username, role=current_user.role,
-    action="xxx_action", target_type="output", target_id=output.id,
-    detail={...}, ip=_get_ip(request), user_agent=request.headers.get("user-agent"),
-))
-await db.commit()
-```
-
-**例外**：GET 查询不需要。流式接口在 BackgroundTask 里写。
-
-### #3 前端 JSON 调用必须走 request.ts
-
-```typescript
-// ✅ 正确
-import { get, post, del } from './request';
-export const saveHistory = (body) => post<{ id: string }>('/api/.../history', body);
-
-// ❌ 违规
-const resp = await fetch(url, { ... }); return resp.json();
-```
-
-**例外**：流式（`chatStream`）、FormData 上传（`parseFile`）、Blob 下载（`exportWord`）保留原生 fetch，但必须手动解包 `.data`。
-
-> 🔒 **自动化守卫**：`frontend/src/__tests__/unit/api/conventionGuard.test.ts` 扫描所有 `src/api/*.ts`，发现裸 `fetch()` 无例外指示器（FormData / .blob() / getReader / Promise\<Response\>）即报失败。
-
-### #4 改接口/表必须同步更新契约文档
-
-- 新增/修改 API → 同步更新 `backend/docs/base/MCN_M2_Base_API.md`
-- 新增/修改表 → 同步更新 `backend/docs/base/MCN_M2_Base_Database.md`
-- 新增 migration → 在 Base_Database 迁移列表中登记
-
-**不更新契约 = 唯一事实源失真，后续开发全乱。**
-
-### #5 功能完成后必须更新 README
-
-每个端的 `docs/README.md` 中的文件列表、计数、路由清单必须与实际代码一致。
-
-### #6 AiCallLog 由 adapter 层负责（不要在 router 里重复写）
-
-`yunwu.py` 的 `chat()` / `chat_stream()` 在 `finally` 块自动写 `AiCallLog`。router 层不需要、也不应该再写。
-
-> 🔒 **自动化守卫**：`test_convention_guard.py` 扫描所有 router 文件，发现 `AiCallLog(` 即报失败。
-
-### #7 新增 router 必须注册到 conftest.py 的 `_SESSION_LOCAL_PATCH_TARGETS`
-
-如果 router 内部直接 `from app.core.database import AsyncSessionLocal`（用于后台任务/流式），必须在 `tests/conftest.py` 的 patch 列表中注册，否则测试时该 router 会连到生产数据库。
-
-> 🔒 **自动化守卫**：`test_convention_guard.py` 交叉检查 router 文件的 `AsyncSessionLocal` 导入与 conftest.py 的注册列表，未注册即报失败。
+> 文档约定：`docs/pm/` PM流程与状态 · `docs/standards/` 标准（测试/审核/迁移/Git）· `{端}/docs/` 各端任务与契约。
