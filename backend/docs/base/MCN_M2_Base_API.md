@@ -1136,3 +1136,84 @@ Response（200）：`{ "success": true, "code": "OK", "data": { "ok": true } }`
 Response（200）：`{ "success": true, "code": "OK", "data": { "text": "...", "filename": "原文件名" } }`
 
 错误：不支持的格式 → 400 UNSUPPORTED_FORMAT
+
+---
+
+## 20. tiktok-review（Sprint 13）
+
+基础路径：`/api/tools/tiktok-review`（operator/admin 鉴权）
+管理端路径：`/api/admin/tiktok-review`（admin 鉴权）
+
+### 20.1 POST /generate
+
+SSE 流式生成复盘报告。
+
+Request（JSON）：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `original_transcript` | string | 原版爆款文案（与 copycat_transcript 至少一个非空） |
+| `original_likes` | string | 原版点赞数（可选，如"1万"） |
+| `copycat_transcript` | string | 仿写版文案 |
+| `copycat_likes` | string | 仿写版点赞数 |
+
+Response：`text/plain; charset=utf-8`（裸文本流）
+
+Response Header：`X-Task-Id: <task_id>`（供保存时使用）
+
+错误：两侧文案均为空 → 400 INVALID_INPUT；配置未激活 → 503 CONFIG_NOT_FOUND
+
+### 20.2 POST /save
+
+保存报告到 outputs 表。
+
+Request（JSON）：`{ "content": "报告正文", "title": "TT复盘报告_2026-06-18", "task_id": 123 }`
+
+Response（200）：`{ "success": true, "code": "OK", "data": { "output_id": 456 } }`
+
+错误：content 为空 → 400 INVALID_INPUT
+
+### 20.3 GET /outputs
+
+历史报告列表。
+
+Query 参数：`page`（默认1）、`size`（默认10，最大100）
+
+Response（200）：
+```json
+{
+  "success": true, "code": "OK",
+  "data": {
+    "items": [{ "id": 1, "title": "TT复盘报告_2026-06-18", "created_at": "...", "preview": "...", "word_count": 800 }],
+    "total": 5
+  }
+}
+```
+
+operator 只看自己的；admin 看全部。
+
+### 20.4 POST /export-word
+
+导出 Word。
+
+Request（JSON）：`{ "content": "报告正文", "title": "TT复盘报告" }`
+
+Response：`application/vnd.openxmlformats-officedocument.wordprocessingml.document`（docx 二进制）
+
+错误：content 为空 → 400 INVALID_INPUT
+
+### 20.5 GET /admin/configs
+
+获取配置列表（admin）。
+
+Response（200）：`{ "success": true, "data": [{ "id": 1, "config_key": "default", "ai_model_id": null, "system_prompt": "...", "is_active": true, "updated_at": "..." }] }`
+
+### 20.6 PUT /admin/configs/{config_key}
+
+更新配置（admin）。
+
+Request（JSON）：`{ "ai_model_id": 2, "system_prompt": "新 Prompt", "is_active": true }`
+
+Response（200）：`{ "success": true, "data": { "config_key": "default" } }`
+
+错误：config_key 不存在 → 404 RESOURCE_NOT_FOUND

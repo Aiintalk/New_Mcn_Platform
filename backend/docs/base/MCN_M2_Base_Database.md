@@ -611,3 +611,27 @@ CREATE INDEX idx_benchmark_analyses_created ON benchmark_analyses(created_at DES
 | tool_code | tool_name | category | status | sort_order |
 |-----------|-----------|----------|--------|------------|
 | `qianchuan-collection` | 千川爆文合集 | 千川 | `online` | 自动计算 |
+
+---
+
+## 21. tiktok_review_configs（Sprint 13）
+
+**迁移文件**：`026_tiktok_review.sql`
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | SERIAL | 是 | 主键 |
+| `config_key` | VARCHAR(50) UNIQUE | 是 | 配置标识，当前只有 `default` |
+| `ai_model_id` | INTEGER | 否 | 关联 ai_models.id，NULL 时使用默认模型 |
+| `system_prompt` | TEXT | 否 | 系统 Prompt |
+| `is_active` | BOOLEAN | 是 | 是否激活，默认 true |
+| `created_at` | TIMESTAMPTZ | 是 | 创建时间 |
+| `updated_at` | TIMESTAMPTZ | 是 | 更新时间（触发器自动） |
+
+**触发器**：`trg_tiktok_review_configs_updated`（自动更新 updated_at）
+
+### 21.1 workspace_tools 注册
+
+| tool_code | tool_name | category | status | sort_order |
+|-----------|-----------|----------|--------|------------|
+| `tiktok-review` | TT内容复盘 | 内容创作 | `dev` | 16 |
