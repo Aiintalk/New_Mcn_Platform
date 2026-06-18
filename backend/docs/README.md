@@ -12,7 +12,7 @@ backend/
 │   ├── adapters/                      # 外部服务适配器
 │   │   ├── ai.py                      #   AI 服务（多 Key 池、并发调度）
 │   │   ├── tikhub.py                  #   TikHub API 适配器
-│   │   ├── oss.py                     #   对象存储适配器
+│   │   ├── oss.py                     #   阿里云 OSS 适配器（upload_file / get_download_url / delete_file，真实接通）
 │   │   ├── asr.py                     #   语音识别适配器
 │   │   └── yunwu.py                   #   云雾服务适配器
 │   ├── core/                          # 核心基础设施

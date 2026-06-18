@@ -1,6 +1,6 @@
 # MCN_PM_Agent — 项目记忆与当前状态（M2）
 
-> 最后更新：2026-06-18（Sprint 12 qianchuan-collection 完成：DB迁移025+后端7接口+前端页面+功能验证+文档落地）
+> 最后更新：2026-06-18（Sprint 11 OSS adapter 接入完成：3 函数真实接通 + 8 单元测试 + 连通性测试 + 文档落地，等用户配凭证跑 live test）
 > 更新角色：MCN_PM_Agent
 > 上一份文档：`docs/pm/PM_记忆与状态.md`（M1 阶段，已归档）
 
@@ -9,7 +9,7 @@
 ## 一、项目基本信息
 
 - **项目名**：MCN Information System Platform
-- **当前阶段**：M2 阶段 — Sprint 12 已完成（qianchuan-collection），下一个 Sprint 待定（候选：OSS / ASR adapter 接入）
+- **当前阶段**：M2 阶段 — Sprint 11 OSS adapter 后端接通完成（feature/oss-adapter 待 push），下一个 Sprint 候选：files router 接入 OSS / ASR / 管理端 OSS 面板 UI
 - **GitHub**：https://github.com/Aiintalk/New_Mcn_Platform
 - **工作目录**：`D:\2026年工作\AI相关\AI工具箱新架构方案\mcn-platform`（Windows 本地）
 - **后端**：`backend/`（FastAPI + PostgreSQL）
@@ -26,6 +26,36 @@
 ---
 
 ## 二、M2 阶段（当前）
+
+### M2 工作项 — 阿里云 OSS Adapter 后端接通 ✅ 完成（待 push）
+
+**核心定位**：把 `app/adapters/oss.py` 从 M1 起的 Mock 占位（`get_download_url` 返回假 URL，`upload_file` 抛 NotImplementedError）替换为真实接通阿里云 OSS 的实现。**仅后端接通，凭证由用户后续配置**，files router 上传接口、管理端 OSS 面板、存储统计等留后续。
+
+| 端 | 状态 | 备注 |
+|----|------|------|
+| OSS adapter 重写 | ✅ 完成 | `app/adapters/oss.py`：3 公开函数（`upload_file` / `get_download_url` / `delete_file`）+ 2 内部 helper（`_get_oss_credential` / `_make_bucket`） |
+| 单元测试 | ✅ 8/8 | `tests/unit/services/test_oss_adapter.py`（纯 mock），覆盖率 **89%**（adapter 门禁 ≥ 60%） |
+| 连通性测试 | ✅ 已就位（默认跳过） | `tests/integration/test_oss_live.py`（`pytestmark = skipif(not OSS_LIVE_TEST)`），用户配凭证后启用 |
+| pytest.ini | ✅ 加 markers | `live: tests requiring real external services` |
+| 文档 | ✅ 落地 | 任务单 + 测试报告 + README 更新 + PM 记忆（本文） |
+| 凭证配置 | ⏳ 待用户配 | `service_credentials` 表插 `provider='oss'` 记录，详见任务单 §7 |
+
+**关键设计点：**
+- `oss2` 是同步库 → 全部 `asyncio.to_thread` 包装，不阻塞事件循环
+- `_get_oss_credential` 在 try **外**调用（凭证缺失 / config 缺字段时直接抛 KeyError，不 report_failure 因为没 cred_id）
+- oss2 操作在 try **内**（失败 → report_failure + 包装为 RuntimeError 传播）
+- 凭证字段映射：`label`=AccessKey ID，`secret_enc`=Secret，`config.bucket`/`config.endpoint` 从 JSONB 读
+
+**全量回归**：4 failed + 4 errors 全是预存技术债（5 个其他 router 缺 OperationLog / snappy 模块缺失 / intake conftest pytest_plugins 位置），OSS 改动**零回归**。
+
+**不在本次范围（留后续）：**
+- 管理端 OSS 面板 UI（凭证 CRUD + 存储统计展示）
+- `files.py` router 补 upload 接口（真正存 OSS，目前 router 仍写本地）
+- 存储统计（基于 files 表 + 阿里云计量 API）
+- outputs 产出迁移到 OSS
+- ASR 服务接入
+
+---
 
 ### M2 Sprint 12 — 千川爆文合集（qianchuan-collection）✅ 完成
 
