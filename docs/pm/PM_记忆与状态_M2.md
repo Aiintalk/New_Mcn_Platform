@@ -9,15 +9,15 @@
 ## 一、项目基本信息
 
 - **项目名**：MCN Information System Platform
-- **当前阶段**：M2 阶段 — Sprint 11 已完成，待 push + 下一个 Sprint 待定
+- **当前阶段**：M2 阶段 — Sprint 12 已完成（qianchuan-collection），下一个 Sprint 待定（候选：OSS / ASR adapter 接入）
 - **GitHub**：https://github.com/Aiintalk/New_Mcn_Platform
-- **工作目录**：`/Users/zhangchong/Desktop/mcn_platform/New_Mcn_Platform/`（注意：2026-06-18 路径变更，旧路径 `/Users/zhangchong/ai_intalk/New_Mcn_Platform/`）
+- **工作目录**：`D:\2026年工作\AI相关\AI工具箱新架构方案\mcn-platform`（Windows 本地）
 - **后端**：`backend/`（FastAPI + PostgreSQL）
 - **前端**：`frontend/`（React + Vite + TypeScript + Ant Design 5.x）
 
 ### 环境信息
 
-- **数据库**：PostgreSQL @ localhost:5432，用户 postgres，密码 admin123，数据库 `mcn_m1`
+- **数据库**：PostgreSQL 18.4 @ localhost:5432（Windows 本地），postgres 密码 `postgres2026`（2026-06-17 起，原 `admin123`），主库 `mcn_m1` / 测试库 `mcn_test`（账号 `mcn_user/admin123`，仅 conftest.py 用）
 - **psql 路径**：`D:\ProtgreSQL\bin\psql.exe`
 - **后端地址**：`http://localhost:8000`（uvicorn）
 - **前端地址**：`http://localhost:5175`（Vite，5173/5174 被旧项目占用）

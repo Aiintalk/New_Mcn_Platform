@@ -9,7 +9,7 @@ set -e
 DB_HOST="${DB_HOST:-localhost}"
 DB_PORT="${DB_PORT:-5432}"
 DB_USER="${DB_USER:-postgres}"
-DB_PASS="${DB_PASS:-admin123}"
+DB_PASS="${DB_PASS:-postgres2026}"
 TEST_DB="${TEST_DB:-mcn_test}"
 
 echo "🔧 初始化测试数据库: $TEST_DB"

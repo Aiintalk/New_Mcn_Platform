@@ -10,7 +10,7 @@ DB_HOST="${DB_HOST:-localhost}"
 DB_PORT="${DB_PORT:-5432}"
 DB_USER="${DB_USER:-postgres}"
 DB_NAME="${DB_NAME:-mcn_m1}"
-DB_PASS="${DB_PASS:-admin123}"
+DB_PASS="${DB_PASS:-postgres2026}"
 
 echo "📦 开始初始化数据库: $DB_NAME"
 
