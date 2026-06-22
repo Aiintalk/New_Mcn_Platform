@@ -914,6 +914,83 @@ POST /api/admin/config/credentials/{credential_id}/disable
 
 权限：`admin`。
 
+### 12.4 更新密钥
+
+```http
+PATCH /api/admin/config/credentials/{credential_id}
+```
+
+权限：`admin`。
+
+Request（所有字段可选，提供 `api_key` 时同步轮换 `secret_enc` + `secret_tail`）：
+
+```json
+{
+  "label": "new-label",
+  "status": "enabled|disabled",
+  "weight": 10,
+  "quota_limit": 1000000,
+  "config": { "access_key_id": "LTAI...", "bucket": "...", "endpoint": "..." },
+  "api_key": "new-secret"
+}
+```
+
+写入规则：
+
+| 表 | 写入动作 |
+|---|---|
+| `service_credentials` | 更新指定字段；提供 `api_key` 时覆盖 `secret_enc` 和 `secret_tail` |
+| `operation_logs` | 写入 `update_credential` 行为 |
+
+### 12.5 删除密钥
+
+```http
+DELETE /api/admin/config/credentials/{credential_id}
+```
+
+权限：`admin`。
+
+> 当前为**物理删除**（一票否决级债务，计划后续改为软删）。
+
+写入规则：`operation_logs` 写入 `delete_credential` 行为。
+
+### 12.6 测试密钥连通性
+
+```http
+POST /api/admin/config/credentials/{credential_id}/test
+```
+
+权限：`admin`。当前仅支持 `provider="oss"`。
+
+业务校验：
+
+- 凭证不存在 → `RESOURCE_NOT_FOUND`
+- `provider != "oss"` → `VALIDATION_ERROR`
+- `config` 缺 `access_key_id` / `bucket` / `endpoint` → `VALIDATION_ERROR`
+
+Response `data`（业务失败也走 `success` 信封，状态在 `data.status`）：
+
+```json
+// 成功
+{
+  "status": "ok",
+  "latency_ms": 123,
+  "bucket": "xxx",
+  "location": "oss-cn-hangzhou",
+  "creation_date": "2024-01-01"
+}
+// 失败
+{
+  "status": "error",
+  "latency_ms": 123,
+  "error": "<异常信息前 200 字符>"
+}
+```
+
+实现：复用 `app.adapters.oss._make_bucket` 构造 bucket，调用 `bucket.get_bucket_info()` 做最轻量验证。不持久化测试结果（只写 `operation_logs`）。
+
+写入规则：`operation_logs` 写入 `test_credential` 行为（无论成功失败都记，detail 含 status + latency_ms）。
+
 ---
 
 ## 13. AI 管理 API

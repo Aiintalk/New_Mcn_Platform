@@ -14,7 +14,7 @@ frontend/
 │   │   ├── auth.ts                    #   登录、改密码
 │   │   ├── users.ts                   #   用户管理
 │   │   ├── kols.ts                    #   红人管理
-│   │   ├── credentials.ts             #   AI 密钥管理
+│   │   ├── credentials.ts             #   凭证池管理（OSS/AI/TikHub/ASR）：CRUD + 启停 + OSS 连通性测试
 │   │   ├── workspace.ts              #   工作空间配置
 │   │   ├── intake.ts                  #   入驻问卷（运营端）
 │   │   ├── intakeDirect.ts            #   入驻问卷（运营直发）
@@ -26,6 +26,7 @@ frontend/
 │   │   ├── system.ts                  #   系统状态
 │   │   ├── ai.ts                      #   AI 服务管理
 │   │   ├── tikhub.ts                  #   TikHub 管理
+│   │   ├── oss.ts                     #   OSS 统计（stats/operations/users）+ OSS 凭证 CRUD
 │   │   ├── persona.ts                 #   人格定位
 │   │   ├── benchmark.ts               #   对标分析
 │   │   ├── tiktokWriter.ts            #   TikTok 脚本仿写
@@ -44,7 +45,7 @@ frontend/
 │   │   │   ├── KolsPage.tsx           #     红人管理
 │   │   │   ├── UsersPage.tsx          #     用户管理
 │   │   │   ├── AiManagementPage.tsx   #     AI 密钥/模型管理
-│   │   │   ├── ServiceConfigPage.tsx  #     工具配置（功能配置卡片）
+│   │   │   ├── ServiceConfigPage.tsx  #     工具配置：AI / TikHub / OSS / ASR 凭证池（OSS Tab 完整对齐 TikHub：4 张统计卡 + 操作分布饼图 + 7 天趋势折线图 + 3 子 Tab 凭证管理/操作统计/用户排行 + AccessKey ID/Secret/Bucket/Endpoint 完整表单 + 连通性测试）
 │   │   │   ├── WorkspaceConfigPage.tsx #    工作空间配置
 │   │   │   ├── AdminIntakePage.tsx    #     入驻问卷管理
 │   │   │   ├── AdminTasksPage.tsx     #     任务管理

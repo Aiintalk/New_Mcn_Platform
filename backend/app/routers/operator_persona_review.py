@@ -86,6 +86,7 @@ class GenerateRequest(BaseModel):
 @router.post("/generate")
 async def generate(
     body: GenerateRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_operator),
 ):
@@ -105,6 +106,18 @@ async def generate(
         created_by=current_user.id,
     )
     db.add(task_job)
+    db.add(OperationLog(
+        user_id=current_user.id,
+        username=current_user.username,
+        role=current_user.role,
+        action="generate_persona_review",
+        target_type="task_job",
+        target_id=None,
+        detail={"task_no": task_no, "tool_code": TOOL_CODE, "script_count": len(body.scripts)},
+        ip=(request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+            or (request.client.host if request.client else "unknown")),
+        user_agent=request.headers.get("user-agent"),
+    ))
     await db.commit()
     await db.refresh(task_job)
     task_job_id = task_job.id

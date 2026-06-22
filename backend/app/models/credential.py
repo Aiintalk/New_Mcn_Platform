@@ -19,6 +19,8 @@ class ServiceCredential(Base):
     fail_count = Column(Integer, nullable=False, default=0)
     cooldown_until = Column(TIMESTAMP(timezone=True), nullable=True)
     config = Column(JSONB, nullable=True)
+    last_tested_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    last_latency_ms = Column(Integer, nullable=True)
     created_by = Column(BigInteger, ForeignKey("users.id"), nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
