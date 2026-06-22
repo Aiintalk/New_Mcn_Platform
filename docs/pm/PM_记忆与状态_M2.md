@@ -1,6 +1,6 @@
 # MCN_PM_Agent — 项目记忆与当前状态（M2）
 
-> 最后更新：2026-06-18（Sprint 11 OSS adapter 接入完成：3 函数真实接通 + 8 单元测试 + 连通性测试 + 文档落地，等用户配凭证跑 live test）
+> 最后更新：2026-06-22（OSS 使用显示完整对齐 TikHub：建 oss_call_logs 表 + adapter 写日志 + 3 个统计接口 + files.py 造调用场景 + 前端 OSS Tab 4 卡片+2 图表+3 子 Tab 完整 UI 复刻 + 14 单测/10 集测/12 前端测全绿）
 > 更新角色：MCN_PM_Agent
 > 上一份文档：`docs/pm/PM_记忆与状态.md`（M1 阶段，已归档）
 
@@ -9,7 +9,7 @@
 ## 一、项目基本信息
 
 - **项目名**：MCN Information System Platform
-- **当前阶段**：M2 阶段 — Sprint 11 OSS adapter 后端接通完成（feature/oss-adapter 待 push），下一个 Sprint 候选：files router 接入 OSS / ASR / 管理端 OSS 面板 UI
+- **当前阶段**：M2 阶段 — OSS 使用显示完整对齐 TikHub 完成（feature/oss-adapter 待 push），下一个 Sprint 候选：TikHub 日志 bug 修复 / 凭证加密 / ASR 独立 Tab
 - **GitHub**：https://github.com/Aiintalk/New_Mcn_Platform
 - **工作目录**：`D:\2026年工作\AI相关\AI工具箱新架构方案\mcn-platform`（Windows 本地）
 - **后端**：`backend/`（FastAPI + PostgreSQL）
@@ -26,6 +26,74 @@
 ---
 
 ## 二、M2 阶段（当前）
+
+### M2 工作项 — OSS 使用显示完整对齐 TikHub ✅ 完成（待 push）
+
+**核心定位**：让 OSS Tab 的"使用显示"完全对齐 TikHub Tab——4 张统计卡片 + 2 张图表 + 3 个子 Tab + 凭证列表含使用数据。**关键发现**：OSS adapter 此前无任何 router 调用（统计永远是 0），必须造调用场景（改造 files.py）；TikHub adapter 自身也有 bug 不写日志（统计数字也不准，留作独立任务）。
+
+| 端 | 状态 | 备注 |
+|----|------|------|
+| Migration 026 | ✅ 完成 | `oss_call_logs` 表（credential_id / user_id / operation / status / latency_ms / oss_key / error_message）+ 5 个索引 |
+| Migration 027 | ✅ 完成 | `service_credentials` 加 `last_tested_at` / `last_latency_ms` 字段（通用，ASR/AI 也能用）|
+| ORM 模型 | ✅ 完成 | `OssCallLog`（新建）+ `ServiceCredential` 扩 2 字段 |
+| OSS adapter | ✅ 完成 | 3 函数（upload_file/get_download_url/delete_file）finally 块写 OssCallLog + commit，支持 user_id 参数 |
+| 后端统计接口 | ✅ 完成 | `app/routers/admin_oss.py`：GET /stats + /operations + /users，参照 admin_tikhub.py，SQL 字段名 endpoint→operation，无 platform 维度 |
+| 测试端点扩展 | ✅ 完成 | `admin_credentials.py::test_credential` 保存 last_tested_at + last_latency_ms（成功/失败都写）|
+| 造调用场景 | ✅ 完成 | `app/routers/files.py`：新增 POST /files 上传到 OSS（50MB 限制，oss_key 命名 uploads/{user_id}/{yyyymmdd}/{uuid}.{ext}）；GET /download-url 改真（调 adapter）；DELETE 改软删+OSS 清理 |
+| Router 注册 | ✅ 完成 | `app/main.py` include admin_oss_router |
+| 前端 API 模块 | ✅ 完成 | `frontend/src/api/oss.ts`（getOssStats/getOssOperations/getOssUsers + 类型定义）|
+| 前端 OSS Tab 改造 | ✅ 完成 | `ServiceConfigPage.tsx` 中 OssConfigTab 完整重写：4 卡 + 2 图（OssDonutChart/OssLineChart）+ 3 子 Tab（凭证管理/操作统计/用户排行）+ 凭证列表加"上次测试"列 |
+| 前端类型 | ✅ 完成 | `frontend/src/types/credential.ts` ServiceCredential 加 last_tested_at/last_latency_ms |
+| 单元测试 | ✅ 14/14 | `test_oss_adapter.py` 加 5 个新用例：upload/delete/download 成功写日志、upload 失败写日志、user_id=None |
+| 集成测试 | ✅ 10/10 | `test_admin_oss.py`（新建）：4 个权限校验 + 2 个 stats + 2 个 operations + 2 个 users |
+| 前端测试 | ✅ 12/12 | `OssConfigTab.test.tsx`：4 卡渲染、统计值显示、饼图、折线图、3 子 Tab、子 Tab 切换加载、凭证 CRUD（原有）|
+| 文档同步 | ✅ 完成 | `MCN_M2_Base_API.md` 加 §10A OSS 接口；`MCN_M2_Base_Database.md` 加 §21 oss_call_logs + §22 service_credentials 扩展字段；前后端 README 同步 |
+
+**关键设计点：**
+- OSS 日志写入位置在 adapter `finally` 块（仿 yunwu.py AiCallLog 模式），router 不重复写
+- `oss_call_logs.operation` 取值 upload/download/delete（短字符串，16 位以内）
+- `service_credentials.last_tested_at/last_latency_ms` 字段**通用**（不限定 provider='oss'），将来 ASR/AI 测试端点可复用
+- 前端 OssDonutChart/OssLineChart 复制自 TikHub 版本改名，字段差异：endpoint→operation（line chart 完全一致）
+- 子 Tab 切换用 click handler 触发懒加载（不用 useEffect 触发，便于测试）
+- POST /files 大小校验用流式读取（64KB chunk），避免一次性加载到内存
+- DELETE /files OSS 清理失败**不阻塞软删除**（已软删，失败仅日志记录）
+
+**不在本次范围（留后续独立任务）：**
+- **TikHub adapter 日志写入 bug**：TikHub adapter 调用时不写 `tikhub_call_logs`，导致 TikHub Tab 统计数字不准。修复涉及 tikhub.py 所有方法，规模大，作为独立任务
+- service_credentials.secret_enc 仍明文存储（Sprint 3 债务）
+- service_credentials 物理删除（一票否决级债务，应改软删）
+- ASR Tab 独立组件（ASR 仍走通用配置分支）
+
+---
+
+### M2 工作项 — OSS 配置前端 UI 完善 ✅ 完成（待 push）
+
+**核心定位**：补齐 OSS 配置的端到端能力。后端 adapter 早已接通，但前端 OSS Tab 此前套用通用凭证模型（缺 AccessKey ID/Bucket/Endpoint 字段、测试按钮误调 AI Key 接口、编辑表单只能改 label/weight），本次参照 TikHub Tab 模式做独立组件 + 后端连通性测试端点。
+
+| 端 | 状态 | 备注 |
+|----|------|------|
+| 前端 OssConfigTab | ✅ 完成 | `frontend/src/pages/admin/ServiceConfigPage.tsx` 新增独立组件：列表（含 bucket/endpoint/AccessKey ID 脱敏）+ 新增/编辑表单（OSS 专属 7 字段）+ 测试按钮（调真后端接口）|
+| 前端测试 | ✅ 5/5 | `frontend/src/__tests__/components/pages/OssConfigTab.test.tsx`：渲染空数据 / 渲染列表 / Modal 打开 / 表单提交拼装 / 测试按钮调用 |
+| 后端测试端点 | ✅ 完成 | `POST /api/admin/config/credentials/{id}/test`（admin_credentials.py）：仅 OSS，调 `_make_bucket().get_bucket_info()` 最轻量验证，OperationLog 记录 |
+| 后端 Update 扩展 | ✅ 完成 | `UpdateCredentialRequest` 加 `api_key: str \| None`，支持密钥轮换（同步更新 secret_enc + secret_tail）|
+| 后端契约文档 | ✅ 补全 | `MCN_M1_Base_API.md` 第 12 节补 PATCH/DELETE/test 三个端点契约 |
+| 后端测试 | ✅ 8/8 新增 | `test_credentials.py` 新增 TestTestCredential（6 条）+ TestUpdateCredential 加 api_key 用例（2 条）|
+| 守卫违规修复 | ✅ 5/5 | 既有债务：admin_livestream_review.update_config / admin_persona_review.update_config / operator_livestream_review.generate / operator_livestream_writer.chat / operator_persona_review.generate 全部补 OperationLog |
+
+**关键设计点：**
+- 测试端点响应**业务失败也走 success 信封**（参照 TikHub 模式），状态在 `data.status`，避免前端 try/catch 误判
+- OSS 测试用 `bucket.get_bucket_info()` 而非 `list_objects`——验证 ak/sk/bucket/endpoint 全套且开销最小
+- 前端 Endpoint 用 HTML5 `<datalist>` 提供常用区域预设（华东1杭州/华东2上海/华北2北京等 9 个）+ 自由输入，避免 Select+自定义输入的复杂交互
+- 编辑表单的 AccessKey Secret 留空表示不改（密钥轮换为可选操作）
+- 5 个守卫违规都是 M2 Sprint 9/10 遗留债务，本次一并清理（用户批准扩大范围）
+
+**不在本次范围（留后续）：**
+- service_credentials 凭证加密（Fernet，独立 PR）
+- DELETE 改软删（一票否决级债务）
+- list_credentials 的 `len(all())` 性能优化
+- OSS adapter 接入业务（files router / outputs 迁移 / ASR）
+
+---
 
 ### M2 工作项 — 阿里云 OSS Adapter 后端接通 ✅ 完成（待 push）
 

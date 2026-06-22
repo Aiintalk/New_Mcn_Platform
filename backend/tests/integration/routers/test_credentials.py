@@ -203,6 +203,64 @@ class TestUpdateCredential:
         )
         assert resp.status_code == 403
 
+    @pytest.mark.asyncio
+    async def test_update_credential_api_key_rotates_secret(
+        self, test_client, admin_headers, admin_user
+    ):
+        """PATCH 带 api_key 时应同步更新 secret_enc 和 secret_tail（支持密钥轮换）."""
+        create_resp = await test_client.post(
+            "/api/admin/config/credentials",
+            json={
+                "provider": "openai",
+                "label": "Secret Rotation",
+                "api_key": "sk-original-1234",
+            },
+            headers=admin_headers,
+        )
+        assert create_resp.status_code == 200
+        cred_id = create_resp.json()["data"]["id"]
+        assert create_resp.json()["data"]["secret_tail"] == "1234"
+
+        resp = await test_client.patch(
+            "/api/admin/config/credentials/" + str(cred_id),
+            json={"api_key": "sk-rotated-5678"},
+            headers=admin_headers,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        # secret_tail 应反映新的 api_key 末 4 位
+        assert data["data"]["secret_tail"] == "5678"
+        # secret_enc 不应在响应中暴露
+        assert "secret_enc" not in data["data"]
+
+    @pytest.mark.asyncio
+    async def test_update_credential_without_api_key_keeps_secret(
+        self, test_client, admin_headers, admin_user
+    ):
+        """PATCH 不带 api_key 时不应改动 secret."""
+        create_resp = await test_client.post(
+            "/api/admin/config/credentials",
+            json={
+                "provider": "openai",
+                "label": "Keep Secret",
+                "api_key": "sk-unchanged-9012",
+            },
+            headers=admin_headers,
+        )
+        cred_id = create_resp.json()["data"]["id"]
+
+        resp = await test_client.patch(
+            "/api/admin/config/credentials/" + str(cred_id),
+            json={"label": "Relabeled"},
+            headers=admin_headers,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["data"]["label"] == "Relabeled"
+        # secret_tail 保持原值
+        assert data["data"]["secret_tail"] == "9012"
+
 class TestDeleteCredential:
     """DELETE /api/admin/config/credentials/{credential_id}"""
 
@@ -349,6 +407,166 @@ class TestEnableDisableCredential:
     async def test_disable_requires_admin(self, test_client, operator_headers):
         resp = await test_client.post(
             "/api/admin/config/credentials/1/disable",
+            headers=operator_headers,
+        )
+        assert resp.status_code == 403
+
+
+class TestTestCredential:
+    """POST /api/admin/config/credentials/{credential_id}/test — OSS 凭证连通性测试"""
+
+    @pytest.mark.asyncio
+    async def test_test_credential_oss_ok(
+        self, test_client, admin_headers, admin_user, monkeypatch
+    ):
+        """正常路径：mock _make_bucket，返回 status=ok + bucket info."""
+        create_resp = await test_client.post(
+            "/api/admin/config/credentials",
+            json={
+                "provider": "oss",
+                "label": "OSS OK",
+                "api_key": "test-secret-1234",
+                "config": {
+                    "access_key_id": "LTAI1234",
+                    "bucket": "test-bucket",
+                    "endpoint": "oss-cn-hangzhou.aliyuncs.com",
+                },
+            },
+            headers=admin_headers,
+        )
+        cred_id = create_resp.json()["data"]["id"]
+
+        class FakeBucketInfo:
+            name = "test-bucket"
+            location = "oss-cn-hangzhou"
+            creation_date = "2024-01-01"
+
+        class FakeBucket:
+            def get_bucket_info(self):
+                return FakeBucketInfo()
+
+        from app.routers import admin_credentials
+        monkeypatch.setattr(
+            admin_credentials, "_make_bucket", lambda *a, **kw: FakeBucket()
+        )
+
+        resp = await test_client.post(
+            f"/api/admin/config/credentials/{cred_id}/test",
+            headers=admin_headers,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        assert data["data"]["status"] == "ok"
+        assert data["data"]["bucket"] == "test-bucket"
+        assert "latency_ms" in data["data"]
+        assert "secret_enc" not in str(data["data"])
+
+    @pytest.mark.asyncio
+    async def test_test_credential_not_found(self, test_client, admin_headers):
+        resp = await test_client.post(
+            "/api/admin/config/credentials/999999/test",
+            headers=admin_headers,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is False
+        assert data["code"] == ErrorCode.RESOURCE_NOT_FOUND
+
+    @pytest.mark.asyncio
+    async def test_test_credential_wrong_provider(
+        self, test_client, admin_headers, admin_user
+    ):
+        """provider 非 oss 时拒绝（当前只支持 OSS 测试）."""
+        create_resp = await test_client.post(
+            "/api/admin/config/credentials",
+            json={
+                "provider": "openai",
+                "label": "Not OSS",
+                "api_key": "sk-not-oss-1234",
+            },
+            headers=admin_headers,
+        )
+        cred_id = create_resp.json()["data"]["id"]
+
+        resp = await test_client.post(
+            f"/api/admin/config/credentials/{cred_id}/test",
+            headers=admin_headers,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is False
+        assert data["code"] == ErrorCode.VALIDATION_ERROR
+
+    @pytest.mark.asyncio
+    async def test_test_credential_missing_config(
+        self, test_client, admin_headers, admin_user
+    ):
+        """provider=oss 但 config 缺 access_key_id/bucket/endpoint."""
+        create_resp = await test_client.post(
+            "/api/admin/config/credentials",
+            json={
+                "provider": "oss",
+                "label": "Bad Config",
+                "api_key": "test-bad-config-1234",
+                "config": {},
+            },
+            headers=admin_headers,
+        )
+        cred_id = create_resp.json()["data"]["id"]
+
+        resp = await test_client.post(
+            f"/api/admin/config/credentials/{cred_id}/test",
+            headers=admin_headers,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is False
+        assert data["code"] == ErrorCode.VALIDATION_ERROR
+
+    @pytest.mark.asyncio
+    async def test_test_credential_oss_failure(
+        self, test_client, admin_headers, admin_user, monkeypatch
+    ):
+        """mock _make_bucket 抛异常 → status=error（仍走 success 信封）."""
+        create_resp = await test_client.post(
+            "/api/admin/config/credentials",
+            json={
+                "provider": "oss",
+                "label": "OSS Fail",
+                "api_key": "test-fail-1234",
+                "config": {
+                    "access_key_id": "LTAI1234",
+                    "bucket": "fail-bucket",
+                    "endpoint": "oss-cn-hangzhou.aliyuncs.com",
+                },
+            },
+            headers=admin_headers,
+        )
+        cred_id = create_resp.json()["data"]["id"]
+
+        from app.routers import admin_credentials
+
+        def fake_make_bucket(*a, **kw):
+            raise RuntimeError("OSS auth failed")
+
+        monkeypatch.setattr(admin_credentials, "_make_bucket", fake_make_bucket)
+
+        resp = await test_client.post(
+            f"/api/admin/config/credentials/{cred_id}/test",
+            headers=admin_headers,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        assert data["data"]["status"] == "error"
+        assert "OSS auth failed" in data["data"]["error"]
+        assert "latency_ms" in data["data"]
+
+    @pytest.mark.asyncio
+    async def test_test_credential_requires_admin(self, test_client, operator_headers):
+        resp = await test_client.post(
+            "/api/admin/config/credentials/1/test",
             headers=operator_headers,
         )
         assert resp.status_code == 403

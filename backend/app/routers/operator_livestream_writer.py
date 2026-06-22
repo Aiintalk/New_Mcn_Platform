@@ -193,6 +193,7 @@ class ChatRequest(BaseModel):
 @router.post("/chat")
 async def chat(
     body: ChatRequest,
+    request: Request,
     current_user: User = Depends(require_operator),
 ):
     """AI 流式对话，返回 raw text stream（非 SSE）。429 时最多重试 5 次（5/10/15/20/25s 退避）。"""
@@ -278,6 +279,23 @@ async def chat(
                 created_by=user_id,
             )
             bg_db.add(output)
+            bg_db.add(OperationLog(
+                user_id=user_id,
+                username=current_user.username,
+                role=current_user.role,
+                action="chat_livestream_writer",
+                target_type="output",
+                target_id=output.id,
+                detail={
+                    "task_no": task_job.task_no,
+                    "tool_code": TOOL_CODE,
+                    "model": model_id,
+                    "word_count": output.word_count,
+                },
+                ip=(request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+                    or (request.client.host if request.client else "unknown")),
+                user_agent=request.headers.get("user-agent"),
+            ))
             await bg_db.commit()
 
     return StreamingResponse(

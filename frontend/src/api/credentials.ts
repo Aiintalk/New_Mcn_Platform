@@ -1,6 +1,6 @@
 import { get, post, patch, del } from './request';
 import type { PagedData } from '../types/api';
-import type { ServiceCredential, CreateCredentialRequest, UpdateCredentialRequest } from '../types/credential';
+import type { ServiceCredential, CreateCredentialRequest, UpdateCredentialRequest, OssTestResult } from '../types/credential';
 
 export async function getCredentials(provider?: string): Promise<PagedData<ServiceCredential>> {
   return get<PagedData<ServiceCredential>>('/api/admin/config/credentials', provider ? { provider } : undefined);
@@ -24,4 +24,9 @@ export async function enableCredential(id: number): Promise<void> {
 
 export async function disableCredential(id: number): Promise<void> {
   await post<null>(`/api/admin/config/credentials/${id}/disable`);
+}
+
+/** 测试 OSS 凭证连通性（当前仅支持 provider=oss） */
+export async function testOssCredential(id: number): Promise<OssTestResult> {
+  return post<OssTestResult>(`/api/admin/config/credentials/${id}/test`);
 }

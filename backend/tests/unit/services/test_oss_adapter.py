@@ -21,6 +21,14 @@ from app.adapters.oss import (
 )
 
 
+@pytest.fixture
+def mock_db():
+    """Mock AsyncSession：add 同步，commit 异步（适配 OSS adapter 写 OssCallLog 后 commit 的模式）。"""
+    db = MagicMock()
+    db.commit = AsyncMock()
+    return db
+
+
 # ── upload_file ──────────────────────────────────────────────────────
 
 
@@ -35,6 +43,7 @@ async def test_upload_file_success(
     mock_to_thread,
     mock_report_failure,
     mock_report_success,
+    mock_db,
 ):
     """upload_file 成功：调用 put_object、写 report_success、返回 oss_key。"""
     mock_get_cred.return_value = (42, "AKIDxxx", "SECRETxxx", "my-bucket", "oss-cn-hangzhou.aliyuncs.com")
@@ -43,7 +52,7 @@ async def test_upload_file_success(
     # oss2 put_object 成功返回 RequestResult，status=200
     mock_to_thread.return_value = MagicMock(status=200, etag="abc")
 
-    result = await upload_file("test/file.txt", b"hello", "text/plain", db=MagicMock())
+    result = await upload_file("test/file.txt", b"hello", "text/plain", db=mock_db)
 
     assert result == "test/file.txt"
     # to_thread 应以 put_object 为第一参数被调用
@@ -63,6 +72,7 @@ async def test_upload_file_failure(
     mock_to_thread,
     mock_report_failure,
     mock_report_success,
+    mock_db,
 ):
     """upload_file 失败：oss2 抛异常（generic Exception）→ report_failure + 包装为 RuntimeError 传播。"""
     mock_get_cred.return_value = (42, "AKIDxxx", "SECRETxxx", "my-bucket", "oss-cn-hangzhou.aliyuncs.com")
@@ -71,7 +81,7 @@ async def test_upload_file_failure(
     mock_to_thread.side_effect = Exception("oss2 put_object failed")
 
     with pytest.raises(RuntimeError, match="OSS upload_file failed"):
-        await upload_file("test/file.txt", b"hello", "text/plain", db=MagicMock())
+        await upload_file("test/file.txt", b"hello", "text/plain", db=mock_db)
 
     mock_report_failure.assert_awaited_once()
     mock_report_success.assert_not_awaited()
@@ -91,6 +101,7 @@ async def test_get_download_url_success(
     mock_to_thread,
     mock_report_failure,
     mock_report_success,
+    mock_db,
 ):
     """get_download_url 成功：调用 sign_url、写 report_success、返回 URL。"""
     mock_get_cred.return_value = (42, "AKIDxxx", "SECRETxxx", "my-bucket", "oss-cn-hangzhou.aliyuncs.com")
@@ -98,7 +109,7 @@ async def test_get_download_url_success(
     mock_make_bucket.return_value = bucket
     mock_to_thread.return_value = "https://signed-url.example.com/file?token=abc"
 
-    result = await get_download_url("test/file.txt", db=MagicMock(), expires=1800)
+    result = await get_download_url("test/file.txt", db=mock_db, expires=1800)
 
     assert result == "https://signed-url.example.com/file?token=abc"
     assert mock_to_thread.call_args.args[0] == bucket.sign_url
@@ -117,6 +128,7 @@ async def test_get_download_url_failure(
     mock_to_thread,
     mock_report_failure,
     mock_report_success,
+    mock_db,
 ):
     """get_download_url 失败：sign_url 抛异常 → report_failure + 异常传播。"""
     mock_get_cred.return_value = (42, "AKIDxxx", "SECRETxxx", "my-bucket", "oss-cn-hangzhou.aliyuncs.com")
@@ -124,7 +136,7 @@ async def test_get_download_url_failure(
     mock_to_thread.side_effect = RuntimeError("sign_url failed")
 
     with pytest.raises(RuntimeError, match="sign_url failed"):
-        await get_download_url("test/file.txt", db=MagicMock())
+        await get_download_url("test/file.txt", db=mock_db)
 
     mock_report_failure.assert_awaited_once()
     mock_report_success.assert_not_awaited()
@@ -144,6 +156,7 @@ async def test_delete_file_success(
     mock_to_thread,
     mock_report_failure,
     mock_report_success,
+    mock_db,
 ):
     """delete_file 成功：调用 delete_object、写 report_success。"""
     mock_get_cred.return_value = (42, "AKIDxxx", "SECRETxxx", "my-bucket", "oss-cn-hangzhou.aliyuncs.com")
@@ -151,7 +164,7 @@ async def test_delete_file_success(
     mock_make_bucket.return_value = bucket
     mock_to_thread.return_value = MagicMock(status=204)
 
-    await delete_file("test/file.txt", db=MagicMock())
+    await delete_file("test/file.txt", db=mock_db)
 
     assert mock_to_thread.call_args.args[0] == bucket.delete_object
     mock_report_success.assert_awaited_once()
@@ -169,6 +182,7 @@ async def test_delete_file_failure(
     mock_to_thread,
     mock_report_failure,
     mock_report_success,
+    mock_db,
 ):
     """delete_file 失败：delete_object 抛异常 → report_failure + 异常传播。"""
     mock_get_cred.return_value = (42, "AKIDxxx", "SECRETxxx", "my-bucket", "oss-cn-hangzhou.aliyuncs.com")
@@ -176,7 +190,7 @@ async def test_delete_file_failure(
     mock_to_thread.side_effect = RuntimeError("delete_object failed")
 
     with pytest.raises(RuntimeError, match="delete_object failed"):
-        await delete_file("test/file.txt", db=MagicMock())
+        await delete_file("test/file.txt", db=mock_db)
 
     mock_report_failure.assert_awaited_once()
     mock_report_success.assert_not_awaited()
@@ -186,7 +200,7 @@ async def test_delete_file_failure(
 
 
 @patch("app.adapters.oss.pick_credential", new_callable=AsyncMock)
-async def test_get_credential_missing_bucket_raises(mock_pick):
+async def test_get_credential_missing_bucket_raises(mock_pick, mock_db):
     """config 缺 bucket：KeyError 直接传播，不在 try 内（无法 report_failure）。"""
     from app.adapters.oss import _get_oss_credential
 
@@ -198,11 +212,11 @@ async def test_get_credential_missing_bucket_raises(mock_pick):
     mock_pick.return_value = cred
 
     with pytest.raises(KeyError, match="bucket"):
-        await _get_oss_credential(db=MagicMock())
+        await _get_oss_credential(db=mock_db)
 
 
 @patch("app.adapters.oss.pick_credential", new_callable=AsyncMock)
-async def test_get_credential_missing_endpoint_raises(mock_pick):
+async def test_get_credential_missing_endpoint_raises(mock_pick, mock_db):
     """config 缺 endpoint：KeyError 直接传播。"""
     from app.adapters.oss import _get_oss_credential
 
@@ -214,11 +228,11 @@ async def test_get_credential_missing_endpoint_raises(mock_pick):
     mock_pick.return_value = cred
 
     with pytest.raises(KeyError, match="endpoint"):
-        await _get_oss_credential(db=MagicMock())
+        await _get_oss_credential(db=mock_db)
 
 
 @patch("app.adapters.oss.pick_credential", new_callable=AsyncMock)
-async def test_get_credential_missing_access_key_id_raises(mock_pick):
+async def test_get_credential_missing_access_key_id_raises(mock_pick, mock_db):
     """config 缺 access_key_id：KeyError 直接传播。"""
     from app.adapters.oss import _get_oss_credential
 
@@ -234,4 +248,174 @@ async def test_get_credential_missing_access_key_id_raises(mock_pick):
     mock_pick.return_value = cred
 
     with pytest.raises(KeyError, match="access_key_id"):
-        await _get_oss_credential(db=MagicMock())
+        await _get_oss_credential(db=mock_db)
+
+
+# ── OssCallLog 写入测试 ─────────────────────────────────────────────
+
+
+@patch("app.adapters.oss.report_success", new_callable=AsyncMock)
+@patch("app.adapters.oss.report_failure", new_callable=AsyncMock)
+@patch("app.adapters.oss.asyncio.to_thread", new_callable=AsyncMock)
+@patch("app.adapters.oss._make_bucket")
+@patch("app.adapters.oss._get_oss_credential", new_callable=AsyncMock)
+async def test_upload_file_writes_call_log_success(
+    mock_get_cred,
+    mock_make_bucket,
+    mock_to_thread,
+    mock_report_failure,
+    mock_report_success,
+    mock_db,
+):
+    """upload_file 成功：finally 块写 OssCallLog，operation=upload, status=success。"""
+    from app.adapters.oss import upload_file
+    from app.models.oss_call_log import OssCallLog
+
+    mock_get_cred.return_value = (42, "AKIDxxx", "SECRETxxx", "my-bucket", "oss-cn-hangzhou.aliyuncs.com")
+    mock_make_bucket.return_value = MagicMock()
+    mock_to_thread.return_value = MagicMock(status=200, etag="abc")
+
+    await upload_file("test/file.txt", b"hello", "text/plain", db=mock_db, user_id=7)
+
+    # mock_db.add 应被调用过，且参数是 OssCallLog 实例
+    add_calls = [c.args[0] for c in mock_db.add.call_args_list if c.args]
+    oss_log_calls = [c for c in add_calls if isinstance(c, OssCallLog)]
+    assert len(oss_log_calls) == 1
+    log = oss_log_calls[0]
+    assert log.credential_id == 42
+    assert log.user_id == 7
+    assert log.operation == "upload"
+    assert log.status == "success"
+    assert log.oss_key == "test/file.txt"
+    assert log.error_message is None
+    assert isinstance(log.latency_ms, int)
+    # finally 块触发 commit
+    mock_db.commit.assert_awaited()
+
+
+@patch("app.adapters.oss.report_success", new_callable=AsyncMock)
+@patch("app.adapters.oss.report_failure", new_callable=AsyncMock)
+@patch("app.adapters.oss.asyncio.to_thread", new_callable=AsyncMock)
+@patch("app.adapters.oss._make_bucket")
+@patch("app.adapters.oss._get_oss_credential", new_callable=AsyncMock)
+async def test_upload_file_writes_call_log_failure(
+    mock_get_cred,
+    mock_make_bucket,
+    mock_to_thread,
+    mock_report_failure,
+    mock_report_success,
+    mock_db,
+):
+    """upload_file 失败：finally 块写 OssCallLog，status=fail + error_message。"""
+    from app.adapters.oss import upload_file
+    from app.models.oss_call_log import OssCallLog
+
+    mock_get_cred.return_value = (42, "AKIDxxx", "SECRETxxx", "my-bucket", "oss-cn-hangzhou.aliyuncs.com")
+    mock_make_bucket.return_value = MagicMock()
+    mock_to_thread.side_effect = Exception("network timeout")
+
+    with pytest.raises(RuntimeError):
+        await upload_file("test/file.txt", b"hello", "text/plain", db=mock_db, user_id=7)
+
+    add_calls = [c.args[0] for c in mock_db.add.call_args_list if c.args]
+    oss_log_calls = [c for c in add_calls if isinstance(c, OssCallLog)]
+    assert len(oss_log_calls) == 1
+    log = oss_log_calls[0]
+    assert log.operation == "upload"
+    assert log.status == "fail"
+    assert "network timeout" in (log.error_message or "")
+
+
+@patch("app.adapters.oss.report_success", new_callable=AsyncMock)
+@patch("app.adapters.oss.report_failure", new_callable=AsyncMock)
+@patch("app.adapters.oss.asyncio.to_thread", new_callable=AsyncMock)
+@patch("app.adapters.oss._make_bucket")
+@patch("app.adapters.oss._get_oss_credential", new_callable=AsyncMock)
+async def test_delete_file_writes_call_log(
+    mock_get_cred,
+    mock_make_bucket,
+    mock_to_thread,
+    mock_report_failure,
+    mock_report_success,
+    mock_db,
+):
+    """delete_file 成功：finally 块写 OssCallLog，operation=delete。"""
+    from app.adapters.oss import delete_file
+    from app.models.oss_call_log import OssCallLog
+
+    mock_get_cred.return_value = (99, "AKIDxxx", "SECRETxxx", "my-bucket", "oss-cn-hangzhou.aliyuncs.com")
+    mock_make_bucket.return_value = MagicMock()
+    mock_to_thread.return_value = MagicMock(status=204)
+
+    await delete_file("test/file.txt", db=mock_db, user_id=3)
+
+    add_calls = [c.args[0] for c in mock_db.add.call_args_list if c.args]
+    oss_log_calls = [c for c in add_calls if isinstance(c, OssCallLog)]
+    assert len(oss_log_calls) == 1
+    log = oss_log_calls[0]
+    assert log.credential_id == 99
+    assert log.user_id == 3
+    assert log.operation == "delete"
+    assert log.status == "success"
+
+
+@patch("app.adapters.oss.report_success", new_callable=AsyncMock)
+@patch("app.adapters.oss.report_failure", new_callable=AsyncMock)
+@patch("app.adapters.oss.asyncio.to_thread", new_callable=AsyncMock)
+@patch("app.adapters.oss._make_bucket")
+@patch("app.adapters.oss._get_oss_credential", new_callable=AsyncMock)
+async def test_get_download_url_writes_call_log(
+    mock_get_cred,
+    mock_make_bucket,
+    mock_to_thread,
+    mock_report_failure,
+    mock_report_success,
+    mock_db,
+):
+    """get_download_url 成功：finally 块写 OssCallLog，operation=download。"""
+    from app.adapters.oss import get_download_url
+    from app.models.oss_call_log import OssCallLog
+
+    mock_get_cred.return_value = (55, "AKIDxxx", "SECRETxxx", "my-bucket", "oss-cn-hangzhou.aliyuncs.com")
+    mock_make_bucket.return_value = MagicMock()
+    mock_to_thread.return_value = "https://signed.example.com/file?token=abc"
+
+    await get_download_url("test/file.txt", db=mock_db, user_id=12)
+
+    add_calls = [c.args[0] for c in mock_db.add.call_args_list if c.args]
+    oss_log_calls = [c for c in add_calls if isinstance(c, OssCallLog)]
+    assert len(oss_log_calls) == 1
+    log = oss_log_calls[0]
+    assert log.credential_id == 55
+    assert log.user_id == 12
+    assert log.operation == "download"
+    assert log.status == "success"
+
+
+@patch("app.adapters.oss.report_success", new_callable=AsyncMock)
+@patch("app.adapters.oss.report_failure", new_callable=AsyncMock)
+@patch("app.adapters.oss.asyncio.to_thread", new_callable=AsyncMock)
+@patch("app.adapters.oss._make_bucket")
+@patch("app.adapters.oss._get_oss_credential", new_callable=AsyncMock)
+async def test_upload_file_no_user_id(
+    mock_get_cred,
+    mock_make_bucket,
+    mock_to_thread,
+    mock_report_failure,
+    mock_report_success,
+    mock_db,
+):
+    """upload_file 未传 user_id：日志 user_id=None，不报错。"""
+    from app.adapters.oss import upload_file
+    from app.models.oss_call_log import OssCallLog
+
+    mock_get_cred.return_value = (42, "AKIDxxx", "SECRETxxx", "my-bucket", "oss-cn-hangzhou.aliyuncs.com")
+    mock_make_bucket.return_value = MagicMock()
+    mock_to_thread.return_value = MagicMock(status=200, etag="abc")
+
+    await upload_file("test/file.txt", b"hello", "text/plain", db=mock_db)
+
+    add_calls = [c.args[0] for c in mock_db.add.call_args_list if c.args]
+    oss_log_calls = [c for c in add_calls if isinstance(c, OssCallLog)]
+    assert len(oss_log_calls) == 1
+    assert oss_log_calls[0].user_id is None

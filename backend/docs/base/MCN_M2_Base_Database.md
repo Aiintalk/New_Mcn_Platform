@@ -355,6 +355,8 @@ CREATE INDEX idx_tikhub_call_logs_created ON tikhub_call_logs(created_at DESC);
 | `013_benchmark.sql` | benchmark_configs + benchmark_analyses 表 + 初始 Prompt + workspace_tools 注册（tool_code=`benchmark`） | Sprint 3 |
 | `014_tiktok_writer.sql` | workspace_tools 注册（tool_code=`tiktok-writer`，status=`dev`） | Sprint 4 |
 | `015_selling_point_extractor.sql` | selling_point_configs 表 + 初始 Prompt + workspace_tools 注册（tool_code=`selling-point-extractor`） | Sprint 5 |
+| `026_oss_call_logs.sql` | oss_call_logs 表（OSS 调用日志） | Sprint 4+ |
+| `027_service_credentials_test_fields.sql` | service_credentials 加 last_tested_at / last_latency_ms 字段 | Sprint 4+ |
 
 ---
 
@@ -611,3 +613,71 @@ CREATE INDEX idx_benchmark_analyses_created ON benchmark_analyses(created_at DES
 | tool_code | tool_name | category | status | sort_order |
 |-----------|-----------|----------|--------|------------|
 | `qianchuan-collection` | 千川爆文合集 | 千川 | `online` | 自动计算 |
+
+---
+
+## 21. oss_call_logs OSS 调用日志（Sprint 4+）
+
+### 21.1 用途
+
+记录每次 OSS（阿里云对象存储）调用的详细信息，用于统计分析和用户排行。由 `app/adapters/oss.py` 在 `finally` 块写入（仿 yunwu AiCallLog 模式）。
+
+### 21.2 字段说明
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | BIGSERIAL | 是 | 日志 ID |
+| `credential_id` | BIGINT | 否 | 关联 `service_credentials.id`（ON DELETE SET NULL） |
+| `user_id` | BIGINT | 否 | 调用用户（系统调用时为 NULL，ON DELETE SET NULL） |
+| `operation` | VARCHAR(16) | 是 | 操作类型：`upload` / `download` / `delete` |
+| `status` | VARCHAR(32) | 是 | 调用状态：`success` / `fail` |
+| `latency_ms` | INTEGER | 否 | 响应延迟（ms） |
+| `oss_key` | TEXT | 否 | OSS 对象键（如 `uploads/1/20260101/abc.txt`） |
+| `error_message` | TEXT | 否 | 失败时的错误信息（前 500 字符） |
+| `created_at` | TIMESTAMPTZ | 是 | 创建时间（默认 NOW()） |
+
+### 21.3 索引
+
+```sql
+CREATE INDEX idx_oss_call_logs_credential ON oss_call_logs(credential_id);
+CREATE INDEX idx_oss_call_logs_user       ON oss_call_logs(user_id);
+CREATE INDEX idx_oss_call_logs_operation  ON oss_call_logs(operation);
+CREATE INDEX idx_oss_call_logs_status     ON oss_call_logs(status);
+CREATE INDEX idx_oss_call_logs_created_at ON oss_call_logs(created_at DESC);
+```
+
+### 21.4 写入位置
+
+- `app/adapters/oss.py::upload_file` — operation='upload'
+- `app/adapters/oss.py::get_download_url` — operation='download'
+- `app/adapters/oss.py::delete_file` — operation='delete'
+
+三个函数都在 `finally` 块写日志 + commit，确保成功/失败都留痕。
+
+---
+
+## 22. service_credentials 扩展字段（OSS 测试结果）
+
+### 22.1 新增字段
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `last_tested_at` | TIMESTAMPTZ | 否 | 上次测试时间（凭证测试端点保存） |
+| `last_latency_ms` | INTEGER | 否 | 上次测试延迟（ms） |
+
+### 22.2 写入位置
+
+`app/routers/admin_credentials.py::test_credential` — 测试成功/失败都会更新这两个字段（admin 调用测试端点时）。
+
+### 22.3 通用性
+
+字段是通用的（不限定 provider='oss'），将来 ASR / AI 等其他 provider 的测试端点也可复用。
+
+### 22.4 迁移文件
+
+`027_service_credentials_test_fields.sql`：
+```sql
+ALTER TABLE service_credentials ADD COLUMN IF NOT EXISTS last_tested_at  TIMESTAMPTZ;
+ALTER TABLE service_credentials ADD COLUMN IF NOT EXISTS last_latency_ms INTEGER;
+```
+

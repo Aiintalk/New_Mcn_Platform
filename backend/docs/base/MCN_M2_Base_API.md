@@ -499,6 +499,77 @@ Response：文件流 `Content-Type: application/vnd.openxmlformats-officedocumen
 
 ---
 
+## 10A. OSS 凭证与调用统计接口（Sprint 4+）
+
+> 路由文件：`backend/app/routers/admin_oss.py`（统计）+ `backend/app/routers/admin_credentials.py`（凭证 CRUD，通用）
+>
+> 权限：`admin`（`require_admin`）。
+>
+> 说明：OSS 复用通用 `service_credentials` 表（provider='oss'），不单独建凭证表。
+> OSS 调用日志由 adapter（`app/adapters/oss.py`）在 finally 块写入 `oss_call_logs` 表。
+
+### 10A.1 统计
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/admin/oss/stats` | 三维统计：overview（总调用/今日/平均延迟/活跃凭证数）+ operations[]（按 upload/download/delete 聚合）+ users[]（TOP10）+ trend[]（近 7 天） |
+
+Response data 结构：
+```json
+{
+  "overview": {
+    "total_calls": 1234,
+    "today_calls": 56,
+    "avg_latency_ms": 120.5,
+    "active_keys": 2,
+    "total_keys": 3
+  },
+  "operations": [
+    { "operation": "upload", "calls": 1000, "percentage": 81.0 }
+  ],
+  "users": [
+    { "user_id": 1, "username": "admin", "calls": 50 }
+  ],
+  "trend": [
+    { "date": "06-15", "calls": 10 }
+  ]
+}
+```
+
+### 10A.2 操作统计
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/admin/oss/operations` | 按 operation 聚合：calls / percentage / avg_latency_ms / success_rate |
+
+### 10A.3 用户排行
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/admin/oss/users` | 按用户聚合：user_id / username / role / calls / last_called_at（支持 start_date / end_date / limit 参数） |
+
+### 10A.4 OSS 凭证 CRUD（复用通用凭证接口）
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/admin/config/credentials?provider=oss` | 凭证列表（分页） |
+| POST | `/api/admin/config/credentials` | 新增 OSS 凭证（provider='oss', config={access_key_id, bucket, endpoint}) |
+| PATCH | `/api/admin/config/credentials/{id}` | 编辑凭证（含密钥轮换） |
+| DELETE | `/api/admin/config/credentials/{id}` | 删除凭证（物理删除） |
+| POST | `/api/admin/config/credentials/{id}/test` | 测试连通性（调 OSS get_bucket_info，保存 last_tested_at + last_latency_ms） |
+| POST | `/api/admin/config/credentials/{id}/enable` | 启用 |
+| POST | `/api/admin/config/credentials/{id}/disable` | 停用 |
+
+### 10A.5 文件上传/下载/删除（造 OSS 调用场景）
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/files` | 上传文件到 OSS（operator 权限）。对象键：`uploads/{user_id}/{yyyymmdd}/{uuid}.{ext}`，大小限制 50MB |
+| GET | `/api/files/{file_id}/download-url` | 生成 OSS 签名下载 URL（1 小时有效） |
+| DELETE | `/api/files/{file_id}` | 软删数据库 + 调 OSS delete_file（失败不阻塞软删） |
+
+---
+
 ## 11. M2 错误码补充（Sprint 3）
 
 | HTTP 状态 | code | 含义 |
