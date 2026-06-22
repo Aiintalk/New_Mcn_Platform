@@ -570,3 +570,140 @@ class TestTestCredential:
             headers=operator_headers,
         )
         assert resp.status_code == 403
+
+    # ── ASR 测试端点（provider=asr）──────────────────────────────────
+
+    @pytest.mark.asyncio
+    async def test_test_credential_asr_ok(
+        self, test_client, admin_headers, admin_user, monkeypatch
+    ):
+        """ASR 正常路径：mock _make_asr_client，GetTaskResult 返回业务错误也算连通 OK。"""
+        create_resp = await test_client.post(
+            "/api/admin/config/credentials",
+            json={
+                "provider": "asr",
+                "label": "ASR OK",
+                "api_key": "LTAI1234\nSECRET1234",
+                "config": {
+                    "app_key": "testappkey",
+                    "region": "cn-shanghai",
+                },
+            },
+            headers=admin_headers,
+        )
+        cred_id = create_resp.json()["data"]["id"]
+
+        import json as _json
+
+        class FakeClient:
+            def do_action_with_exception(self, req):
+                # 阿里云对测试 TaskId 通常返回 41050010 TASK_EXPIRED
+                # 但只要返回 JSON 响应（非认证异常），说明凭证 OK
+                return _json.dumps({
+                    "StatusCode": 41050010,
+                    "StatusText": "FILE_TRANS_TASK_EXPIRED",
+                }).encode("utf-8")
+
+        from app.routers import admin_credentials
+        monkeypatch.setattr(
+            admin_credentials, "_make_asr_client", lambda *a, **kw: FakeClient()
+        )
+
+        resp = await test_client.post(
+            f"/api/admin/config/credentials/{cred_id}/test",
+            headers=admin_headers,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        assert data["data"]["status"] == "ok"
+        assert data["data"]["status_text"] == "FILE_TRANS_TASK_EXPIRED"
+        assert "latency_ms" in data["data"]
+        assert "secret_enc" not in str(data["data"])
+
+    @pytest.mark.asyncio
+    async def test_test_credential_asr_failure(
+        self, test_client, admin_headers, admin_user, monkeypatch
+    ):
+        """ASR 凭证错误：_make_asr_client 抛异常 → status=error。"""
+        create_resp = await test_client.post(
+            "/api/admin/config/credentials",
+            json={
+                "provider": "asr",
+                "label": "ASR Fail",
+                "api_key": "bad_ak\nbad_sk",
+                "config": {"app_key": "appkey", "region": "cn-shanghai"},
+            },
+            headers=admin_headers,
+        )
+        cred_id = create_resp.json()["data"]["id"]
+
+        from app.routers import admin_credentials
+
+        def fake_client(*a, **kw):
+            raise RuntimeError("InvalidAccessKeyId")
+
+        monkeypatch.setattr(admin_credentials, "_make_asr_client", fake_client)
+
+        resp = await test_client.post(
+            f"/api/admin/config/credentials/{cred_id}/test",
+            headers=admin_headers,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        assert data["data"]["status"] == "error"
+        assert "InvalidAccessKeyId" in data["data"]["error"]
+
+    @pytest.mark.asyncio
+    async def test_test_credential_asr_missing_app_key(
+        self, test_client, admin_headers, admin_user
+    ):
+        """provider=asr 但 config 缺 app_key → VALIDATION_ERROR。"""
+        create_resp = await test_client.post(
+            "/api/admin/config/credentials",
+            json={
+                "provider": "asr",
+                "label": "Bad ASR",
+                "api_key": "LTAI\nSECRET",
+                "config": {},
+            },
+            headers=admin_headers,
+        )
+        cred_id = create_resp.json()["data"]["id"]
+
+        resp = await test_client.post(
+            f"/api/admin/config/credentials/{cred_id}/test",
+            headers=admin_headers,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is False
+        assert data["code"] == ErrorCode.VALIDATION_ERROR
+
+    @pytest.mark.asyncio
+    async def test_test_credential_asr_invalid_secret_format(
+        self, test_client, admin_headers, admin_user
+    ):
+        """provider=asr 但 secret_enc 不含 \\n → VALIDATION_ERROR。"""
+        create_resp = await test_client.post(
+            "/api/admin/config/credentials",
+            json={
+                "provider": "asr",
+                "label": "Bad Secret",
+                "api_key": "only-one-line",
+                "config": {"app_key": "appkey"},
+            },
+            headers=admin_headers,
+        )
+        cred_id = create_resp.json()["data"]["id"]
+
+        resp = await test_client.post(
+            f"/api/admin/config/credentials/{cred_id}/test",
+            headers=admin_headers,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is False
+        assert data["code"] == ErrorCode.VALIDATION_ERROR
+

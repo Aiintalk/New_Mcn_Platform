@@ -13,7 +13,7 @@ backend/
 │   │   ├── ai.py                      #   AI 服务（多 Key 池、并发调度）
 │   │   ├── tikhub.py                  #   TikHub API 适配器
 │   │   ├── oss.py                     #   阿里云 OSS 适配器（upload_file / get_download_url / delete_file，真实接通；finally 块写 oss_call_logs 日志）
-│   │   ├── asr.py                     #   语音识别适配器
+│   │   ├── asr.py                     #   阿里云 ISI 语音识别适配器（submit_transcription / query_transcription / transcribe，POP RPC + CommonRequest；finally 块写 asr_call_logs 日志）
 │   │   └── yunwu.py                   #   云雾服务适配器
 │   ├── core/                          # 核心基础设施
 │   │   ├── config.py                  #   环境配置（读取 .env）
@@ -46,11 +46,12 @@ backend/
 │   │   ├── admin_users.py             #   用户管理（admin）
 │   │   ├── admin_kols.py              #   红人管理（admin）
 │   │   ├── admin_ai.py                #   AI 密钥/模型管理（admin）
-│   │   ├── admin_credentials.py       #   凭证管理（admin）：CRUD + 启停 + 密钥轮换（PATCH api_key）+ OSS 连通性测试（保存 last_tested_at / last_latency_ms）
+│   │   ├── admin_credentials.py       #   凭证管理（admin）：CRUD + 启停 + 密钥轮换（PATCH api_key）+ OSS/ASR 连通性测试（保存 last_tested_at / last_latency_ms）
 │   │   ├── admin_workspace.py         #   工具配置（admin）
 │   │   ├── admin_intake.py            #   入驻问卷管理（admin）
 │   │   ├── admin_tikhub.py            #   TikHub 管理（admin）
 │   │   ├── admin_oss.py               #   OSS 调用统计（admin）：stats / operations / users 三维聚合
+│   │   ├── admin_asr.py               #   ASR 调用统计（admin）：stats / operations / users 三维聚合
 │   │   ├── admin_logs.py              #   日志管理（admin）
 │   │   ├── admin_system.py            #   系统管理（admin）
 │   │   ├── admin_benchmark.py         #   对标分析配置（admin）
@@ -141,7 +142,7 @@ backend/
 │   ├── concurrent/                    #   并发隔离测试
 │   └── intake/                        #   入驻问卷专项测试
 │
-├── migrations/                        # SQL 迁移脚本（001 ~ 023）
+├── migrations/                        # SQL 迁移脚本（001 ~ 029）
 ├── scripts/                           # 工具脚本
 │   ├── init_db.sh                     #   一键初始化数据库
 │   └── run_coverage.py                #   覆盖率门禁脚本

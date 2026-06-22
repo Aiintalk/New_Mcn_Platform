@@ -708,3 +708,54 @@ CREATE INDEX idx_oss_call_logs_created_at ON oss_call_logs(created_at DESC);
 ALTER TABLE service_credentials ADD COLUMN IF NOT EXISTS last_tested_at  TIMESTAMPTZ;
 ALTER TABLE service_credentials ADD COLUMN IF NOT EXISTS last_latency_ms INTEGER;
 ```
+
+---
+
+## 24. asr_call_logs ASR 调用日志（Sprint 4+）
+
+### 24.1 用途
+
+记录每次 ASR（阿里云智能语音交互 — 录音文件识别）调用的详细信息。由 `app/adapters/asr.py` 在 `finally` 块写入（与 `oss_call_logs` / `yunwu.AiCallLog` 同模式）。
+
+### 24.2 字段说明
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | BIGSERIAL | 是 | 日志 ID |
+| `credential_id` | BIGINT | 否 | 关联 `service_credentials.id`（ON DELETE SET NULL） |
+| `user_id` | BIGINT | 否 | 调用用户（系统调用时为 NULL，ON DELETE SET NULL） |
+| `operation` | VARCHAR(16) | 是 | 操作类型：`submit`（提交任务）/ `query`（查询结果） |
+| `status` | VARCHAR(32) | 是 | 调用状态：`success` / `fail` |
+| `latency_ms` | INTEGER | 否 | 响应延迟（ms） |
+| `task_id` | TEXT | 否 | 阿里云 ASR 任务 ID（SubmitTask 返回） |
+| `audio_url` | TEXT | 否 | 输入音频 URL（仅 submit 记录，query 无） |
+| `error_message` | TEXT | 否 | 失败时的错误信息（前 500 字符） |
+| `created_at` | TIMESTAMPTZ | 是 | 创建时间（默认 NOW()） |
+
+### 24.3 索引
+
+```sql
+CREATE INDEX idx_asr_call_logs_credential ON asr_call_logs(credential_id);
+CREATE INDEX idx_asr_call_logs_user       ON asr_call_logs(user_id);
+CREATE INDEX idx_asr_call_logs_operation  ON asr_call_logs(operation);
+CREATE INDEX idx_asr_call_logs_status     ON asr_call_logs(status);
+CREATE INDEX idx_asr_call_logs_created_at ON asr_call_logs(created_at DESC);
+```
+
+### 24.4 写入位置
+
+- `app/adapters/asr.py::submit_transcription` — operation='submit'（带 audio_url）
+- `app/adapters/asr.py::query_transcription` — operation='query'（带 task_id，无 audio_url）
+- `app/adapters/asr.py::transcribe` — 不直接写日志（由 submit + query 两次子调用各自记录）
+
+两个函数都在 `finally` 块写日志 + commit，确保成功/失败都留痕。
+
+### 24.5 凭证字段约定
+
+`service_credentials` 中 provider='asr' 的凭证：
+- `config`：`{"app_key": "项目AppKey", "region": "cn-shanghai|cn-beijing|cn-shenzhen"}`
+- `secret_enc`：`"access_key_id\naccess_key_secret"`（两行，与 OSS 单一 secret 不同）
+
+### 24.6 迁移文件
+
+`029_asr_call_logs.sql`
