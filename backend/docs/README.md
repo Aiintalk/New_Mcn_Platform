@@ -191,3 +191,20 @@ BugFix：      BugFix_{序号}_{描述}.md
 - 测试运行（单元 + 集成）：`pytest tests/unit/ tests/integration/ -v --cov=app`
 - 覆盖率门禁：`python scripts/run_coverage.py --gate`
 - intake/ 和 concurrent/ 是 E2E 级测试，需要真实服务器，不纳入门禁统计
+
+---
+
+## 工具列表
+
+| 工具标识 | 功能描述 | 主要路由文件 | 引入 Sprint |
+|---------|---------|------------|------------|
+| tiktok-writer | TikTok脚本仿写 | operator_tiktok_writer.py / admin_tiktok_writer.py | Sprint 4 |
+| selling-point-extractor | 产品卖点提取器 | operator_selling_point.py / admin_selling_point.py | Sprint 5 |
+| qianchuan-review | 千川脚本复盘 | operator_qianchuan_review.py | Sprint 6 |
+| qianchuan-edit-review | 千川剪辑预审 | tool_qianchuan_edit_review.py | Sprint 7 |
+| livestream-writer | 直播脚本仿写 | operator_livestream_writer.py / admin_livestream_writer.py | Sprint 8 |
+| livestream-review | 直播间脚本复盘 | operator_livestream_review.py / admin_livestream_review.py | Sprint 9 |
+| persona-review | 人设脚本复盘 | operator_persona_review.py / admin_persona_review.py | Sprint 10 |
+| qianchuan-preview | 千川文案预审 | operator_qianchuan_preview.py / admin_qianchuan_preview.py | Sprint 11 |
+| qianchuan-collection | 千川爆文合集 | operator_qianchuan_collection.py | Sprint 12 |
+| tiktok-review | TT内容复盘 | operator_tiktok_review.py / admin_tiktok_review.py | Sprint 13 |

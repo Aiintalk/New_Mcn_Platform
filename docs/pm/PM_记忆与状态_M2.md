@@ -157,6 +157,32 @@
 
 ---
 
+### M2 Sprint 13 — TT内容复盘（tiktok-review）✅ 完成
+
+**核心定位**：迁移旧工具，两侧视频文案对比 + AI 7维度分析 + 产出中心 + 导出Word + 管理端Prompt配置。
+
+| 端 | 状态 | 备注 |
+|----|------|------|
+| 数据库迁移 026 | ✅ 已执行 | `tiktok_review_configs` 表 + workspace_tools 注册（status=dev）+ 默认Prompt |
+| 后端运营端 4 个接口 | ✅ 完成 | `operator_tiktok_review.py`（generate/save/outputs/export-word） |
+| 后端管理端 2 个接口 | ✅ 完成 | `admin_tiktok_review.py`（configs GET/PUT） |
+| SQLAlchemy 模型 | ✅ 完成 | `app/models/tiktok_review.py` |
+| main.py 注册 | ✅ 完成 | 两个 router 已 include |
+| 后端集成测试 | ✅ 通过 | 18 条，覆盖率 72% |
+| 前端 API 层 | ✅ 完成 | `tiktokReview.ts`，前端单元测试 8 条通过 |
+| 前端运营端页面 | ✅ 完成 | `TiktokReviewPage.tsx`，路由 `/workspace/tiktok-review` |
+| 前端管理端 Tab | ✅ 完成 | `TiktokReviewConfigTab.tsx`，WorkspaceConfigPage 已注册 |
+| 契约文档 | ✅ 已更新 | Base_API §20、Base_Database §21、迁移 026 |
+| 全量回归 | ✅ 通过 | 后端 402 passed，前端 103 passed |
+
+**架构特点**：
+- 转录走公共接口 `/api/tools/transcribe`（语言固定 ko），不新建专属接口
+- Word 导出复用 `app/services/word_export.py`
+- 一个配置项（`config_key='default'`），管理端可改 Prompt + 模型
+- 产出保存到 outputs 表，支持历史列表查询
+
+---
+
 ### M2 Sprint 11 — 千川文案预审（qianchuan-preview）✅ 完成
 
 **核心流程：** 上传/粘贴两段文案（原版爆款 + 我方文案）→ AI 流式对比分析 → 生成预审报告 → 导出 Word / 复制

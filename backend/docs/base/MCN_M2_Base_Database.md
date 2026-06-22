@@ -616,13 +616,37 @@ CREATE INDEX idx_benchmark_analyses_created ON benchmark_analyses(created_at DES
 
 ---
 
-## 21. oss_call_logs OSS 调用日志（Sprint 4+）
+## 21. tiktok_review_configs（Sprint 13）
 
-### 21.1 用途
+**迁移文件**：`026_tiktok_review.sql`
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | SERIAL | 是 | 主键 |
+| `config_key` | VARCHAR(50) UNIQUE | 是 | 配置标识，当前只有 `default` |
+| `ai_model_id` | INTEGER | 否 | 关联 ai_models.id，NULL 时使用默认模型 |
+| `system_prompt` | TEXT | 否 | 系统 Prompt |
+| `is_active` | BOOLEAN | 是 | 是否激活，默认 true |
+| `created_at` | TIMESTAMPTZ | 是 | 创建时间 |
+| `updated_at` | TIMESTAMPTZ | 是 | 更新时间（触发器自动） |
+
+**触发器**：`trg_tiktok_review_configs_updated`（自动更新 updated_at）
+
+### 21.1 workspace_tools 注册
+
+| tool_code | tool_name | category | status | sort_order |
+|-----------|-----------|----------|--------|------------|
+| `tiktok-review` | TT内容复盘 | 内容创作 | `dev` | 16 |
+
+---
+
+## 22. oss_call_logs OSS 调用日志（Sprint 4+）
+
+### 22.1 用途
 
 记录每次 OSS（阿里云对象存储）调用的详细信息，用于统计分析和用户排行。由 `app/adapters/oss.py` 在 `finally` 块写入（仿 yunwu AiCallLog 模式）。
 
-### 21.2 字段说明
+### 22.2 字段说明
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
@@ -636,7 +660,7 @@ CREATE INDEX idx_benchmark_analyses_created ON benchmark_analyses(created_at DES
 | `error_message` | TEXT | 否 | 失败时的错误信息（前 500 字符） |
 | `created_at` | TIMESTAMPTZ | 是 | 创建时间（默认 NOW()） |
 
-### 21.3 索引
+### 22.3 索引
 
 ```sql
 CREATE INDEX idx_oss_call_logs_credential ON oss_call_logs(credential_id);
@@ -646,7 +670,7 @@ CREATE INDEX idx_oss_call_logs_status     ON oss_call_logs(status);
 CREATE INDEX idx_oss_call_logs_created_at ON oss_call_logs(created_at DESC);
 ```
 
-### 21.4 写入位置
+### 22.4 写入位置
 
 - `app/adapters/oss.py::upload_file` — operation='upload'
 - `app/adapters/oss.py::get_download_url` — operation='download'
@@ -654,30 +678,33 @@ CREATE INDEX idx_oss_call_logs_created_at ON oss_call_logs(created_at DESC);
 
 三个函数都在 `finally` 块写日志 + commit，确保成功/失败都留痕。
 
+### 22.5 迁移文件
+
+`027_oss_call_logs.sql`
+
 ---
 
-## 22. service_credentials 扩展字段（OSS 测试结果）
+## 23. service_credentials 扩展字段（OSS 测试结果）
 
-### 22.1 新增字段
+### 23.1 新增字段
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `last_tested_at` | TIMESTAMPTZ | 否 | 上次测试时间（凭证测试端点保存） |
 | `last_latency_ms` | INTEGER | 否 | 上次测试延迟（ms） |
 
-### 22.2 写入位置
+### 23.2 写入位置
 
 `app/routers/admin_credentials.py::test_credential` — 测试成功/失败都会更新这两个字段（admin 调用测试端点时）。
 
-### 22.3 通用性
+### 23.3 通用性
 
 字段是通用的（不限定 provider='oss'），将来 ASR / AI 等其他 provider 的测试端点也可复用。
 
-### 22.4 迁移文件
+### 23.4 迁移文件
 
-`027_service_credentials_test_fields.sql`：
+`028_service_credentials_test_fields.sql`：
 ```sql
 ALTER TABLE service_credentials ADD COLUMN IF NOT EXISTS last_tested_at  TIMESTAMPTZ;
 ALTER TABLE service_credentials ADD COLUMN IF NOT EXISTS last_latency_ms INTEGER;
 ```
-

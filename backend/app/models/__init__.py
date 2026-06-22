@@ -25,6 +25,7 @@ from app.models.livestream_review import LivestreamReviewConfig
 from app.models.persona_review import PersonaReviewConfig
 from app.models.qianchuan_preview import QianchuanPreviewConfig
 from app.models.qianchuan_collection import QianchuanCollectionPersona, QianchuanCollectionScript
+from app.models.tiktok_review import TiktokReviewConfig
 
 __all__ = [
     "User",
@@ -57,4 +58,5 @@ __all__ = [
     "QianchuanPreviewConfig",
     "QianchuanCollectionPersona",
     "QianchuanCollectionScript",
+    "TiktokReviewConfig",
 ]
