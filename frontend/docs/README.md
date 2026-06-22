@@ -9,7 +9,7 @@
 ```
 frontend/
 ├── src/                               # 源码
-│   ├── api/                           # API 调用层（25 个模块）
+│   ├── api/                           # API 调用层（30 个模块）
 │   │   ├── request.ts                 #   基础封装（get/post/patch/put/del + 拦截器）
 │   │   ├── auth.ts                    #   登录、改密码
 │   │   ├── users.ts                   #   用户管理
@@ -42,7 +42,7 @@ frontend/
 │   │   ├── OperatorLayout.tsx         #   运营端布局（左侧菜单 + 内容区）
 │   │   └── AuthLayout.tsx             #   登录/注册页布局
 │   ├── pages/                         # 页面组件
-│   │   ├── admin/                     #   管理端（20 个：13 页面 + 7 ConfigTab）
+│   │   ├── admin/                     #   管理端（22 个：14 页面 + 8 ConfigTab）
 │   │   │   ├── KolsPage.tsx           #     红人管理
 │   │   │   ├── UsersPage.tsx          #     用户管理
 │   │   │   ├── AiManagementPage.tsx   #     AI 密钥/模型管理
@@ -93,7 +93,7 @@ frontend/
 │   ├── styles/                        # 全局样式
 │   │   ├── variables.css              #   CSS 变量（品牌色、字号、间距）
 │   │   └── admin.css                  #   管理端/运营端共享样式
-│   ├── types/                         # TypeScript 类型定义（17 个模块）
+│   ├── types/                         # TypeScript 类型定义（20 个模块）
 │   │   ├── api.ts                     #   ApiResponse<T> / PagedData<T>
 │   │   ├── user.ts                    #   UserInfo
 │   │   ├── kol.ts                     #   KolInfo
@@ -130,7 +130,7 @@ frontend/
 │   ├── tests/                         #   测试报告
 │   │   ├── MCN_Frontend_Test_Task_M1M2.md              #  前端测试任务单
 │   │   └── MCN_Frontend_Test_Fix_Report_2026-06-11.md  #  前端测试修复报告
-│   └── tasks/                         #   任务单 + 验收文档（38 个）
+│   └── tasks/                         #   任务单 + 验收文档（40 个）
 │       ├── M1_Sprint0.md ~ Sprint4.md           #  M1 各 Sprint
 │       ├── M1_Sprint5_TikHub_独立池化.md         #  TikHub 独立池化
 │       ├── M2_Sprint1_kol_intake.md             #  入驻问卷主任务

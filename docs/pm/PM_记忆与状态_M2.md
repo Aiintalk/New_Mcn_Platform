@@ -9,7 +9,7 @@
 ## 一、项目基本信息
 
 - **项目名**：MCN Information System Platform
-- **当前阶段**：M2 阶段 — ASR 完整方案完成（feature/asr-tab 待 push），下一个 Sprint 候选：tool_transcribe 切到 ASR / TikHub 日志 bug 修复 / 凭证加密
+- **当前阶段**：M2 阶段 — ASR 完整方案完成（PR #4 已提交待合并），下一个 Sprint 候选：tool_transcribe 切到 ASR / TikHub 日志 bug 修复 / 凭证加密
 - **GitHub**：https://github.com/Aiintalk/New_Mcn_Platform
 - **工作目录**：`D:\2026年工作\AI相关\AI工具箱新架构方案\mcn-platform`（Windows 本地）
 - **后端**：`backend/`（FastAPI + PostgreSQL）
@@ -27,7 +27,7 @@
 
 ## 二、M2 阶段（当前）
 
-### M2 工作项 — ASR 完整方案（阿里云智能语音交互）✅ 完成（待 push）
+### M2 工作项 — ASR 完整方案（阿里云智能语音交互）✅ 完成（PR #4 已提交待合并）
 
 **核心定位**：ASR（录音文件识别）完整方案，完全复刻 OSS Tab 的架构与 UI 范式。服务商：阿里云智能语音交互（`filetrans.cn-shanghai.aliyuncs.com`，POP RPC 风格）。`tool_transcribe.py` **不改**（继续用云雾 Whisper），ASR 作为独立功能模块。
 
@@ -68,14 +68,14 @@
 
 ---
 
-### M2 工作项 — OSS 使用显示完整对齐 TikHub ✅ 完成（待 push）
+### M2 工作项 — OSS 使用显示完整对齐 TikHub ✅ 完成（已合并到 main，PR #3）
 
 **核心定位**：让 OSS Tab 的"使用显示"完全对齐 TikHub Tab——4 张统计卡片 + 2 张图表 + 3 个子 Tab + 凭证列表含使用数据。**关键发现**：OSS adapter 此前无任何 router 调用（统计永远是 0），必须造调用场景（改造 files.py）；TikHub adapter 自身也有 bug 不写日志（统计数字也不准，留作独立任务）。
 
 | 端 | 状态 | 备注 |
 |----|------|------|
-| Migration 026 | ✅ 完成 | `oss_call_logs` 表（credential_id / user_id / operation / status / latency_ms / oss_key / error_message）+ 5 个索引 |
-| Migration 027 | ✅ 完成 | `service_credentials` 加 `last_tested_at` / `last_latency_ms` 字段（通用，ASR/AI 也能用）|
+| Migration 027 | ✅ 完成 | `oss_call_logs` 表（credential_id / user_id / operation / status / latency_ms / oss_key / error_message）+ 5 个索引 |
+| Migration 028 | ✅ 完成 | `service_credentials` 加 `last_tested_at` / `last_latency_ms` 字段（通用，ASR/AI 也能用）|
 | ORM 模型 | ✅ 完成 | `OssCallLog`（新建）+ `ServiceCredential` 扩 2 字段 |
 | OSS adapter | ✅ 完成 | 3 函数（upload_file/get_download_url/delete_file）finally 块写 OssCallLog + commit，支持 user_id 参数 |
 | 后端统计接口 | ✅ 完成 | `app/routers/admin_oss.py`：GET /stats + /operations + /users，参照 admin_tikhub.py，SQL 字段名 endpoint→operation，无 platform 维度 |
@@ -107,7 +107,7 @@
 
 ---
 
-### M2 工作项 — OSS 配置前端 UI 完善 ✅ 完成（待 push）
+### M2 工作项 — OSS 配置前端 UI 完善 ✅ 完成（已合并到 main，PR #3）
 
 **核心定位**：补齐 OSS 配置的端到端能力。后端 adapter 早已接通，但前端 OSS Tab 此前套用通用凭证模型（缺 AccessKey ID/Bucket/Endpoint 字段、测试按钮误调 AI Key 接口、编辑表单只能改 label/weight），本次参照 TikHub Tab 模式做独立组件 + 后端连通性测试端点。
 
@@ -136,7 +136,7 @@
 
 ---
 
-### M2 工作项 — 阿里云 OSS Adapter 后端接通 ✅ 完成（待 push）
+### M2 工作项 — 阿里云 OSS Adapter 后端接通 ✅ 完成（已合并到 main，PR #3）
 
 **核心定位**：把 `app/adapters/oss.py` 从 M1 起的 Mock 占位（`get_download_url` 返回假 URL，`upload_file` 抛 NotImplementedError）替换为真实接通阿里云 OSS 的实现。**仅后端接通，凭证由用户后续配置**，files router 上传接口、管理端 OSS 面板、存储统计等留后续。
 
