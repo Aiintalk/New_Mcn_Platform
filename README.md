@@ -16,6 +16,8 @@ MCN 红人孵化管理平台，支持多用户、多并发场景，集成 AI 能
 - **红人管理（KOL）**：TikHub 数据抓取，粉丝画像，红人档案
 - **AI 服务**：多服务商 Key 池（云雾/硅基流动/GLM），并发调度，僵尸锁自动清理，模型管理，使用统计
 - **TikHub 管理**：独立 Key 池，端点统计，用户排行，调用日志
+- **OSS 对象存储**：阿里云 OSS adapter（上传/下载/删除），独立凭证池，4 张统计卡 + 操作分布饼图 + 7 天趋势折线图 + 3 子 Tab（凭证管理 / 操作统计 / 用户排行）+ 连通性测试
+- **ASR 语音识别**：阿里云智能语音交互（录音文件识别 - 异步 API），独立凭证池（AppKey + AccessKey + Region），submit/query 双操作统计，紫色主题 Tab 复刻 OSS 架构，连通性测试用 GetTaskResult probe TaskId（不依赖测试音频）
 - **红人入驻问卷**：运营生成分享链接 → 红人填写 24 道题 → AI 生成入驻报告 → 下载 Word/PDF
 - **人格定位**：抖音号解析 + 文件上传 → AI 生成人格档案 + 内容规划 → 导出 Word → 历史管理
 - **对标分析助手**：抖音号解析 → 自动抓取 TOP10/近30天视频 → AI 生成对标分析报告 → 导出 Word → 历史管理
@@ -43,14 +45,14 @@ mcn-platform/
 │   │   ├── adapters/                  #     外部服务适配器（AI、TikHub、OSS、ASR）
 │   │   ├── core/                      #     配置、数据库、安全、响应封装
 │   │   ├── middlewares/               #     JWT 鉴权中间件
-│   │   ├── models/                    #     SQLAlchemy ORM 模型（22 个文件）
-│   │   ├── routers/                   #     API 路由（按角色分文件，41 个）
+│   │   ├── models/                    #     SQLAlchemy ORM 模型（26 个文件）
+│   │   ├── routers/                   #     API 路由（按角色分文件，47 个）
 │   │   ├── schemas/                   #     Pydantic schema
 │   │   └── services/                  #     业务逻辑服务
 │   ├── docs/                          #   后端文档
 │   │   ├── README.md                  #     架构说明 + 文档索引
 │   │   ├── base/                      #     接口契约 + 数据库契约
-│   │   ├── tasks/                     #     任务单 + 验收文档（35 个）
+│   │   ├── tasks/                     #     任务单 + 验收文档（39 个）
 │   │   └── tests/                     #     测试报告 + 测试任务
 │   ├── tests/                         #   测试代码
 │   │   ├── unit/                      #     单元测试
@@ -58,24 +60,24 @@ mcn-platform/
 │   │   ├── e2e/                       #     端到端测试
 │   │   ├── concurrent/                #     并发隔离测试
 │   │   └── intake/                    #     入驻问卷专项测试
-│   ├── migrations/                    #   SQL 迁移脚本（001 ~ 023）
+│   ├── migrations/                    #   SQL 迁移脚本（001 ~ 029）
 │   └── scripts/                       #   工具脚本（init_db.sh、init_test_db.sh、run_coverage.py）
 │
 ├── frontend/                          ← 前端（React + Vite）
 │   ├── src/                           #   源码
-│   │   ├── api/                       #     API 调用层（25 个模块）
+│   │   ├── api/                       #     API 调用层（30 个模块）
 │   │   ├── layouts/                   #     布局组件（Admin / Operator / Auth）
-│   │   ├── pages/                     #     页面组件（admin 20 个 / operator 16 个 / auth 2 个 / intake 1 个）
+│   │   ├── pages/                     #     页面组件（admin 22 个 / operator 19 个 / auth 2 个 / intake 1 个）
 │   │   ├── routes/                    #     路由守卫
 │   │   ├── store/                     #     Zustand 状态管理
 │   │   ├── styles/                    #     CSS 变量 + 全局样式
-│   │   ├── types/                     #     TypeScript 类型定义（17 个模块）
+│   │   ├── types/                     #     TypeScript 类型定义（20 个模块）
 │   │   └── __tests__/                 #     前端测试
 │   ├── docs/                          #   前端文档
 │   │   ├── README.md                  #     架构说明 + 文档索引
 │   │   ├── 前端规范.md                  #     前端唯一规范文档
 │   │   ├── base/                      #     前端基础文档
-│   │   └── tasks/                     #     任务单 + 验收文档（38 个）
+│   │   └── tasks/                     #     任务单 + 验收文档（40 个）
 │   ├── vitest.config.ts               #   Vitest 测试配置
 │   └── vite.config.ts                 #   Vite 构建配置
 │

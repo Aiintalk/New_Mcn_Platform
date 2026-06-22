@@ -13,7 +13,7 @@ backend/
 │   │   ├── ai.py                      #   AI 服务（多 Key 池、并发调度）
 │   │   ├── tikhub.py                  #   TikHub API 适配器
 │   │   ├── oss.py                     #   阿里云 OSS 适配器（upload_file / get_download_url / delete_file，真实接通；finally 块写 oss_call_logs 日志）
-│   │   ├── asr.py                     #   语音识别适配器
+│   │   ├── asr.py                     #   阿里云 ISI 语音识别适配器（submit_transcription / query_transcription / transcribe，POP RPC + CommonRequest；finally 块写 asr_call_logs 日志）
 │   │   └── yunwu.py                   #   云雾服务适配器
 │   ├── core/                          # 核心基础设施
 │   │   ├── config.py                  #   环境配置（读取 .env）
@@ -23,7 +23,7 @@ backend/
 │   │   └── seed.py                    #   初始数据填充
 │   ├── middlewares/
 │   │   └── auth.py                    #   JWT 鉴权（get_current_user / require_admin）
-│   ├── models/                        # SQLAlchemy ORM 模型（22 个文件）
+│   ├── models/                        # SQLAlchemy ORM 模型（26 个文件）
 │   │   ├── user.py                    #   用户表
 │   │   ├── kol.py                     #   红人表
 │   │   ├── credential.py              #   AI 密钥池表
@@ -41,16 +41,17 @@ backend/
 │   │   ├── livestream_review.py       #   直播间脚本复盘配置表
 │   │   ├── persona_review.py          #   人设脚本复盘配置表
 │   │   └── ...                        #   log / file / output / session / task
-│   ├── routers/                       # API 路由（按角色分文件，41 个）
+│   ├── routers/                       # API 路由（按角色分文件，47 个）
 │   │   ├── auth.py                    #   POST /api/auth/login、/change-password
 │   │   ├── admin_users.py             #   用户管理（admin）
 │   │   ├── admin_kols.py              #   红人管理（admin）
 │   │   ├── admin_ai.py                #   AI 密钥/模型管理（admin）
-│   │   ├── admin_credentials.py       #   凭证管理（admin）：CRUD + 启停 + 密钥轮换（PATCH api_key）+ OSS 连通性测试（保存 last_tested_at / last_latency_ms）
+│   │   ├── admin_credentials.py       #   凭证管理（admin）：CRUD + 启停 + 密钥轮换（PATCH api_key）+ OSS/ASR 连通性测试（保存 last_tested_at / last_latency_ms）
 │   │   ├── admin_workspace.py         #   工具配置（admin）
 │   │   ├── admin_intake.py            #   入驻问卷管理（admin）
 │   │   ├── admin_tikhub.py            #   TikHub 管理（admin）
 │   │   ├── admin_oss.py               #   OSS 调用统计（admin）：stats / operations / users 三维聚合
+│   │   ├── admin_asr.py               #   ASR 调用统计（admin）：stats / operations / users 三维聚合
 │   │   ├── admin_logs.py              #   日志管理（admin）
 │   │   ├── admin_system.py            #   系统管理（admin）
 │   │   ├── admin_benchmark.py         #   对标分析配置（admin）
@@ -102,7 +103,7 @@ backend/
 │   │   ├── MCN_M1_Base_Database.md    #     M1 阶段数据库契约
 │   │   ├── MCN_M2_Base_API.md         #     M2 阶段 API 契约
 │   │   └── MCN_M2_Base_Database.md    #     M2 阶段数据库契约
-│   ├── tasks/                         #   任务单 + 验收文档（35 个）
+│   ├── tasks/                         #   任务单 + 验收文档（39 个）
 │   │   ├── M1_Sprint0.md ~ Sprint4.md          #  M1 各 Sprint
 │   │   ├── M1_Sprint5_TikHub_独立池化.md        #  TikHub 独立池化
 │   │   ├── M2_Sprint1_kol_intake.md            #  入驻问卷主任务
@@ -141,7 +142,7 @@ backend/
 │   ├── concurrent/                    #   并发隔离测试
 │   └── intake/                        #   入驻问卷专项测试
 │
-├── migrations/                        # SQL 迁移脚本（001 ~ 023）
+├── migrations/                        # SQL 迁移脚本（001 ~ 029）
 ├── scripts/                           # 工具脚本
 │   ├── init_db.sh                     #   一键初始化数据库
 │   └── run_coverage.py                #   覆盖率门禁脚本

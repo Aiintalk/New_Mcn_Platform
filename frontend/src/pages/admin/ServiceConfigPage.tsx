@@ -5,9 +5,11 @@ import { getCredentials, createCredential, updateCredential, deleteCredential, e
 import { testAiKey, testAiModel, getAiStats, getAiKeys, createAiKey, updateAiKey, deleteAiKey, getAiModels, createAiModel, deleteAiModel, updateAiModel } from '../../api/ai';
 import { getTikHubStats, getTikHubKeys, createTikHubKey, updateTikHubKey, deleteTikHubKey, testTikHubKey, enableTikHubKey, disableTikHubKey, getTikHubEndpoints, getTikHubUsers } from '../../api/tikhub';
 import { getOssStats, getOssOperations, getOssUsers } from '../../api/oss';
+import { getAsrStats, getAsrOperations, getAsrUsers } from '../../api/asr';
 import type { AiStatsResponse, AiKeyRecord, AiModelItem, ByModelItem, TokenTrendItem, CreateAiModelRequest } from '../../api/ai';
 import type { TikHubStatsResponse, TikHubKey, TikHubEndpointDetail, TikHubUserRank } from '../../api/tikhub';
 import type { OssStatsResponse, OssOperationDetail, OssUserDetail } from '../../api/oss';
+import type { AsrStatsResponse, AsrOperationDetail, AsrUserDetail } from '../../api/asr';
 import type { ServiceCredential, CreateCredentialRequest, UpdateCredentialRequest } from '../../types/credential';
 import type { PagedData } from '../../types/api';
 
@@ -328,6 +330,75 @@ function OssLineChart({ data }: { data: { date: string; calls: number }[] }) {
         {data.map((d, i) => (
           <g key={i}>
             <circle cx={xP(i)} cy={yP(d.calls)} r={3} fill="#4096FF" />
+            <text x={xP(i)} y={H - 6} textAnchor="middle" fontSize={9} fill="#a8a29e">{d.date}</text>
+          </g>
+        ))}
+      </svg>
+    </div>
+  );
+}
+
+// ── ASR DonutChart (SVG) — operation distribution（紫色色调） ─────────────────
+function AsrDonutChart({ data }: { data: { operation: string; percentage: number; calls: number }[] }) {
+  const ASR_COLORS = ['#722ED1', '#9254DE', '#B37FEB', '#D3ADF7', '#EFDBFF'];
+  const r = 48; const cx = 64; const cy = 64;
+  const circ = 2 * Math.PI * r;
+  let cum = 0;
+  const segs = data.map((item, i) => {
+    const dash = (item.percentage / 100) * circ;
+    const rot = (cum / 100) * 360 - 90;
+    cum += item.percentage;
+    return { dash, rot, color: ASR_COLORS[i % ASR_COLORS.length], ...item };
+  });
+  return (
+    <div style={{ display: 'flex', gap: 20, alignItems: 'center' }}>
+      <svg width={128} height={128} viewBox="0 0 128 128" style={{ flexShrink: 0 }}>
+        {segs.map((s, i) => (
+          <circle key={i} cx={cx} cy={cy} r={r} fill="none" stroke={s.color} strokeWidth={16}
+            strokeDasharray={`${s.dash} ${circ - s.dash}`} transform={`rotate(${s.rot} ${cx} ${cy})`} />
+        ))}
+        <circle cx={cx} cy={cy} r={r - 16} fill="white" />
+        <text x={cx} y={cy - 5} textAnchor="middle" fontSize={20} fontWeight={700} fill="#1d1d1f">{data.length}</text>
+        <text x={cx} y={cy + 14} textAnchor="middle" fontSize={11} fill="#a8a29e">操作</text>
+      </svg>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        {data.map((item, i) => (
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: ASR_COLORS[i % ASR_COLORS.length], flexShrink: 0, display: 'inline-block' }} />
+            <span style={{ flex: 1, fontSize: 12, color: 'var(--gray-700)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.operation}</span>
+            <span style={{ fontSize: 12, fontWeight: 600, width: 38, textAlign: 'right' }}>{item.percentage}%</span>
+            <span style={{ fontSize: 11, color: 'var(--gray-400)', width: 44, textAlign: 'right' }}>{item.calls}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── ASR LineChart (SVG) — calls trend（紫色） ─────────────────────────────────
+function AsrLineChart({ data }: { data: { date: string; calls: number }[] }) {
+  if (data.length < 2) return <div style={{ fontSize: 12, color: 'var(--gray-400)', textAlign: 'center', padding: 20 }}>数据不足，至少需要 2 天</div>;
+  const W = 360; const H = 130; const pL = 42; const pR = 8; const pT = 10; const pB = 26;
+  const cW = W - pL - pR; const cH = H - pT - pB;
+  const maxVal = Math.max(...data.map(d => d.calls));
+  const n = data.length;
+  const xP = (i: number) => pL + (i / (n - 1)) * cW;
+  const yP = (v: number) => pT + cH - (v / maxVal) * cH;
+  const pts = data.map((d, i) => `${xP(i)},${yP(d.calls)}`).join(' ');
+  const yTicks = [0, 0.5, 1].map(r => ({ v: maxVal * r, y: yP(maxVal * r) }));
+  return (
+    <div>
+      <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display: 'block' }}>
+        {yTicks.map((t, i) => (
+          <g key={i}>
+            <line x1={pL} y1={t.y} x2={W - pR} y2={t.y} stroke="#f5f5f4" strokeWidth={1} />
+            <text x={pL - 4} y={t.y + 4} textAnchor="end" fontSize={9} fill="#a8a29e">{Math.round(t.v)}</text>
+          </g>
+        ))}
+        <polyline points={pts} fill="none" stroke="#722ED1" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+        {data.map((d, i) => (
+          <g key={i}>
+            <circle cx={xP(i)} cy={yP(d.calls)} r={3} fill="#722ED1" />
             <text x={xP(i)} y={H - 6} textAnchor="middle" fontSize={9} fill="#a8a29e">{d.date}</text>
           </g>
         ))}
@@ -1026,6 +1097,423 @@ export function OssConfigTab() {
   );
 }
 
+// ── AsrConfigTab ──────────────────────────────────────────────────────────────
+interface AsrConfig {
+  app_key?: string;
+  region?: string;
+}
+
+interface AsrCreateFormData {
+  label: string;
+  app_key: string;
+  access_key_id: string;
+  access_key_secret: string;
+  region: string;
+  weight?: number;
+}
+
+interface AsrEditFormData {
+  label: string;
+  app_key: string;
+  access_key_id?: string;
+  access_key_secret?: string; // 留空 = 不修改
+  region: string;
+  weight?: number;
+}
+
+const ASR_REGIONS = [
+  { value: 'cn-shanghai', label: '华东2(上海)' },
+  { value: 'cn-beijing',  label: '华北2(北京)' },
+  { value: 'cn-shenzhen', label: '华南1(深圳)' },
+];
+
+export function AsrConfigTab() {
+  const [data, setData] = useState<PagedData<ServiceCredential> | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [testingId, setTestingId] = useState<number | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
+  const [editCred, setEditCred] = useState<ServiceCredential | null>(null);
+  const [formLoading, setFormLoading] = useState(false);
+  const [addForm] = Form.useForm<AsrCreateFormData>();
+  const [editForm] = Form.useForm<AsrEditFormData>();
+
+  // ASR 统计相关 state（对齐 OSS Tab）
+  const [stats, setStats] = useState<AsrStatsResponse | null>(null);
+  const [statsLoading, setStatsLoading] = useState(false);
+  const [activePanel, setActivePanel] = useState<'credentials' | 'operations' | 'users'>('credentials');
+  const [operations, setOperations] = useState<AsrOperationDetail[]>([]);
+  const [users, setUsers] = useState<AsrUserDetail[]>([]);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    getCredentials('asr')
+      .then(setData)
+      .catch(() => message.error('加载 ASR 凭证失败'))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const reloadStats = useCallback(() => {
+    setStatsLoading(true);
+    getAsrStats()
+      .then(setStats)
+      .catch(() => message.error('加载 ASR 统计失败'))
+      .finally(() => setStatsLoading(false));
+  }, []);
+
+  useEffect(() => {
+    load();
+    reloadStats();
+  }, [load, reloadStats]);
+
+  const handlePanelSwitch = useCallback((tab: 'credentials' | 'operations' | 'users') => {
+    setActivePanel(tab);
+    if (tab === 'operations' && operations.length === 0) {
+      getAsrOperations().then(setOperations).catch(() => { /* error handled in api layer */ });
+    }
+    if (tab === 'users' && users.length === 0) {
+      getAsrUsers().then(res => setUsers(res.items ?? [])).catch(() => { /* 同上 */ });
+    }
+  }, [operations.length, users.length]);
+
+  async function handleAdd(v: AsrCreateFormData) {
+    setFormLoading(true);
+    try {
+      await createCredential({
+        provider: 'asr',
+        label: v.label,
+        api_key: `${v.access_key_id}\n${v.access_key_secret}`, // secret_enc 格式：id\nsecret
+        weight: v.weight ?? 10,
+        config: {
+          app_key: v.app_key,
+          region: v.region,
+        },
+      });
+      message.success('ASR 凭证已添加');
+      setAddOpen(false);
+      addForm.resetFields();
+      load();
+      reloadStats();
+    } catch (e: unknown) {
+      message.error(e instanceof Error ? e.message : '添加失败');
+    } finally {
+      setFormLoading(false);
+    }
+  }
+
+  async function handleEdit(v: AsrEditFormData) {
+    if (!editCred) return;
+    setFormLoading(true);
+    try {
+      const payload: UpdateCredentialRequest = {
+        label: v.label,
+        weight: v.weight,
+        config: {
+          app_key: v.app_key,
+          region: v.region,
+        },
+      };
+      // 任一字段非空 = 轮换密钥（拼接为 id\nsecret）
+      if (v.access_key_id && v.access_key_secret) {
+        payload.api_key = `${v.access_key_id}\n${v.access_key_secret}`;
+      } else if (v.access_key_id || v.access_key_secret) {
+        message.warning('轮换密钥时 AccessKey ID 和 Secret 必须同时填写');
+        setFormLoading(false);
+        return;
+      }
+      await updateCredential(editCred.id, payload);
+      message.success('更新成功');
+      setEditCred(null);
+      load();
+    } catch (e: unknown) {
+      message.error(e instanceof Error ? e.message : '更新失败');
+    } finally {
+      setFormLoading(false);
+    }
+  }
+
+  async function handleTest(id: number) {
+    setTestingId(id);
+    try {
+      const { testOssCredential: testCred } = await import('../../api/credentials');
+      const r = await testCred(id);
+      if (r.status === 'ok') {
+        message.success(`连通正常 ${r.latency_ms}ms`);
+        load();
+        reloadStats();
+      } else {
+        message.error(`失败：${r.error ?? '未知错误'}`);
+      }
+    } catch {
+      message.error('测试请求失败');
+    } finally {
+      setTestingId(null);
+    }
+  }
+
+  async function handleDelete(id: number) {
+    try {
+      await deleteCredential(id);
+      message.success('已删除');
+      load();
+      reloadStats();
+    } catch (e: unknown) {
+      message.error(e instanceof Error ? e.message : '删除失败');
+    }
+  }
+
+  async function handleToggle(c: ServiceCredential) {
+    try {
+      c.status === 'enabled' ? await disableCredential(c.id) : await enableCredential(c.id);
+      message.success('操作成功');
+      load();
+      reloadStats();
+    } catch {
+      message.error('操作失败');
+    }
+  }
+
+  function openEdit(c: ServiceCredential) {
+    const cfg = (c.config ?? {}) as AsrConfig;
+    editForm.setFieldsValue({
+      label: c.label,
+      app_key: cfg.app_key ?? '',
+      region: cfg.region ?? 'cn-shanghai',
+      weight: c.weight,
+      access_key_id: '',
+      access_key_secret: '',
+    });
+    setEditCred(c);
+  }
+
+  const total = data?.pagination.total ?? 0;
+  const statusColor = (s: string) => s === 'enabled' ? 'var(--success)' : 'var(--gray-300)';
+  const statusLabel = (s: string) => s === 'enabled' ? '启用' : s === 'cooldown' ? '冷却' : '停用';
+
+  // 4 张统计卡（紫色色调）
+  const ov = stats?.overview;
+  const statCards = [
+    { label: '总调用',  value: ov?.total_calls?.toLocaleString() ?? '0', color: '#722ED1' },
+    { label: '今日调用', value: ov?.today_calls?.toLocaleString() ?? '0', color: '#9254DE' },
+    { label: '平均延迟', value: ov?.avg_latency_ms != null ? `${ov.avg_latency_ms}ms` : '—', color: '#FF7A45' },
+    { label: '活跃凭证', value: ov ? `${ov.active_keys} / ${ov.total_keys}` : '—', color: '#37C2C2' },
+  ];
+
+  return (
+    <div>
+      {/* Stat cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 20 }}>
+        {statCards.map((c, i) => (
+          <div key={i} style={{ background: 'var(--bg-card)', borderRadius: 8, padding: '16px 20px' }}>
+            <div style={{ fontSize: 12, color: 'var(--gray-500)', marginBottom: 4 }}>{c.label}</div>
+            <div style={{ fontSize: 24, fontWeight: 700, color: c.color }}>{statsLoading ? '...' : c.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Charts row */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 20 }}>
+        <div style={{ background: 'var(--bg-card)', borderRadius: 8, padding: 20 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12 }}>操作分布</div>
+          {(stats?.operations?.length ?? 0) > 0 ? <AsrDonutChart data={stats!.operations} /> : <div style={{ fontSize: 12, color: 'var(--gray-400)' }}>暂无数据</div>}
+        </div>
+        <div style={{ background: 'var(--bg-card)', borderRadius: 8, padding: 20 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12 }}>近 7 天趋势</div>
+          {(stats?.trend?.length ?? 0) >= 2 ? <AsrLineChart data={stats!.trend} /> : <div style={{ fontSize: 12, color: 'var(--gray-400)' }}>暂无数据</div>}
+        </div>
+      </div>
+
+      {/* Sub-tabs */}
+      <div style={{ display: 'flex', gap: 0, borderBottom: '2px solid var(--border)', marginBottom: 16 }}>
+        {([
+          { key: 'credentials' as const, label: '凭证管理' },
+          { key: 'operations' as const, label: '操作统计' },
+          { key: 'users' as const,       label: '用户排行' },
+        ]).map(tab => (
+          <div key={tab.key} onClick={() => handlePanelSwitch(tab.key)}
+            style={{ padding: '10px 24px', cursor: 'pointer', fontSize: 14, fontWeight: 600,
+              color: activePanel === tab.key ? 'var(--brand)' : 'var(--text-secondary)',
+              borderBottom: activePanel === tab.key ? '2px solid var(--brand)' : 'none', marginBottom: -2 }}>
+            {tab.label}
+          </div>
+        ))}
+        <div style={{ flex: 1 }} />
+        {activePanel === 'credentials' && (
+          <button className="btn btn-primary btn-sm" style={{ alignSelf: 'center' }}
+            onClick={() => { addForm.resetFields(); addForm.setFieldsValue({ weight: 10, region: 'cn-shanghai' }); setAddOpen(true); }}>+ 新增 ASR 凭证</button>
+        )}
+      </div>
+
+      {/* Credential Management sub-tab */}
+      {activePanel === 'credentials' && (
+        <>
+          <div style={{ marginBottom: 12 }}>
+            <span className="filter-count">共 {total} 条</span>
+          </div>
+          {loading ? (
+            <div className="empty-state"><div className="empty-state-text">加载中...</div></div>
+          ) : !data || data.items.length === 0 ? (
+            <div className="empty-state"><div className="empty-state-text">暂无 ASR 凭证</div></div>
+          ) : (
+            <div style={{ background: 'var(--bg-card)', borderRadius: 8, overflow: 'hidden' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                    {['#', '备注', 'AppKey', 'Region', '状态', '权重', '上次测试', '操作'].map(h => (
+                      <th key={h} style={{ padding: '10px 12px', textAlign: h === '操作' ? 'right' : 'left', color: 'var(--gray-500)', fontWeight: 500, fontSize: 12 }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.items.map((c, idx) => {
+                    const cfg = (c.config ?? {}) as AsrConfig;
+                    const appKey = cfg.app_key ?? '';
+                    const maskedAppKey = appKey.length > 8 ? `${appKey.slice(0, 8)}****` : (appKey || '—');
+                    const testTime = c.last_tested_at
+                      ? `${fmtTime(c.last_tested_at)}${c.last_latency_ms != null ? ` · ${c.last_latency_ms}ms` : ''}`
+                      : '—';
+                    return (
+                      <tr key={c.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                        <td style={{ padding: '10px 12px', color: 'var(--gray-400)' }}>{idx + 1}</td>
+                        <td style={{ padding: '10px 12px' }}>{c.label || '—'}</td>
+                        <td style={{ padding: '10px 12px', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{maskedAppKey}</td>
+                        <td style={{ padding: '10px 12px', color: 'var(--gray-500)', fontSize: 12 }}>{cfg.region || '—'}</td>
+                        <td style={{ padding: '10px 12px' }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12 }}>
+                            <span style={{ width: 7, height: 7, borderRadius: '50%', display: 'inline-block', background: statusColor(c.status) }} />
+                            {statusLabel(c.status)}
+                          </span>
+                        </td>
+                        <td style={{ padding: '10px 12px' }}>{c.weight}</td>
+                        <td style={{ padding: '10px 12px', color: 'var(--gray-500)', fontSize: 12 }}>{testTime}</td>
+                        <td style={{ padding: '10px 12px' }}>
+                          <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                            <button className="btn btn-ghost btn-sm" disabled={testingId === c.id} onClick={() => handleTest(c.id)}>
+                              {testingId === c.id ? '测试中...' : '测试'}
+                            </button>
+                            <button className="btn btn-ghost btn-sm" onClick={() => openEdit(c)}>编辑</button>
+                            <Popconfirm title={c.status === 'enabled' ? '确认停用？' : '确认启用？'} okText="确认" cancelText="取消" onConfirm={() => handleToggle(c)}>
+                              <button className="btn btn-ghost btn-sm">{c.status === 'enabled' ? '停用' : '启用'}</button>
+                            </Popconfirm>
+                            <Popconfirm title="确认删除该凭证？" okText="删除" cancelText="取消" okButtonProps={{ danger: true }} onConfirm={() => handleDelete(c.id)}>
+                              <button className="btn btn-danger-ghost btn-sm">删除</button>
+                            </Popconfirm>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Operation Stats sub-tab */}
+      {activePanel === 'operations' && (
+        operations.length === 0 ? <div className="empty-state"><div className="empty-state-text">暂无操作统计数据</div></div>
+        : <div style={{ background: 'var(--bg-card)', borderRadius: 8, overflow: 'hidden' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                  {['操作类型', '调用次数', '占比', '平均延迟', '成功率'].map(h => (
+                    <th key={h} style={{ padding: '10px 12px', textAlign: 'left', color: 'var(--gray-500)', fontWeight: 500, fontSize: 12 }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {operations.map((op, i) => (
+                  <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
+                    <td style={{ padding: '10px 12px' }}>{op.operation}</td>
+                    <td style={{ padding: '10px 12px', fontWeight: 600 }}>{op.calls}</td>
+                    <td style={{ padding: '10px 12px' }}>{op.percentage}%</td>
+                    <td style={{ padding: '10px 12px' }}>{op.avg_latency_ms != null ? `${op.avg_latency_ms}ms` : '—'}</td>
+                    <td style={{ padding: '10px 12px' }}>{op.success_rate != null ? `${(op.success_rate * 100).toFixed(1)}%` : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+      )}
+
+      {/* User Ranking sub-tab */}
+      {activePanel === 'users' && (
+        users.length === 0 ? <div className="empty-state"><div className="empty-state-text">暂无用户调用数据</div></div>
+        : <div style={{ background: 'var(--bg-card)', borderRadius: 8, overflow: 'hidden' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                  {['排名', '用户', '角色', '调用次数', '最近调用'].map(h => (
+                    <th key={h} style={{ padding: '10px 12px', textAlign: 'left', color: 'var(--gray-500)', fontWeight: 500, fontSize: 12 }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {users.map((u, i) => (
+                  <tr key={u.user_id} style={{ borderBottom: '1px solid var(--border)' }}>
+                    <td style={{ padding: '10px 12px', color: 'var(--gray-400)' }}>{i + 1}</td>
+                    <td style={{ padding: '10px 12px' }}>{u.username || `user_${u.user_id}`}</td>
+                    <td style={{ padding: '10px 12px' }}><span className="badge badge-gray">{u.role}</span></td>
+                    <td style={{ padding: '10px 12px', fontWeight: 600 }}>{u.calls}</td>
+                    <td style={{ padding: '10px 12px', color: 'var(--gray-500)', fontSize: 12 }}>{fmtTime(u.last_called_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+      )}
+
+      {/* Add Modal */}
+      <Modal title="新增 ASR 凭证" open={addOpen} onCancel={() => { setAddOpen(false); addForm.resetFields(); }} onOk={() => addForm.submit()} okText="创建" cancelText="取消" confirmLoading={formLoading}>
+        <Form form={addForm} layout="vertical" onFinish={handleAdd} style={{ marginTop: 16 }}>
+          <Form.Item label="备注" name="label" rules={[{ required: true, message: '请输入备注' }]}>
+            <Input placeholder="如 上海生产环境" />
+          </Form.Item>
+          <Form.Item label="AppKey" name="app_key" rules={[{ required: true, message: '请输入 AppKey' }]}>
+            <Input placeholder="阿里云 ISI 项目 AppKey" />
+          </Form.Item>
+          <Form.Item label="AccessKey ID" name="access_key_id" rules={[{ required: true, message: '请输入 AccessKey ID' }]}>
+            <Input placeholder="LTAI..." />
+          </Form.Item>
+          <Form.Item label="AccessKey Secret" name="access_key_secret" rules={[{ required: true, message: '请输入 AccessKey Secret' }]}>
+            <Input.Password placeholder="AccessKey Secret" />
+          </Form.Item>
+          <Form.Item label="Region" name="region" rules={[{ required: true, message: '请选择 Region' }]}>
+            <Select options={ASR_REGIONS} placeholder="选择区域" />
+          </Form.Item>
+          <Form.Item label="权重" name="weight" initialValue={10}>
+            <Input type="number" min={1} />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* Edit Modal */}
+      <Modal title="编辑 ASR 凭证" open={!!editCred} onCancel={() => { setEditCred(null); editForm.resetFields(); }} onOk={() => editForm.submit()} okText="保存" cancelText="取消" confirmLoading={formLoading}>
+        <Form form={editForm} layout="vertical" onFinish={handleEdit} style={{ marginTop: 16 }}>
+          <Form.Item label="备注" name="label" rules={[{ required: true, message: '请输入备注' }]}>
+            <Input />
+          </Form.Item>
+          <Form.Item label="AppKey" name="app_key" rules={[{ required: true, message: '请输入 AppKey' }]}>
+            <Input />
+          </Form.Item>
+          <Form.Item label="AccessKey ID（轮换密钥时填）" name="access_key_id">
+            <Input placeholder="留空 = 不修改" />
+          </Form.Item>
+          <Form.Item label="AccessKey Secret（轮换密钥时填）" name="access_key_secret">
+            <Input.Password placeholder="留空 = 不修改（需与 ID 同时填写）" />
+          </Form.Item>
+          <Form.Item label="Region" name="region" rules={[{ required: true, message: '请选择 Region' }]}>
+            <Select options={ASR_REGIONS} />
+          </Form.Item>
+          <Form.Item label="权重" name="weight">
+            <Input type="number" min={1} />
+          </Form.Item>
+        </Form>
+      </Modal>
+    </div>
+  );
+}
+
 // ── AiConfigTab ───────────────────────────────────────────────────────────────
 function AiConfigTab() {
   const [providerFilter, setProviderFilter] = useState('全部');
@@ -1562,7 +2050,7 @@ export default function ServiceConfigPage() {
   const [editForm] = Form.useForm<UpdateCredentialRequest>();
 
   const load = useCallback(() => {
-    if (provider === 'ai' || provider === 'tikhub') return;
+    if (provider === 'ai' || provider === 'tikhub' || provider === 'asr') return;
     setLoading(true);
     getCredentials(provider || undefined)
       .then(setData)
@@ -1637,7 +2125,7 @@ export default function ServiceConfigPage() {
           <h1 className="page-title">服务配置</h1>
           <p className="page-desc">管理 AI / TikHub / OSS / ASR 等外部服务的 API Key</p>
         </div>
-        {provider !== 'ai' && provider !== 'tikhub' && provider !== 'oss' && (
+        {provider !== 'ai' && provider !== 'tikhub' && provider !== 'oss' && provider !== 'asr' && (
           <div className="page-actions">
             <button className="btn btn-primary" onClick={openCreate}>+ 新增 Key</button>
           </div>
@@ -1654,8 +2142,8 @@ export default function ServiceConfigPage() {
           />
         </div>
 
-        {/* Non-AI/TikHub/OSS content stays inside the card (OSS has its own component) */}
-        {provider !== 'ai' && provider !== 'tikhub' && provider !== 'oss' && (
+        {/* Non-AI/TikHub/OSS/ASR content stays inside the card (OSS/ASR have their own components) */}
+        {provider !== 'ai' && provider !== 'tikhub' && provider !== 'oss' && provider !== 'asr' && (
           <>
             <div className="filter-bar" style={{ paddingTop: 0 }}>
               <span className="filter-count">共 {total} 条</span>
@@ -1701,6 +2189,9 @@ export default function ServiceConfigPage() {
       {/* OSS tab content — 独立组件，含 OSS 专属字段表单和连通性测试 */}
       {provider === 'oss' && <OssConfigTab />}
 
+      {/* ASR tab content — 独立组件，含 ASR 专属字段表单（AppKey + AK + Region）和连通性测试 */}
+      {provider === 'asr' && <AsrConfigTab />}
+
       {/* Modals for non-AI providers */}
       <Modal title="新增 Key" open={createOpen} onCancel={() => { setCreateOpen(false); createForm.resetFields(); }} onOk={() => createForm.submit()} okText="创建" cancelText="取消" confirmLoading={formLoading}>
         <Form form={createForm} layout="vertical" onFinish={handleCreate} style={{ marginTop: 16 }}>
@@ -1709,8 +2200,7 @@ export default function ServiceConfigPage() {
             <Select>
               <Select.Option value="ai">AI</Select.Option>
               <Select.Option value="tikhub">TikHub</Select.Option>
-              {/* OSS 已有独立 Tab，不再在通用 Modal 创建 */}
-              <Select.Option value="asr">ASR</Select.Option>
+              {/* OSS / ASR 已有独立 Tab，不再在通用 Modal 创建 */}
             </Select>
           </Form.Item>
           <Form.Item label="API Key" name="api_key" rules={[{ required: true, message: '请输入 API Key' }]}><Input.Password /></Form.Item>

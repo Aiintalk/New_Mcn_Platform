@@ -1,6 +1,6 @@
 # MCN_PM_Agent — 项目记忆与当前状态（M2）
 
-> 最后更新：2026-06-22（OSS 使用显示完整对齐 TikHub：建 oss_call_logs 表 + adapter 写日志 + 3 个统计接口 + files.py 造调用场景 + 前端 OSS Tab 4 卡片+2 图表+3 子 Tab 完整 UI 复刻 + 14 单测/10 集测/12 前端测全绿）
+> 最后更新：2026-06-22（ASR 完整方案：建 asr_call_logs 表 + adapter 3 函数 + 3 个统计接口 + 测试端点扩 OSS+ASR 双分支 + 前端 ASR Tab 4 卡+2 图+3 子 Tab 完整 UI + 16 单测/10 集测/4 凭证测试/12 前端测全绿）
 > 更新角色：MCN_PM_Agent
 > 上一份文档：`docs/pm/PM_记忆与状态.md`（M1 阶段，已归档）
 
@@ -9,7 +9,7 @@
 ## 一、项目基本信息
 
 - **项目名**：MCN Information System Platform
-- **当前阶段**：M2 阶段 — OSS 使用显示完整对齐 TikHub 完成（feature/oss-adapter 待 push），下一个 Sprint 候选：TikHub 日志 bug 修复 / 凭证加密 / ASR 独立 Tab
+- **当前阶段**：M2 阶段 — ASR 完整方案完成（PR #4 已提交待合并），下一个 Sprint 候选：tool_transcribe 切到 ASR / TikHub 日志 bug 修复 / 凭证加密
 - **GitHub**：https://github.com/Aiintalk/New_Mcn_Platform
 - **工作目录**：`D:\2026年工作\AI相关\AI工具箱新架构方案\mcn-platform`（Windows 本地）
 - **后端**：`backend/`（FastAPI + PostgreSQL）
@@ -27,14 +27,55 @@
 
 ## 二、M2 阶段（当前）
 
-### M2 工作项 — OSS 使用显示完整对齐 TikHub ✅ 完成（待 push）
+### M2 工作项 — ASR 完整方案（阿里云智能语音交互）✅ 完成（PR #4 已提交待合并）
+
+**核心定位**：ASR（录音文件识别）完整方案，完全复刻 OSS Tab 的架构与 UI 范式。服务商：阿里云智能语音交互（`filetrans.cn-shanghai.aliyuncs.com`，POP RPC 风格）。`tool_transcribe.py` **不改**（继续用云雾 Whisper），ASR 作为独立功能模块。
+
+| 端 | 状态 | 备注 |
+|----|------|------|
+| Migration 029 | ✅ 完成 | `asr_call_logs` 表（credential_id / user_id / operation=submit/query / status / latency_ms / task_id / audio_url / error_message）+ 5 个索引 |
+| ORM 模型 | ✅ 完成 | `AsrCallLog`（新建）；同时补注册 `OssCallLog`（之前 __init__.py 漏了）|
+| ASR adapter | ✅ 完成 | `app/adapters/asr.py`：3 公开函数（submit_transcription / query_transcription / transcribe）+ 5 内部 helper（_make_domain / _make_client / _build_submit_request / _build_query_request / _get_asr_credential）；POP RPC + CommonRequest；transcribe 内部轮询（10s × 600s）|
+| 后端统计接口 | ✅ 完成 | `app/routers/admin_asr.py`：GET /stats + /operations + /users，参照 admin_oss.py |
+| 测试端点扩展 | ✅ 完成 | `admin_credentials.py::test_credential` 加 ASR 分支：调 `GetTaskResult` 用固定 probe TaskId（必返回 41050010 TASK_EXPIRED，只要不抛认证异常即连通 OK）；不依赖测试音频；提取 `_record_test_outcome` 辅助函数消除重复 |
+| Router 注册 | ✅ 完成 | `app/main.py` include admin_asr_router |
+| 依赖 | ✅ 完成 | `requirements.txt` 加 `aliyun-python-sdk-core>=2.13.12`（与 oss2 兼容下限）|
+| 前端 API 模块 | ✅ 完成 | `frontend/src/api/asr.ts`：3 统计函数 + 类型定义（实际 CRUD 走通用 credentials.ts）|
+| 前端 ASR Tab | ✅ 完成 | `ServiceConfigPage.tsx` 中 AsrConfigTab 完整组件：4 紫色统计卡 + AsrDonutChart + AsrLineChart + 3 子 Tab + AppKey/AccessKey ID/AccessKey Secret/Region 表单（紫色 #722ED1 与 OSS 蓝区分）|
+| 前端通用 Modal 剥离 | ✅ 完成 | 通用"新增 Key"Modal 去掉 ASR Option（与 OSS 一样走独立 Tab）|
+| 单元测试 | ✅ 16/16 | `test_asr_adapter.py`：4 submit + 2 query + 4 transcribe + 3 日志写入 + 3 凭证解析边界 |
+| 集成测试 | ✅ 10/10 | `test_admin_asr.py`：4 权限 + 2 stats + 2 operations + 2 users |
+| 凭证测试 | ✅ 4/4 | `test_credentials.py::TestTestCredential` 加 ASR 分支：ok / failure / missing_app_key / invalid_secret_format |
+| 前端测试 | ✅ 12/12 | `AsrConfigTab.test.tsx`：4 卡渲染、统计值显示、饼图、折线图、3 子 Tab、子 Tab 切换加载、AppKey 脱敏、新增表单字段、api_key 拼接（id\nsecret）、测试按钮 |
+| 文档同步 | ✅ 完成 | `MCN_M2_Base_API.md` 加 §10B ASR；`MCN_M2_Base_Database.md` 加 §24 asr_call_logs；前后端 README 同步 |
+
+**关键设计点：**
+- ASR `secret_enc` 格式：`"access_key_id\naccess_key_secret"`（两行，与 OSS 单一 secret 不同）
+- ASR `config` 字段：`{app_key, region}`（region 默认 `cn-shanghai`，支持 `cn-beijing` / `cn-shenzhen`）
+- `operation` 分类：`submit`（提交任务）/ `query`（查询结果）—— 每次完整 ASR 调用产生 2 条日志
+- `transcribe()` 不写日志（它只是 submit + query 的组合；由两个子调用各自写）
+- 测试端点不调 SubmitTask（避免依赖测试音频文件），改调 `GetTaskResult` 用固定 probe TaskId——简单可靠
+- 前端 AsrConfigTab 用通用 credentials.ts 做 CRUD，只在测试按钮上动态 import testOssCredential（后端该端点已按 provider 分支）
+- 前端表格列：AppKey 前 8 位 + `****` 脱敏
+- 前端紫色主题（#722ED1）与 OSS 蓝色（#1890FF）视觉区分
+
+**不在本次范围（留后续独立任务）：**
+- **tool_transcribe 改造**：现在继续用云雾 Whisper。改造为 ASR（或凭证池路由）作为后续任务
+- **TikHub adapter 日志写入 bug**：Sprint 11 OSS 任务时发现的，独立修复
+- **service_credentials.secret_enc 加密**：Sprint 3 债务。ASR 的 `access_key_id\naccess_key_secret` 同样明文（继承债务）
+- **service_credentials 软删改造**：Sprint 3 债务
+- **ASR 业务集成**：把 tool_transcribe 调用方（千川剪辑预审、TT 复盘）切到 ASR
+
+---
+
+### M2 工作项 — OSS 使用显示完整对齐 TikHub ✅ 完成（已合并到 main，PR #3）
 
 **核心定位**：让 OSS Tab 的"使用显示"完全对齐 TikHub Tab——4 张统计卡片 + 2 张图表 + 3 个子 Tab + 凭证列表含使用数据。**关键发现**：OSS adapter 此前无任何 router 调用（统计永远是 0），必须造调用场景（改造 files.py）；TikHub adapter 自身也有 bug 不写日志（统计数字也不准，留作独立任务）。
 
 | 端 | 状态 | 备注 |
 |----|------|------|
-| Migration 026 | ✅ 完成 | `oss_call_logs` 表（credential_id / user_id / operation / status / latency_ms / oss_key / error_message）+ 5 个索引 |
-| Migration 027 | ✅ 完成 | `service_credentials` 加 `last_tested_at` / `last_latency_ms` 字段（通用，ASR/AI 也能用）|
+| Migration 027 | ✅ 完成 | `oss_call_logs` 表（credential_id / user_id / operation / status / latency_ms / oss_key / error_message）+ 5 个索引 |
+| Migration 028 | ✅ 完成 | `service_credentials` 加 `last_tested_at` / `last_latency_ms` 字段（通用，ASR/AI 也能用）|
 | ORM 模型 | ✅ 完成 | `OssCallLog`（新建）+ `ServiceCredential` 扩 2 字段 |
 | OSS adapter | ✅ 完成 | 3 函数（upload_file/get_download_url/delete_file）finally 块写 OssCallLog + commit，支持 user_id 参数 |
 | 后端统计接口 | ✅ 完成 | `app/routers/admin_oss.py`：GET /stats + /operations + /users，参照 admin_tikhub.py，SQL 字段名 endpoint→operation，无 platform 维度 |
@@ -66,7 +107,7 @@
 
 ---
 
-### M2 工作项 — OSS 配置前端 UI 完善 ✅ 完成（待 push）
+### M2 工作项 — OSS 配置前端 UI 完善 ✅ 完成（已合并到 main，PR #3）
 
 **核心定位**：补齐 OSS 配置的端到端能力。后端 adapter 早已接通，但前端 OSS Tab 此前套用通用凭证模型（缺 AccessKey ID/Bucket/Endpoint 字段、测试按钮误调 AI Key 接口、编辑表单只能改 label/weight），本次参照 TikHub Tab 模式做独立组件 + 后端连通性测试端点。
 
@@ -95,7 +136,7 @@
 
 ---
 
-### M2 工作项 — 阿里云 OSS Adapter 后端接通 ✅ 完成（待 push）
+### M2 工作项 — 阿里云 OSS Adapter 后端接通 ✅ 完成（已合并到 main，PR #3）
 
 **核心定位**：把 `app/adapters/oss.py` 从 M1 起的 Mock 占位（`get_download_url` 返回假 URL，`upload_file` 抛 NotImplementedError）替换为真实接通阿里云 OSS 的实现。**仅后端接通，凭证由用户后续配置**，files router 上传接口、管理端 OSS 面板、存储统计等留后续。
 

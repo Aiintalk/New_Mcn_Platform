@@ -24,28 +24,7 @@
 | `qianchuan_edit_review_configs` | 千川剪辑预审 AI 配置（Prompt + 模型） | Sprint 7 |
 
 > 各工具的产出记录统一复用 `outputs` 和 `task_jobs`，不单独建产出表。
-
----
-
-## 1a. M2 迁移文件清单
-
-| 迁移文件 | Sprint | 操作说明 |
-|---------|--------|---------|
-| `007_benchmark.sql` | Sprint 3 | 新建 benchmark_configs、benchmark_analyses 表 |
-| `008_tikhub_credentials.sql` | Sprint 3 | 新建 tikhub_credentials 表 |
-| `009_persona_reports.sql` | Sprint 3 | 新建 persona_reports 表 |
-| `010_tikhub_call_logs.sql` | Sprint 3 | 新建 tikhub_call_logs 表 |
-| `011_workspace_tools.sql` | Sprint 3 | 初始化 workspace_tools 表及各工具入口 |
-| `014_tiktok_writer_workspace.sql` | Sprint 4 | workspace_tools 注册 tiktok-writer |
-| `015_selling_point_configs.sql` | Sprint 5 | 新建 selling_point_configs 表，注册 selling-point-extractor |
-| `016_qianchuan_review.sql` | Sprint 6 | workspace_tools 注册 qianchuan-review，status=online |
-| `017_tiktok_writer_configs.sql` | Sprint 4 | 新建 tiktok_writer_configs 表（TikTok 脚本仿写 Prompt 配置）|
-| `018_qianchuan_review_configs.sql` | Sprint 6 | 新建 qianchuan_review_configs 表（管理端 Prompt 配置）|
-| `019_qianchuan_edit_review.sql` | Sprint 7 | workspace_tools 注册 qianchuan-edit-review，status=online |
-| `020_qianchuan_edit_review_configs.sql` | Sprint 7 | 新建 qianchuan_edit_review_configs 表（千川剪辑预审 Prompt 配置）|
-| `021_livestream_writer.sql` | Sprint 8 | 新建 livestream_writer_configs 表，注册 livestream-writer（status=dev）|
-| `022_livestream_review.sql` | Sprint 9 | 新建 livestream_review_configs 表，注册 livestream-review（status=dev）|
-| `023_persona_review.sql` | Sprint 10 | 新建 persona_review_configs 表，注册 persona-review（status=dev）|
+> 迁移文件清单见 §11（M2 数据迁移脚本，完整 006~029）。
 
 ---
 
@@ -355,8 +334,20 @@ CREATE INDEX idx_tikhub_call_logs_created ON tikhub_call_logs(created_at DESC);
 | `013_benchmark.sql` | benchmark_configs + benchmark_analyses 表 + 初始 Prompt + workspace_tools 注册（tool_code=`benchmark`） | Sprint 3 |
 | `014_tiktok_writer.sql` | workspace_tools 注册（tool_code=`tiktok-writer`，status=`dev`） | Sprint 4 |
 | `015_selling_point_extractor.sql` | selling_point_configs 表 + 初始 Prompt + workspace_tools 注册（tool_code=`selling-point-extractor`） | Sprint 5 |
-| `026_oss_call_logs.sql` | oss_call_logs 表（OSS 调用日志） | Sprint 4+ |
-| `027_service_credentials_test_fields.sql` | service_credentials 加 last_tested_at / last_latency_ms 字段 | Sprint 4+ |
+| `016_qianchuan_review.sql` | workspace_tools 注册（tool_code=`qianchuan-review`） | Sprint 6 |
+| `017_tiktok_writer_configs.sql` | tiktok_writer_configs 表（Prompt + 模型配置） | Sprint 4 |
+| `018_qianchuan_review_configs.sql` | qianchuan_review_configs 表（Prompt + 模型配置） | Sprint 6 |
+| `019_qianchuan_edit_review.sql` | workspace_tools 注册（tool_code=`qianchuan-edit-review`） | Sprint 7 |
+| `020_qianchuan_edit_review_configs.sql` | qianchuan_edit_review_configs 表（Prompt + 模型配置） | Sprint 7 |
+| `021_livestream_writer.sql` | livestream_writer_configs 表 + workspace_tools 注册（tool_code=`livestream-writer`） | Sprint 8 |
+| `022_livestream_review.sql` | livestream_review_configs 表 + workspace_tools 注册（tool_code=`livestream-review`） | Sprint 9 |
+| `023_persona_review.sql` | persona_review_configs 表 + workspace_tools 注册（tool_code=`persona-review`） | Sprint 10 |
+| `024_qianchuan_preview.sql` | qianchuan_preview_configs 表 + workspace_tools 注册（tool_code=`qianchuan-preview`） | Sprint 11 |
+| `025_qianchuan_collection.sql` | qianchuan_collection_groups + qianchuan_collection_scripts 表 + 种子数据 + workspace_tools 注册 | Sprint 12 |
+| `026_tiktok_review.sql` | tiktok_review_configs 表 + workspace_tools 注册（tool_code=`tiktok-review`） | Sprint 13 |
+| `027_oss_call_logs.sql` | oss_call_logs 表（OSS 调用日志） | Sprint 4+ |
+| `028_service_credentials_test_fields.sql` | service_credentials 加 last_tested_at / last_latency_ms 字段 | Sprint 4+ |
+| `029_asr_call_logs.sql` | asr_call_logs 表（ASR 调用日志） | Sprint 4+ |
 
 ---
 
@@ -708,3 +699,54 @@ CREATE INDEX idx_oss_call_logs_created_at ON oss_call_logs(created_at DESC);
 ALTER TABLE service_credentials ADD COLUMN IF NOT EXISTS last_tested_at  TIMESTAMPTZ;
 ALTER TABLE service_credentials ADD COLUMN IF NOT EXISTS last_latency_ms INTEGER;
 ```
+
+---
+
+## 24. asr_call_logs ASR 调用日志（Sprint 4+）
+
+### 24.1 用途
+
+记录每次 ASR（阿里云智能语音交互 — 录音文件识别）调用的详细信息。由 `app/adapters/asr.py` 在 `finally` 块写入（与 `oss_call_logs` / `yunwu.AiCallLog` 同模式）。
+
+### 24.2 字段说明
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | BIGSERIAL | 是 | 日志 ID |
+| `credential_id` | BIGINT | 否 | 关联 `service_credentials.id`（ON DELETE SET NULL） |
+| `user_id` | BIGINT | 否 | 调用用户（系统调用时为 NULL，ON DELETE SET NULL） |
+| `operation` | VARCHAR(16) | 是 | 操作类型：`submit`（提交任务）/ `query`（查询结果） |
+| `status` | VARCHAR(32) | 是 | 调用状态：`success` / `fail` |
+| `latency_ms` | INTEGER | 否 | 响应延迟（ms） |
+| `task_id` | TEXT | 否 | 阿里云 ASR 任务 ID（SubmitTask 返回） |
+| `audio_url` | TEXT | 否 | 输入音频 URL（仅 submit 记录，query 无） |
+| `error_message` | TEXT | 否 | 失败时的错误信息（前 500 字符） |
+| `created_at` | TIMESTAMPTZ | 是 | 创建时间（默认 NOW()） |
+
+### 24.3 索引
+
+```sql
+CREATE INDEX idx_asr_call_logs_credential ON asr_call_logs(credential_id);
+CREATE INDEX idx_asr_call_logs_user       ON asr_call_logs(user_id);
+CREATE INDEX idx_asr_call_logs_operation  ON asr_call_logs(operation);
+CREATE INDEX idx_asr_call_logs_status     ON asr_call_logs(status);
+CREATE INDEX idx_asr_call_logs_created_at ON asr_call_logs(created_at DESC);
+```
+
+### 24.4 写入位置
+
+- `app/adapters/asr.py::submit_transcription` — operation='submit'（带 audio_url）
+- `app/adapters/asr.py::query_transcription` — operation='query'（带 task_id，无 audio_url）
+- `app/adapters/asr.py::transcribe` — 不直接写日志（由 submit + query 两次子调用各自记录）
+
+两个函数都在 `finally` 块写日志 + commit，确保成功/失败都留痕。
+
+### 24.5 凭证字段约定
+
+`service_credentials` 中 provider='asr' 的凭证：
+- `config`：`{"app_key": "项目AppKey", "region": "cn-shanghai|cn-beijing|cn-shenzhen"}`
+- `secret_enc`：`"access_key_id\naccess_key_secret"`（两行，与 OSS 单一 secret 不同）
+
+### 24.6 迁移文件
+
+`029_asr_call_logs.sql`

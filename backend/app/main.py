@@ -29,6 +29,7 @@ from app.routers.operator_intake_direct import router as operator_intake_direct_
 from app.routers.persona import router as persona_router
 from app.routers.admin_tikhub import router as admin_tikhub_router
 from app.routers.admin_oss import router as admin_oss_router
+from app.routers.admin_asr import router as admin_asr_router
 from app.routers.operator_benchmark import router as operator_benchmark_router
 from app.routers.admin_benchmark import router as admin_benchmark_router
 from app.routers.operator_tiktok_writer import router as operator_tiktok_writer_router
@@ -133,6 +134,7 @@ app.include_router(operator_intake_direct_router, prefix="/api")
 app.include_router(persona_router)
 app.include_router(admin_tikhub_router, prefix="/api")
 app.include_router(admin_oss_router, prefix="/api")
+app.include_router(admin_asr_router, prefix="/api")
 app.include_router(operator_benchmark_router, prefix="/api")
 app.include_router(admin_benchmark_router, prefix="/api")
 app.include_router(operator_tiktok_writer_router, prefix="/api")

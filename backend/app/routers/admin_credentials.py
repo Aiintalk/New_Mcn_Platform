@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from sqlalchemy import delete, select, update
 
 from app.adapters.oss import _make_bucket
+from app.adapters.asr import _make_client as _make_asr_client, _build_query_request as _build_asr_query_request
 from app.core.database import AsyncSessionLocal
 from app.core.response import ApiResponse, ErrorCode, error_response, success_response
 from app.middlewares.auth import require_admin
@@ -322,6 +323,39 @@ async def disable_credential(
 # POST /api/admin/config/credentials/{credential_id}/test — 测试连通性（当前仅 OSS）
 # ---------------------------------------------------------------------------
 
+async def _record_test_outcome(
+    credential_id: int,
+    current_user: User,
+    request: Request,
+    status: str,
+    latency_ms: int,
+    provider: str,
+    error_msg: str = "",
+):
+    """共用：测试完成后写 service_credentials.last_tested_at + OperationLog。"""
+    async with AsyncSessionLocal() as session:
+        await session.execute(
+            update(ServiceCredential)
+            .where(ServiceCredential.id == credential_id)
+            .values(last_tested_at=datetime.now(timezone.utc), last_latency_ms=latency_ms)
+        )
+        detail = {"status": status, "latency_ms": latency_ms, "provider": provider}
+        if error_msg:
+            detail["error"] = error_msg
+        session.add(OperationLog(
+            user_id=current_user.id,
+            username=current_user.username,
+            role=current_user.role,
+            action="test_credential",
+            target_type="credential",
+            target_id=credential_id,
+            detail=detail,
+            ip=_get_ip(request),
+            user_agent=request.headers.get("user-agent"),
+        ))
+        await session.commit()
+
+
 @router.post("/admin/config/credentials/{credential_id}/test", response_model=ApiResponse)
 async def test_credential(
     credential_id: int,
@@ -329,12 +363,19 @@ async def test_credential(
     current_user: User = Depends(require_admin),
 ):
     """
-    测试凭证连通性（当前仅支持 OSS）。
+    测试凭证连通性（OSS / ASR）。
+
+    OSS：调 bucket.get_bucket_info（轻量）。
+    ASR：调 GetTaskResult 用测试 TaskId（必返回业务错误如 41050010，
+         但只要不抛认证/签名异常，就认为连通性 OK）。
 
     响应 data 结构（业务失败也走 success 信封，状态在 data.status）：
-      {"status": "ok",     "latency_ms": 123, "bucket": "...", "location": "...", "creation_date": "..."}
-      {"status": "error",  "latency_ms": 123, "error": "..."}
+      OSS 成功：{"status": "ok", "latency_ms": 123, "bucket": "...", "location": "...", "creation_date": "..."}
+      ASR 成功：{"status": "ok", "latency_ms": 123, "status_text": "...", "status_code": ...}
+      失败：    {"status": "error", "latency_ms": 123, "error": "..."}
     """
+    import json as _json
+
     async with AsyncSessionLocal() as session:
         cred = (await session.execute(
             select(ServiceCredential).where(ServiceCredential.id == credential_id)
@@ -342,80 +383,89 @@ async def test_credential(
         if cred is None:
             return error_response(ErrorCode.RESOURCE_NOT_FOUND, "密钥不存在")
 
-        if cred.provider != "oss":
+        if cred.provider not in ("oss", "asr"):
             return error_response(
                 ErrorCode.VALIDATION_ERROR,
-                f"测试接口当前仅支持 OSS 凭证，got provider={cred.provider}",
+                f"测试接口仅支持 OSS/ASR 凭证，got provider={cred.provider}",
             )
 
+        # 解析凭证字段（在 session 内取，在 session 外调用）
         config = cred.config or {}
-        access_key_id = config.get("access_key_id")
-        bucket_name = config.get("bucket")
-        endpoint = config.get("endpoint")
-        if not (access_key_id and bucket_name and endpoint):
-            return error_response(
-                ErrorCode.VALIDATION_ERROR,
-                "OSS 凭证 config 缺少 access_key_id/bucket/endpoint",
-            )
+        provider = cred.provider
+        secret_enc = cred.secret_enc or ""
 
-        access_key_secret = cred.secret_enc
+        if provider == "oss":
+            access_key_id = config.get("access_key_id")
+            bucket_name = config.get("bucket")
+            endpoint = config.get("endpoint")
+            if not (access_key_id and bucket_name and endpoint):
+                return error_response(
+                    ErrorCode.VALIDATION_ERROR,
+                    "OSS 凭证 config 缺少 access_key_id/bucket/endpoint",
+                )
+            access_key_secret = secret_enc
+            oss_params = (access_key_id, access_key_secret, endpoint, bucket_name)
+        else:  # asr
+            app_key = config.get("app_key")
+            if not app_key:
+                return error_response(
+                    ErrorCode.VALIDATION_ERROR,
+                    "ASR 凭证 config 缺少 app_key",
+                )
+            parts = secret_enc.split("\n", 1)
+            if len(parts) != 2 or not parts[0] or not parts[1]:
+                return error_response(
+                    ErrorCode.VALIDATION_ERROR,
+                    "ASR secret_enc 格式错误（需 'access_key_id\\naccess_key_secret'）",
+                )
+            region = config.get("region", "cn-shanghai")
+            asr_params = (parts[0], parts[1], region)
 
-    # OSS 调用（在数据库 session 外，避免阻塞连接池）
+    # 外部调用（在 DB session 外，避免阻塞连接池）
     start = time.monotonic()
     try:
-        bucket = _make_bucket(access_key_id, access_key_secret, endpoint, bucket_name)
-        info = await asyncio.to_thread(bucket.get_bucket_info)
-        latency_ms = int((time.monotonic() - start) * 1000)
-
-        async with AsyncSessionLocal() as session:
-            await session.execute(
-                update(ServiceCredential)
-                .where(ServiceCredential.id == credential_id)
-                .values(last_tested_at=datetime.now(timezone.utc), last_latency_ms=latency_ms)
+        if provider == "oss":
+            ak_id, ak_secret, endpoint, bucket_name = oss_params
+            bucket = _make_bucket(ak_id, ak_secret, endpoint, bucket_name)
+            info = await asyncio.to_thread(bucket.get_bucket_info)
+            latency_ms = int((time.monotonic() - start) * 1000)
+            await _record_test_outcome(
+                credential_id, current_user, request,
+                status="ok", latency_ms=latency_ms, provider="oss",
             )
-            session.add(OperationLog(
-                user_id=current_user.id,
-                username=current_user.username,
-                role=current_user.role,
-                action="test_credential",
-                target_type="credential",
-                target_id=credential_id,
-                detail={"status": "ok", "latency_ms": latency_ms, "provider": "oss"},
-                ip=_get_ip(request),
-                user_agent=request.headers.get("user-agent"),
-            ))
-            await session.commit()
-
-        return success_response(data={
-            "status": "ok",
-            "latency_ms": latency_ms,
-            "bucket": info.name,
-            "location": info.location,
-            "creation_date": info.creation_date,
-        })
+            return success_response(data={
+                "status": "ok",
+                "latency_ms": latency_ms,
+                "bucket": info.name,
+                "location": info.location,
+                "creation_date": info.creation_date,
+            })
+        else:  # asr
+            ak_id, ak_secret, region = asr_params
+            client = _make_asr_client(ak_id, ak_secret, region)
+            # 用一个固定测试 TaskId 调 GetTaskResult
+            # 预期返回业务错误（如 41050010 TASK_EXPIRED），但不抛认证异常
+            req = _build_asr_query_request("test-connectivity-probe-task-id")
+            resp_bytes = await asyncio.to_thread(client.do_action_with_exception, req)
+            parsed = _json.loads(resp_bytes)
+            latency_ms = int((time.monotonic() - start) * 1000)
+            await _record_test_outcome(
+                credential_id, current_user, request,
+                status="ok", latency_ms=latency_ms, provider="asr",
+            )
+            return success_response(data={
+                "status": "ok",
+                "latency_ms": latency_ms,
+                "status_text": parsed.get("StatusText", ""),
+                "status_code": parsed.get("StatusCode"),
+            })
     except Exception as e:
         latency_ms = int((time.monotonic() - start) * 1000)
         err_msg = str(e)[:200]
-
-        async with AsyncSessionLocal() as session:
-            await session.execute(
-                update(ServiceCredential)
-                .where(ServiceCredential.id == credential_id)
-                .values(last_tested_at=datetime.now(timezone.utc), last_latency_ms=latency_ms)
-            )
-            session.add(OperationLog(
-                user_id=current_user.id,
-                username=current_user.username,
-                role=current_user.role,
-                action="test_credential",
-                target_type="credential",
-                target_id=credential_id,
-                detail={"status": "error", "latency_ms": latency_ms, "error": err_msg},
-                ip=_get_ip(request),
-                user_agent=request.headers.get("user-agent"),
-            ))
-            await session.commit()
-
+        await _record_test_outcome(
+            credential_id, current_user, request,
+            status="error", latency_ms=latency_ms, provider=provider, error_msg=err_msg,
+        )
         return success_response(data={
             "status": "error",
             "latency_ms": latency_ms,

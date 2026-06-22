@@ -570,6 +570,98 @@ Response data 结构：
 
 ---
 
+## 10B. ASR 凭证与调用统计接口（Sprint 4+）
+
+> 路由文件：`backend/app/routers/admin_asr.py`（统计）+ `backend/app/routers/admin_credentials.py`（凭证 CRUD，通用）
+>
+> 权限：`admin`（`require_admin`）。
+>
+> 说明：ASR（阿里云智能语音交互 — 录音文件识别）复用通用 `service_credentials` 表（provider='asr'）。
+> ASR 调用日志由 adapter（`app/adapters/asr.py`）在 finally 块写入 `asr_call_logs` 表。
+
+### 10B.1 统计
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/admin/asr/stats` | 三维统计：overview（总调用/今日/平均延迟/活跃凭证数）+ operations[]（按 submit/query 聚合）+ users[]（TOP10）+ trend[]（近 7 天） |
+
+Response data 结构：
+```json
+{
+  "overview": {
+    "total_calls": 2345,
+    "today_calls": 78,
+    "avg_latency_ms": 210.5,
+    "active_keys": 2,
+    "total_keys": 4
+  },
+  "operations": [
+    { "operation": "submit", "calls": 1800, "percentage": 76.8 }
+  ],
+  "users": [
+    { "user_id": 1, "username": "admin", "calls": 120 }
+  ],
+  "trend": [
+    { "date": "06-15", "calls": 40 }
+  ]
+}
+```
+
+### 10B.2 操作统计
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/admin/asr/operations` | 按 operation 聚合：calls / percentage / avg_latency_ms / success_rate |
+
+### 10B.3 用户排行
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/admin/asr/users` | 按用户聚合：user_id / username / role / calls / last_called_at（支持 start_date / end_date / limit 参数） |
+
+### 10B.4 ASR 凭证 CRUD（复用通用凭证接口）
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/admin/config/credentials?provider=asr` | 凭证列表（分页） |
+| POST | `/api/admin/config/credentials` | 新增 ASR 凭证（provider='asr', config={app_key, region}, api_key="access_key_id\naccess_key_secret"） |
+| PATCH | `/api/admin/config/credentials/{id}` | 编辑凭证（含密钥轮换：同时填 AccessKey ID + Secret 才生效） |
+| DELETE | `/api/admin/config/credentials/{id}` | 删除凭证（物理删除） |
+| POST | `/api/admin/config/credentials/{id}/test` | 测试连通性（调 GetTaskResult 用 probe TaskId，不依赖测试音频；保存 last_tested_at + last_latency_ms） |
+| POST | `/api/admin/config/credentials/{id}/enable` | 启用 |
+| POST | `/api/admin/config/credentials/{id}/disable` | 停用 |
+
+### 10B.5 凭证 config / api_key 字段格式
+
+```json
+{
+  "provider": "asr",
+  "label": "上海生产环境",
+  "api_key": "LTAIabcd1234\nsecret5678",
+  "weight": 10,
+  "config": {
+    "app_key": "阿里云 ISI 项目 AppKey",
+    "region": "cn-shanghai"
+  }
+}
+```
+
+`api_key` 用 `\n` 分隔 AccessKey ID 和 Secret（与 OSS 单一 secret 不同）。region 支持：`cn-shanghai`（默认）/ `cn-beijing` / `cn-shenzhen`。
+
+### 10B.6 测试端点行为
+
+为避免依赖测试音频文件，ASR 测试端点调用 `GetTaskResult` 用一个固定 probe TaskId（`test-connectivity-probe-task-id`），阿里云必返回业务错误（如 `41050010 TASK_EXPIRED`）。只要不抛认证/签名异常，就认为连通性 OK：
+
+```json
+// 成功
+{ "status": "ok", "latency_ms": 120, "status_text": "FILE_TRANS_TASK_EXPIRED", "status_code": 41050010 }
+
+// 失败（凭证/签名错误）
+{ "status": "error", "latency_ms": 80, "error": "InvalidAccessKeyId..." }
+```
+
+---
+
 ## 11. M2 错误码补充（Sprint 3）
 
 | HTTP 状态 | code | 含义 |

@@ -9,12 +9,12 @@
 ```
 frontend/
 ├── src/                               # 源码
-│   ├── api/                           # API 调用层（25 个模块）
+│   ├── api/                           # API 调用层（30 个模块）
 │   │   ├── request.ts                 #   基础封装（get/post/patch/put/del + 拦截器）
 │   │   ├── auth.ts                    #   登录、改密码
 │   │   ├── users.ts                   #   用户管理
 │   │   ├── kols.ts                    #   红人管理
-│   │   ├── credentials.ts             #   凭证池管理（OSS/AI/TikHub/ASR）：CRUD + 启停 + OSS 连通性测试
+│   │   ├── credentials.ts             #   凭证池管理（OSS/AI/TikHub/ASR）：CRUD + 启停 + OSS/ASR 连通性测试（通用 /credentials/{id}/test 端点，按 provider 分支）
 │   │   ├── workspace.ts              #   工作空间配置
 │   │   ├── intake.ts                  #   入驻问卷（运营端）
 │   │   ├── intakeDirect.ts            #   入驻问卷（运营直发）
@@ -27,6 +27,7 @@ frontend/
 │   │   ├── ai.ts                      #   AI 服务管理
 │   │   ├── tikhub.ts                  #   TikHub 管理
 │   │   ├── oss.ts                     #   OSS 统计（stats/operations/users）+ OSS 凭证 CRUD
+│   │   ├── asr.ts                     #   ASR 统计（stats/operations/users）+ ASR 凭证 CRUD 类型（实际 CRUD 走通用 credentials.ts）
 │   │   ├── persona.ts                 #   人格定位
 │   │   ├── benchmark.ts               #   对标分析
 │   │   ├── tiktokWriter.ts            #   TikTok 脚本仿写
@@ -41,11 +42,11 @@ frontend/
 │   │   ├── OperatorLayout.tsx         #   运营端布局（左侧菜单 + 内容区）
 │   │   └── AuthLayout.tsx             #   登录/注册页布局
 │   ├── pages/                         # 页面组件
-│   │   ├── admin/                     #   管理端（20 个：13 页面 + 7 ConfigTab）
+│   │   ├── admin/                     #   管理端（22 个：14 页面 + 8 ConfigTab）
 │   │   │   ├── KolsPage.tsx           #     红人管理
 │   │   │   ├── UsersPage.tsx          #     用户管理
 │   │   │   ├── AiManagementPage.tsx   #     AI 密钥/模型管理
-│   │   │   ├── ServiceConfigPage.tsx  #     工具配置：AI / TikHub / OSS / ASR 凭证池（OSS Tab 完整对齐 TikHub：4 张统计卡 + 操作分布饼图 + 7 天趋势折线图 + 3 子 Tab 凭证管理/操作统计/用户排行 + AccessKey ID/Secret/Bucket/Endpoint 完整表单 + 连通性测试）
+│   │   │   ├── ServiceConfigPage.tsx  #     工具配置：AI / TikHub / OSS / ASR 凭证池（OSS / ASR Tab 完整对齐 TikHub：4 张统计卡 + 操作分布饼图 + 7 天趋势折线图 + 3 子 Tab 凭证管理/操作统计/用户排行；OSS 表单=AccessKey ID/Secret/Bucket/Endpoint，ASR 表单=AppKey/AccessKey ID/Secret/Region；均含连通性测试）
 │   │   │   ├── WorkspaceConfigPage.tsx #    工作空间配置
 │   │   │   ├── AdminIntakePage.tsx    #     入驻问卷管理
 │   │   │   ├── AdminTasksPage.tsx     #     任务管理
@@ -92,7 +93,7 @@ frontend/
 │   ├── styles/                        # 全局样式
 │   │   ├── variables.css              #   CSS 变量（品牌色、字号、间距）
 │   │   └── admin.css                  #   管理端/运营端共享样式
-│   ├── types/                         # TypeScript 类型定义（17 个模块）
+│   ├── types/                         # TypeScript 类型定义（20 个模块）
 │   │   ├── api.ts                     #   ApiResponse<T> / PagedData<T>
 │   │   ├── user.ts                    #   UserInfo
 │   │   ├── kol.ts                     #   KolInfo
@@ -129,7 +130,7 @@ frontend/
 │   ├── tests/                         #   测试报告
 │   │   ├── MCN_Frontend_Test_Task_M1M2.md              #  前端测试任务单
 │   │   └── MCN_Frontend_Test_Fix_Report_2026-06-11.md  #  前端测试修复报告
-│   └── tasks/                         #   任务单 + 验收文档（38 个）
+│   └── tasks/                         #   任务单 + 验收文档（40 个）
 │       ├── M1_Sprint0.md ~ Sprint4.md           #  M1 各 Sprint
 │       ├── M1_Sprint5_TikHub_独立池化.md         #  TikHub 独立池化
 │       ├── M2_Sprint1_kol_intake.md             #  入驻问卷主任务

@@ -8,6 +8,7 @@ python-jose[cryptography]
 pydantic-settings
 httpx
 oss2>=2.18.0
+aliyun-python-sdk-core>=2.13.12
 python-docx==1.2.0
 reportlab==4.5.1
 pypdf
