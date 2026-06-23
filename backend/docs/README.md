@@ -23,7 +23,7 @@ backend/
 │   │   └── seed.py                    #   初始数据填充
 │   ├── middlewares/
 │   │   └── auth.py                    #   JWT 鉴权（get_current_user / require_admin）
-│   ├── models/                        # SQLAlchemy ORM 模型（28 个文件）
+│   ├── models/                        # SQLAlchemy ORM 模型（29 个文件）
 │   │   ├── user.py                    #   用户表
 │   │   ├── kol.py                     #   红人表
 │   │   ├── credential.py              #   AI 密钥池表
@@ -41,8 +41,9 @@ backend/
 │   │   ├── livestream_review.py       #   直播间脚本复盘配置表
 │   │   ├── persona_review.py          #   人设脚本复盘配置表
 │   │   ├── qianchuan_writer.py        #   千川文案写作配置表（Sprint 14）
+│   │   ├── persona_writer.py          #   人设脚本仿写配置表（Sprint 15）
 │   │   └── ...                        #   log / file / output / session / task
-│   ├── routers/                       # API 路由（按角色分文件，50 个）
+│   ├── routers/                       # API 路由（按角色分文件，52 个）
 │   │   ├── auth.py                    #   POST /api/auth/login、/change-password
 │   │   ├── admin_users.py             #   用户管理（admin）
 │   │   ├── admin_kols.py              #   红人管理（admin）
@@ -64,6 +65,7 @@ backend/
 │   │   ├── admin_livestream_review.py #   直播间脚本复盘配置（admin）
 │   │   ├── admin_persona_review.py    #   人设脚本复盘配置（admin）
 │   │   ├── admin_qianchuan_writer.py  #   千川文案写作配置（admin，Sprint 14）
+│   │   ├── admin_persona_writer.py    #   人设脚本仿写配置（admin，Sprint 15）
 │   │   ├── operator_homepage.py       #   运营首页数据
 │   │   ├── operator_intake.py         #   入驻问卷（运营端）
 │   │   ├── operator_intake_direct.py  #   运营直发对话
@@ -75,6 +77,7 @@ backend/
 │   │   ├── operator_livestream_review.py # 直播间脚本复盘（运营端）
 │   │   ├── operator_persona_review.py #  人设脚本复盘（运营端）
 │   │   ├── operator_qianchuan_writer.py # 千川文案写作（运营端，Sprint 14）
+│   │   ├── operator_persona_writer.py #  人设脚本仿写（运营端，Sprint 15）
 │   │   ├── persona.py                 #   人格定位（运营端）
 │   │   ├── intake_public.py           #   公开接口（博主填写问卷）
 │   │   ├── tool_chat_stream.py        #   工具：AI 流式对话
@@ -106,7 +109,7 @@ backend/
 │   │   ├── MCN_M1_Base_Database.md    #     M1 阶段数据库契约
 │   │   ├── MCN_M2_Base_API.md         #     M2 阶段 API 契约
 │   │   └── MCN_M2_Base_Database.md    #     M2 阶段数据库契约
-│   ├── tasks/                         #   任务单 + 验收文档（42 个）
+│   ├── tasks/                         #   任务单 + 验收文档（43 个）
 │   │   ├── M1_Sprint0.md ~ Sprint4.md          #  M1 各 Sprint
 │   │   ├── M1_Sprint5_TikHub_独立池化.md        #  TikHub 独立池化
 │   │   ├── M2_Sprint1_kol_intake.md            #  入驻问卷主任务
@@ -145,7 +148,7 @@ backend/
 │   ├── concurrent/                    #   并发隔离测试
 │   └── intake/                        #   入驻问卷专项测试
 │
-├── migrations/                        # SQL 迁移脚本（001 ~ 029）
+├── migrations/                        # SQL 迁移脚本（001 ~ 031）
 ├── scripts/                           # 工具脚本
 │   ├── init_db.sh                     #   一键初始化数据库
 │   └── run_coverage.py                #   覆盖率门禁脚本

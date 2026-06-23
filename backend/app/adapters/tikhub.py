@@ -305,6 +305,67 @@ async def fetch_user_videos(
 
 
 # ---------------------------------------------------------------------------
+# 分享链接视频解析（persona-writer 专用）
+# ---------------------------------------------------------------------------
+
+
+async def fetch_video_by_share_url(share_url: str, db: AsyncSession) -> dict:
+    """
+    通过抖音分享链接获取单个视频信息。
+
+    GET /api/v1/douyin/web/fetch_one_video_by_share_url
+    参数: share_url（抖音分享链接，含短链和分享文本）
+
+    Returns:
+        {"aweme_id": str, "title": str, "digg_count": int, "play_url": str}
+    """
+    cred_id, api_key, base_url = await _get_key_and_url(db)
+    try:
+        # 先从分享文本中提取 URL
+        url = _extract_douyin_url(share_url)
+        if not url:
+            raise RuntimeError("无法从输入中解析抖音链接")
+
+        # 解析短链接获取完整 URL
+        full_url = await _resolve_short_url(url)
+
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.get(
+                f"{base_url}/api/v1/douyin/web/fetch_one_video_by_share_url",
+                params={"share_url": full_url},
+                headers={"Authorization": f"Bearer {api_key}"},
+            )
+            response.raise_for_status()
+            raw = response.json()
+            await report_success(cred_id, db)
+
+        # TikHub 返回结构：data.aweme_detail
+        aweme = (raw.get("data") or {}).get("aweme_detail") or raw.get("data") or {}
+
+        aweme_id = aweme.get("aweme_id", "")
+        desc = aweme.get("desc", "")
+        digg_count = (aweme.get("statistics") or {}).get("digg_count", 0)
+
+        # play_url: 尝试多种路径
+        play_url = ""
+        video = aweme.get("video") or {}
+        play_addr = video.get("play_addr") or {}
+        url_list = play_addr.get("url_list") or []
+        if url_list:
+            play_url = url_list[0]
+
+        return {
+            "aweme_id": aweme_id,
+            "title": desc,
+            "digg_count": digg_count,
+            "play_url": play_url,
+        }
+    except Exception as e:
+        await report_failure(cred_id, db)
+        raise RuntimeError(f"TikHub fetch_video_by_share_url failed: {e}") from e
+
+
+# ---------------------------------------------------------------------------
 # 视频筛选 + 格式化（benchmark 专用）
 # ---------------------------------------------------------------------------
 

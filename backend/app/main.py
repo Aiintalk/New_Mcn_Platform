@@ -55,6 +55,8 @@ from app.routers.admin_qianchuan_preview import router as admin_qianchuan_previe
 from app.routers.operator_qianchuan_collection import router as operator_qianchuan_collection_router
 from app.routers.operator_qianchuan_writer import router as operator_qianchuan_writer_router
 from app.routers.admin_qianchuan_writer import router as admin_qianchuan_writer_router
+from app.routers.operator_persona_writer import router as operator_persona_writer_router
+from app.routers.admin_persona_writer import router as admin_persona_writer_router
 from app.routers import operator_tiktok_review
 from app.routers import admin_tiktok_review
 
@@ -164,3 +166,5 @@ app.include_router(operator_tiktok_review.router, prefix="/api")
 app.include_router(admin_tiktok_review.router, prefix="/api")
 app.include_router(operator_qianchuan_writer_router, prefix="/api")
 app.include_router(admin_qianchuan_writer_router, prefix="/api")
+app.include_router(operator_persona_writer_router, prefix="/api")
+app.include_router(admin_persona_writer_router, prefix="/api")

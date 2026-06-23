@@ -371,3 +371,86 @@ async def test_fetch_user_videos_api_error(mock_failure, mock_get_key):
             await fetch_user_videos("SEC123", mock_db)
 
     mock_failure.assert_called_once()
+
+
+# ── 异步函数测试：fetch_video_by_share_url ─────────────────────────
+
+
+@pytest.mark.asyncio
+@patch("app.adapters.tikhub._get_key_and_url")
+@patch("app.adapters.tikhub.report_success", new_callable=AsyncMock)
+@patch("app.adapters.tikhub.report_failure", new_callable=AsyncMock)
+@patch("app.adapters.tikhub._resolve_short_url", new_callable=AsyncMock)
+async def test_fetch_video_by_share_url_success(mock_resolve, mock_failure, mock_success, mock_get_key):
+    """成功解析分享链接获取视频信息。"""
+    mock_get_key.return_value = (1, "test_key", "https://api.tikhub.io")
+    mock_resolve.return_value = "https://www.douyin.com/video/7234"
+    mock_db = AsyncMock()
+
+    with patch("httpx.AsyncClient") as MockClient:
+        client_instance = AsyncMock()
+        MockClient.return_value.__aenter__.return_value = client_instance
+
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.raise_for_status = MagicMock()
+        resp.json.return_value = {
+            "data": {
+                "aweme_detail": {
+                    "aweme_id": "7234",
+                    "desc": "测试视频",
+                    "statistics": {"digg_count": 250000},
+                    "video": {
+                        "play_addr": {
+                            "url_list": ["https://example.com/play.mp4"]
+                        }
+                    },
+                }
+            }
+        }
+        client_instance.get.return_value = resp
+
+        from app.adapters.tikhub import fetch_video_by_share_url
+        result = await fetch_video_by_share_url("https://v.douyin.com/xxx/", mock_db)
+
+    assert result["aweme_id"] == "7234"
+    assert result["title"] == "测试视频"
+    assert result["digg_count"] == 250000
+    assert result["play_url"] == "https://example.com/play.mp4"
+
+
+@pytest.mark.asyncio
+@patch("app.adapters.tikhub._get_key_and_url")
+@patch("app.adapters.tikhub.report_failure", new_callable=AsyncMock)
+async def test_fetch_video_by_share_url_api_error(mock_failure, mock_get_key):
+    """API 异常应抛出 RuntimeError。"""
+    mock_get_key.return_value = (1, "test_key", "https://api.tikhub.io")
+    mock_db = AsyncMock()
+
+    with patch("app.adapters.tikhub._resolve_short_url", new_callable=AsyncMock) as mock_resolve:
+        mock_resolve.return_value = "https://www.douyin.com/video/123"
+        with patch("httpx.AsyncClient") as MockClient:
+            client_instance = AsyncMock()
+            MockClient.return_value.__aenter__.return_value = client_instance
+            client_instance.get.side_effect = Exception("网络超时")
+
+            from app.adapters.tikhub import fetch_video_by_share_url
+            with pytest.raises(RuntimeError, match="fetch_video_by_share_url failed"):
+                await fetch_video_by_share_url("https://v.douyin.com/xxx/", mock_db)
+
+    mock_failure.assert_called_once()
+
+
+@pytest.mark.asyncio
+@patch("app.adapters.tikhub._get_key_and_url")
+@patch("app.adapters.tikhub.report_failure", new_callable=AsyncMock)
+async def test_fetch_video_by_share_url_no_url_in_input(mock_failure, mock_get_key):
+    """输入不含 URL 时应抛出 RuntimeError。"""
+    mock_get_key.return_value = (1, "test_key", "https://api.tikhub.io")
+    mock_db = AsyncMock()
+
+    from app.adapters.tikhub import fetch_video_by_share_url
+    with pytest.raises(RuntimeError, match="fetch_video_by_share_url failed"):
+        await fetch_video_by_share_url("纯文本没有链接", mock_db)
+
+    mock_failure.assert_called_once()

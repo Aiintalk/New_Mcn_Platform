@@ -1518,3 +1518,192 @@ Request（JSON）：
 Response（200）：`{ "success": true, "data": { "config_key": "default" } }`
 
 错误：config_key 不存在 → 404 RESOURCE_NOT_FOUND。写 OperationLog（action=`admin_update_qianchuan_writer_config`）。
+
+---
+
+## 22. persona-writer（Sprint 15）
+
+基础路径：`/api/tools/persona-writer`（operator / admin 鉴权，需已改密）
+管理端路径：`/api/admin/persona-writer`（admin 鉴权）
+
+人设脚本仿写工具：3 步向导（加载风格 → 对标验证 → 仿写创作）。Step 2 含抖音链接解析 + 点赞门槛 + AI 开头评估；Step 3 含 AI 结构拆解 + 双选题（💡我有想法 / 🤖我没想法）+ 多轮追问 + 终稿编辑。4 个 Prompt 模板 + 2 个 AI 模型（light / heavy）由 admin 配置。
+
+### 22.1 GET /kols/personas
+
+Step 1 达人下拉列表（同 qianchuan-writer）。返回 `persona + content_plan` 均非空、未删除、状态 active 的达人。
+
+Response（200）：
+```json
+{
+  "success": true, "code": "OK",
+  "data": [
+    { "id": 3, "name": "孙静", "soul_preview": "（前 400 字）", "creator_name": "系统预设" }
+  ]
+}
+```
+
+### 22.2 POST /fetch-video
+
+Step 2.1 抖音分享链接解析（调 tikhub_adapter）。
+
+Request（JSON）：`{ "share_url": "https://v.douyin.com/xxx/" }`
+
+Response（200）：
+```json
+{
+  "success": true,
+  "data": {
+    "title": "视频标题",
+    "digg_count": 250000,
+    "aweme_id": "7234...",
+    "play_url": "https://...",
+    "likes_pass": true
+  }
+}
+```
+
+`likes_pass = (digg_count >= 100000)` 硬编码（业务铁律：对标视频必须 ≥10 万赞）。
+
+错误：share_url 空 → 400 INVALID_INPUT；TikHub 调用失败 → 502 EXTERNAL_SERVICE_ERROR。写 OperationLog（action=`persona_writer_fetch_video`）。TikHubCallLog 由 tikhub adapter finally 自动写。
+
+### 22.3 POST /evaluate-opening
+
+Step 2.4 AI 开头评估（裸文本流）。调 yunwu light 模型 + `evaluation_prompt` 模板。
+
+Request（JSON）：`{ "transcript": "对标文案全文" }`
+
+Response：`text/plain; charset=utf-8`（裸文本流，流式 chunk）
+
+错误：transcript 空 → 400 INVALID_INPUT；配置未激活 → 503 CONFIG_NOT_FOUND。AiCallLog 由 yunwu adapter finally 自动写。
+
+### 22.4 POST /analyze-structure
+
+Step 3.1 AI 结构拆解（裸文本流）。调 yunwu light 模型 + `analysis_prompt` 模板。
+
+Request（JSON）：`{ "transcript": "对标文案全文" }`
+
+Response：`text/plain; charset=utf-8`（裸文本流）
+
+错误：transcript 空 → 400 INVALID_INPUT；配置未激活 → 503 CONFIG_NOT_FOUND。
+
+### 22.5 POST /chat
+
+Step 3.3/3.4 AI 写作 + 多轮追问（裸文本流）。调 yunwu heavy 模型，根据 scene 选 `writing_prompt` 或 `iteration_prompt`。
+
+Request（JSON）：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `scene` | string | `writing`（默认）\| `iteration` |
+| `topic_mode` | string | `default`（默认）\| `custom`（仅 writing 场景有效；custom 时用户必须传 topic）|
+| `persona_id` | int | 达人 ID（必填）|
+| `transcript` | string | 对标文案全文 |
+| `structure_analysis` | string | Step 3.1 拆解结果（writing/iteration 用）|
+| `topic` | string | 选题（writing 场景：custom 模式下用户输入；default 模式下空）|
+| `messages` | array<{role, content}> | 用户对话消息（iteration 场景含图片 image_url）|
+| `create_job` | bool | 是否创建 task_job 记录（默认 false）|
+| `job_context` | object \| null | 任务上下文（可选）|
+
+Response：`text/plain; charset=utf-8`（裸文本流）
+
+错误：messages 空 / scene 不合法 / persona_id 空 → 400 INVALID_INPUT；persona 不存在 → 404 RESOURCE_NOT_FOUND；配置未激活 → 503 CONFIG_NOT_FOUND。
+
+流程：读 DB 配置（`default`，is_active=true）→ 读 kols（name/persona/content_plan）→ `render_prompt` 占位符替换（7 个 + `{{is_custom}}...{{/is_custom}}` 块语法）→ yunwu_adapter.chat_stream → StreamingResponse；`create_job=true` 时 BackgroundTask 写 TaskJob + OperationLog（action=`persona_writer_chat`）。
+
+### 22.6 POST /save-output
+
+保存仿写产出至 outputs 表（账号绑定）。
+
+Request（JSON）：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `content` | string | 产出正文（必填）|
+| `title` | string | 标题（可选，留空自动生成 "人设脚本仿写 · YYYY-MM-DD"）|
+| `task_id` | int \| null | 关联任务 ID（可选）|
+| `topic` | string \| null | 选题（仅入 OperationLog）|
+| `transcript_digest` | string \| null | 对标文案摘要（仅入 OperationLog）|
+
+Response（200）：`{ "success": true, "data": { "output_id": 789 } }`
+
+错误：content 空 → 400 INVALID_INPUT。写 OperationLog（action=`persona_writer_save_output`）。
+
+### 22.7 POST /export-word
+
+导出 Word 文档（.docx 二进制流，不走标准信封）。
+
+Request（JSON）：`{ "content": "...", "filename": "人设脚本" }`
+
+Response：`application/vnd.openxmlformats-officedocument.wordprocessingml.document`
+
+Header：`Content-Disposition: attachment; filename*=UTF-8''<URL-encoded>_<YYYY-MM-DD>.docx`
+
+错误：content 空 → 400 INVALID_INPUT。
+
+### 22.8 GET /outputs
+
+历史记录（按账号隔离，只返回当前用户的 outputs）。同 qianchuan-writer §21.6。
+
+Query 参数：`page`（默认 1，ge 1）、`page_size`（默认 20，仅允许 10 / 20 / 50）
+
+Response（200）：
+```json
+{
+  "success": true,
+  "data": {
+    "items": [
+      { "id": 1, "title": "人设脚本仿写 · 2026-06-23", "content": "...", "word_count": 800, "task_id": null, "created_at": "2026-06-23T10:00:00+08:00" }
+    ],
+    "pagination": { "page": 1, "page_size": 20, "total": 5, "total_pages": 1 }
+  }
+}
+```
+
+SQL 过滤：`WHERE tool_code='persona-writer' AND created_by=current_user.id AND deleted_at IS NULL`。
+
+### 22.9 GET /admin/configs
+
+获取配置列表（admin）。
+
+Response（200）：
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 1,
+      "config_key": "default",
+      "evaluation_prompt": "...",
+      "analysis_prompt": "...",
+      "writing_prompt": "...（含 {{is_custom}}...{{/is_custom}} 块语法）",
+      "iteration_prompt": "...",
+      "light_model_id": 2,
+      "heavy_model_id": 4,
+      "is_active": true,
+      "updated_at": "2026-06-23T..."
+    }
+  ]
+}
+```
+
+通常仅返回 1 条 `config_key='default'`。
+
+### 22.10 PUT /admin/configs/{config_key}
+
+更新配置（admin）。
+
+Request（JSON）：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `evaluation_prompt` | string \| null | 开头评估 Prompt 模板 |
+| `analysis_prompt` | string \| null | 结构拆解 Prompt 模板 |
+| `writing_prompt` | string \| null | 写作 Prompt 模板（含 `{{is_custom}}...{{/is_custom}}` 块语法）|
+| `iteration_prompt` | string \| null | 追问 Prompt 模板 |
+| `light_model_id` | int \| null | 评估/拆解用 AI 模型（留空默认 `claude-haiku-4-5-20251001`）|
+| `heavy_model_id` | int \| null | 写作/追问用 AI 模型（留空默认 `claude-opus-4-6`）|
+| `is_active` | bool | 配置启用开关（默认 true）|
+
+Response（200）：`{ "success": true, "data": { "config_key": "default" } }`
+
+错误：config_key 不存在 → 404 RESOURCE_NOT_FOUND。写 OperationLog（action=`admin_update_persona_writer_config`）。
