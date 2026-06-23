@@ -26,6 +26,7 @@ from app.models.persona_review import PersonaReviewConfig
 from app.models.qianchuan_preview import QianchuanPreviewConfig
 from app.models.qianchuan_collection import QianchuanCollectionPersona, QianchuanCollectionScript
 from app.models.tiktok_review import TiktokReviewConfig
+from app.models.qianchuan_writer import QianchuanWriterConfig
 from app.models.oss_call_log import OssCallLog
 from app.models.asr_call_log import AsrCallLog
 
@@ -61,6 +62,7 @@ __all__ = [
     "QianchuanCollectionPersona",
     "QianchuanCollectionScript",
     "TiktokReviewConfig",
+    "QianchuanWriterConfig",
     "OssCallLog",
     "AsrCallLog",
 ]

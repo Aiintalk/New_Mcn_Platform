@@ -1380,3 +1380,141 @@ Request（JSON）：`{ "ai_model_id": 2, "system_prompt": "新 Prompt", "is_acti
 Response（200）：`{ "success": true, "data": { "config_key": "default" } }`
 
 错误：config_key 不存在 → 404 RESOURCE_NOT_FOUND
+
+## 21. qianchuan-writer（Sprint 14）
+
+基础路径：`/api/tools/qianchuan-writer`（operator / admin 鉴权，需已改密）
+管理端路径：`/api/admin/qianchuan-writer`（admin 鉴权）
+
+千川脚本仿写工具：选达人人设 + 加载产品卖点 + 粘贴原版脚本，AI 保留原结构 100% 产出仿写版本。
+
+### 21.1 GET /kols/personas
+
+Step 1 达人下拉列表。返回 `persona + content_plan` 均非空且未删除、状态为 active 的达人。
+
+Response（200）：
+```json
+{
+  "success": true, "code": "OK",
+  "data": [
+    { "id": 1, "name": "孙知羽", "soul_preview": "（前 400 字）", "creator_name": "系统预设" },
+    { "id": 5, "name": "用户自建达人", "soul_preview": "...", "creator_name": "张三" }
+  ]
+}
+```
+
+说明：`soul_preview` 为 persona 前 400 字；`creator_name` 为创建者用户名，系统预设时为 `"系统预设"`。
+
+### 21.2 POST /parse-file
+
+Step 2 产品卖点卡文件解析（FormData）。
+
+Request（multipart/form-data）：`file: UploadFile`（.txt / .md / .docx / .pdf / .xlsx / .pptx）
+
+Response（200）：
+```json
+{ "success": true, "data": { "text": "解析后的纯文本", "word_count": 1234 } }
+```
+
+错误：不支持格式 → 400 UNSUPPORTED_FILE_TYPE；解析失败 → 500 FILE_PARSE_ERROR。写 OperationLog（action=`qianchuan_parse_file`）。
+
+### 21.3 POST /chat
+
+Step 4 AI 流式仿写（raw text stream）。
+
+Request（JSON）：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `messages` | array<{role, content}> | 用户对话消息（含原版脚本 + 产品卖点 + 多轮追问）|
+| `persona_id` | int | 达人 ID（必填，从 /kols/personas 选）|
+| `create_job` | bool | 是否创建 task_job 记录（默认 false）|
+| `job_context` | object \| null | 任务上下文（product_name / original_script_length 等）|
+
+Response：`text/plain; charset=utf-8`（裸文本流，流式 chunk）
+
+错误：messages 为空 → 400 INVALID_INPUT；配置未激活 → 503 CONFIG_NOT_FOUND；persona 不存在 → 404 RESOURCE_NOT_FOUND。
+
+流程：读 DB 配置（`default`，is_active=true）→ 读 kols（persona/content_plan）→ `render_system_prompt` 占位符替换 → `yunwu_adapter.chat_stream` → StreamingResponse；`create_job=true` 时 BackgroundTask 写 TaskJob + OperationLog（action=`qianchuan_writer_chat`）。Adapter finally 自动写 AiCallLog。
+
+### 21.4 POST /save-output
+
+保存仿写产出至 outputs 表（账号绑定）。
+
+Request（JSON）：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `content` | string | 产出正文（必填，不能为空）|
+| `title` | string | 标题（可选，留空自动生成 "千川文案写作 · YYYY-MM-DD"）|
+| `task_id` | int \| null | 关联任务 ID（可选）|
+| `product_name` | string \| null | 产品名（可选，仅入 OperationLog）|
+
+Response（200）：`{ "success": true, "data": { "output_id": 789 } }`
+
+错误：content 为空 → 400 INVALID_INPUT。写 OperationLog（action=`qianchuan_writer_save_output`）。
+
+### 21.5 POST /export-word
+
+导出 Word 文档（.docx 二进制流，不走标准信封）。
+
+Request（JSON）：`{ "content": "...", "filename": "千川仿写" }`
+
+Response：`application/vnd.openxmlformats-officedocument.wordprocessingml.document`
+
+Header：`Content-Disposition: attachment; filename*=UTF-8''<URL-encoded>_<YYYY-MM-DD>.docx`
+
+错误：content 为空 → 400 INVALID_INPUT。
+
+### 21.6 GET /outputs
+
+历史记录（按账号隔离，只返回当前用户的 outputs）。
+
+Query 参数：`page`（默认 1，ge 1）、`page_size`（默认 20，仅允许 10 / 20 / 50，其他值 fallback 到 20）
+
+Response（200）：
+```json
+{
+  "success": true, "code": "OK",
+  "data": {
+    "items": [
+      { "id": 1, "title": "千川仿写_孙知羽_产品A", "content": "...", "word_count": 800, "task_id": 123, "created_at": "2026-06-22T10:00:00+08:00" }
+    ],
+    "pagination": { "page": 1, "page_size": 20, "total": 5, "total_pages": 1 }
+  }
+}
+```
+
+SQL 过滤：`WHERE tool_code='qianchuan-writer' AND created_by=current_user.id AND deleted_at IS NULL`。
+
+### 21.7 GET /admin/configs
+
+获取配置列表（admin）。
+
+Response（200）：
+```json
+{
+  "success": true,
+  "data": [
+    { "id": 1, "config_key": "default", "ai_model_id": null, "system_prompt": "...", "is_active": true, "updated_at": "2026-06-22T..." }
+  ]
+}
+```
+
+通常仅返回 1 条 `config_key='default'`。
+
+### 21.8 PUT /admin/configs/{config_key}
+
+更新配置（admin）。
+
+Request（JSON）：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `ai_model_id` | int \| null | 关联 ai_models.id（留空走默认 `claude-opus-4-6-thinking`）|
+| `system_prompt` | string \| null | Prompt 模板（含 `{{name}}`/`{{soul}}`/`{{content_plan}}` 占位符）|
+| `is_active` | bool | 配置启用开关（默认 true）|
+
+Response（200）：`{ "success": true, "data": { "config_key": "default" } }`
+
+错误：config_key 不存在 → 404 RESOURCE_NOT_FOUND。写 OperationLog（action=`admin_update_qianchuan_writer_config`）。

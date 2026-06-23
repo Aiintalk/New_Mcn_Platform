@@ -45,14 +45,14 @@ mcn-platform/
 │   │   ├── adapters/                  #     外部服务适配器（AI、TikHub、OSS、ASR）
 │   │   ├── core/                      #     配置、数据库、安全、响应封装
 │   │   ├── middlewares/               #     JWT 鉴权中间件
-│   │   ├── models/                    #     SQLAlchemy ORM 模型（26 个文件）
-│   │   ├── routers/                   #     API 路由（按角色分文件，47 个）
+│   │   ├── models/                    #     SQLAlchemy ORM 模型（28 个文件）
+│   │   ├── routers/                   #     API 路由（按角色分文件，50 个）
 │   │   ├── schemas/                   #     Pydantic schema
 │   │   └── services/                  #     业务逻辑服务
 │   ├── docs/                          #   后端文档
 │   │   ├── README.md                  #     架构说明 + 文档索引
 │   │   ├── base/                      #     接口契约 + 数据库契约
-│   │   ├── tasks/                     #     任务单 + 验收文档（39 个）
+│   │   ├── tasks/                     #     任务单 + 验收文档（42 个）
 │   │   └── tests/                     #     测试报告 + 测试任务
 │   ├── tests/                         #   测试代码
 │   │   ├── unit/                      #     单元测试
@@ -60,24 +60,24 @@ mcn-platform/
 │   │   ├── e2e/                       #     端到端测试
 │   │   ├── concurrent/                #     并发隔离测试
 │   │   └── intake/                    #     入驻问卷专项测试
-│   ├── migrations/                    #   SQL 迁移脚本（001 ~ 029）
+│   ├── migrations/                    #   SQL 迁移脚本（001 ~ 030）
 │   └── scripts/                       #   工具脚本（init_db.sh、init_test_db.sh、run_coverage.py）
 │
 ├── frontend/                          ← 前端（React + Vite）
 │   ├── src/                           #   源码
-│   │   ├── api/                       #     API 调用层（30 个模块）
+│   │   ├── api/                       #     API 调用层（31 个模块）
 │   │   ├── layouts/                   #     布局组件（Admin / Operator / Auth）
 │   │   ├── pages/                     #     页面组件（admin 22 个 / operator 19 个 / auth 2 个 / intake 1 个）
 │   │   ├── routes/                    #     路由守卫
 │   │   ├── store/                     #     Zustand 状态管理
 │   │   ├── styles/                    #     CSS 变量 + 全局样式
-│   │   ├── types/                     #     TypeScript 类型定义（20 个模块）
+│   │   ├── types/                     #     TypeScript 类型定义（21 个模块）
 │   │   └── __tests__/                 #     前端测试
 │   ├── docs/                          #   前端文档
 │   │   ├── README.md                  #     架构说明 + 文档索引
 │   │   ├── 前端规范.md                  #     前端唯一规范文档
 │   │   ├── base/                      #     前端基础文档
-│   │   └── tasks/                     #     任务单 + 验收文档（40 个）
+│   │   └── tasks/                     #     任务单 + 验收文档（43 个）
 │   ├── vitest.config.ts               #   Vitest 测试配置
 │   └── vite.config.ts                 #   Vite 构建配置
 │
