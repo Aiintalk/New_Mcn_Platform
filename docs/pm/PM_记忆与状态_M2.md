@@ -1,6 +1,6 @@
 # MCN_PM_Agent — 项目记忆与当前状态（M2）
 
-> 最后更新：2026-06-23（Sprint 15 — 人设脚本仿写迁移：persona_writer_configs 表（4 Prompt + 2 AI 模型 light/heavy）+ 8 运营端/2 管理端接口 + 3 步向导（含 Step 2 对标验证 TikHub+点赞门槛+AI 评估 + Step 3 双选题💡/🤖+图片追问）+ `{{is_custom}}...{{/is_custom}}` 块语法 + 16 单测/39 集测/3 tikhub 扩展/19 前端测全绿，待 PM 签收 + 推 PR #6）
+> 最后更新：2026-06-23（Sprint 15 v2 — 人设脚本仿写 E2E 验收期 Bug 集中修复：7 Bug 全修复（TikHub 400 / 4 writer SQL 统一 / kols 唯一索引+预检查 migration 032 / kols.status 默认值 / 数据污染清理 / ConfigTab 描述 / KolsPage content_plan UI）；4 任务/验收/测试文档落地 + BUG-025~031 登记 + 契约 4 处同步；待 PM 签收 + 推 PR #6）
 > 更新角色：MCN_PM_Agent
 > 上一份文档：`docs/pm/PM_记忆与状态.md`（M1 阶段，已归档）
 
@@ -130,6 +130,41 @@
 - **persona 数据补全**：旧架构本地仅 2 个 persona（孙静 + 陶然），新架构已通过 `_e2e_seed_personas.py` 一次性脚本补到 kols 表（脚本本身不进 git，保留工作区）
 - **ASR 业务集成**：把 tool_transcribe 调用方切到 ASR
 - **其余 5 个工具迁移**：livestream-review / persona-review / qianchuan-collection / qianchuan-preview / seeding-writer
+
+---
+
+### M2 工作项 — Sprint 15 v2 人设脚本仿写 E2E 验收期 Bug 集中修复 ✅ 完成（待 PM 签收 + 推 PR #6）
+
+**核心定位**：v1 主体完成后 E2E 验收发现 7 个 Bug（4 P1 + 3 P2），集中修复 + 配套契约同步 + 数据修复。不涉及新功能，全部为补齐与修复。
+
+**分支**：`migrate/persona-writer`（继承 v1，未切新分支）
+
+| 端 | 状态 | 备注 |
+|----|------|------|
+| TikHub URL 清洗（BUG-025）| ✅ 完成 | `app/adapters/tikhub.py` 新增 `_clean_share_url`（urlsplit + urlunsplit 丢 query/fragment）。单测 +5（30/30 全过）|
+| 4 writer SQL 统一（BUG-026）| ✅ 完成 | 4 个 `operator_*_writer.py` 统一 `status IN ('signed','pending_renewal')`；4 个测试 fixture 改 `'active'` → `'signed'`（10 处）|
+| kols 唯一索引 + 预检查（BUG-028）| ✅ 完成 | Migration 032 部分唯一索引（douyin_id + sec_uid）+ `admin_kols.py` 加预检查 + `response.py` 加 `RESOURCE_ALREADY_EXISTS`（409）+ `test_admin_kols.py` 新建 7 用例全过 |
+| kols.status 默认值修复（BUG-027）| ✅ 完成 | ORM `kol.py:27` default `'active'` → `'signed'`；前端 Form initialValue='signed'；数据修复现有 `'active'` → `'signed'` |
+| 数据污染清理（BUG-029）| ✅ 完成 | id=3（孙静/原搭搭）、id=4（陶然/原小A）软删；用户通过 UI 重建 |
+| ConfigTab 描述清理（BUG-030）| ✅ 完成 | `PersonaWriterConfigTab.tsx` + `QianchuanWriterConfigTab.tsx` 删除开发风格描述 div |
+| KolsPage content_plan UI（BUG-031）| ✅ 完成 | `KolsPage.tsx` 详情抽屉加内容规划编辑卡片 + 新建表单加 Form.Item；`types/kol.ts` 补 content_plan 字段 |
+| 契约同步 | ✅ 完成 | M1_Base_Database §6.2（status 修正）+ §6.3（索引说明，新建）+ M1_Base_API §3（错误码表加 RESOURCE_ALREADY_EXISTS）+ M2_Base_API §13.4/§16.3/§21.1/§22.1（4 writer SQL 统一）+ backend README migrations 031→032 |
+| 任务文档 v2 | ✅ 完成 | 后端 `M2_Sprint15_后端任务_persona-writer_v2_修复Bug.md` + 前端 `M2_Sprint15_前端任务_persona-writer_v2_修复Bug.md` |
+| 测试报告 v2 | ✅ 完成 | `backend/docs/tests/M2_Sprint15_测试报告_persona-writer_v2_修复Bug.md` |
+| 开发验收 v2 | ✅ 完成 | `backend/docs/tasks/M2_Sprint15_后端_开发验收_persona-writer_v2_修复Bug.md` |
+| BUG 登记 | ✅ 完成 | BUG-025 ~ BUG-031 共 7 条（`docs/pm/BUG修复登记.md` §九）|
+
+**关键设计点：**
+- **TikHub URL 清洗**：用 `urlsplit` + `urlunsplit` 丢弃所有 query/fragment，只留 scheme/netloc/path。在 `_resolve_short_url` 之后调用，确保脏 URL（含 share_sign/ts/from_aid 等 14 个 tracking 参数）被清洗
+- **部分唯一索引**（partial index）：参照 `001_init.sql:28 idx_users_username` 模式，`WHERE deleted_at IS NULL AND douyin_id IS NOT NULL AND douyin_id <> ''`，允许软删后用相同 douyin_id 重建
+- **预检查 + DB 索引双保险**：前端友好错误（预检查）+ DB 兜底（并发竞态 IntegrityError）
+- **ORM default 三层修复**：ORM default（后端兜底）+ Form initialValue（前端默认）+ 数据修复（现有 active → signed）
+- **数据修复不入 migration**：migration 只管 schema；数据修复用一次性 SQL（asyncpg 直连）
+
+**不在本次范围（留作后续独立任务）：**
+- **admin/kols 完整 API 章节契约**：M1_Base_API 缺整章（历史债务），独立任务
+- **运营添加红人权限**：当前仅 admin；运营走 kol-intake 问卷流程。若需运营直接添加，独立任务
+- **DB 唯一索引测试库验证**：测试库 metadata.create_all 不跑 migration，索引兜底未自动化覆盖；生产已应用，后续加 e2e 或 migration 验证脚本
 
 ---
 

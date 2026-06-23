@@ -13,6 +13,7 @@ export interface Kol {
   status: KolStatus;
   owner?: string;
   persona?: string;
+  content_plan?: string;
   style_note?: string;
   created_at: string;
   updated_at?: string;
@@ -76,6 +77,8 @@ export interface CreateKolRequest {
   douyin_id?: string;
   sec_uid?: string;
   owner?: string;
+  persona?: string;
+  content_plan?: string;
 }
 
 export interface UpdateKolRequest {
@@ -86,5 +89,6 @@ export interface UpdateKolRequest {
   owner?: string;
   status?: KolStatus;
   persona?: string;
+  content_plan?: string;
   style_note?: string;
 }

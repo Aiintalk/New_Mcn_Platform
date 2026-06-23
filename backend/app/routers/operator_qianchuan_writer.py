@@ -123,7 +123,7 @@ async def get_kol_personas(
                 WHERE k.persona IS NOT NULL
                   AND k.content_plan IS NOT NULL
                   AND k.deleted_at IS NULL
-                  AND k.status = 'active'
+                  AND k.status IN ('signed', 'pending_renewal')
                 ORDER BY k.name
                 """
             ),

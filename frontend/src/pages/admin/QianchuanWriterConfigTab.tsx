@@ -74,9 +74,6 @@ export default function QianchuanWriterConfigTab() {
 
   return (
     <>
-      <div style={{ marginBottom: 12, fontSize: 13, color: 'var(--gray-500)' }}>
-        千川文案写作的系统 Prompt（含占位符 {'{{name}}'} / {'{{soul}}'} / {'{{content_plan}}'}）和 AI 模型配置。
-      </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginBottom: 24 }}>
         {configs.length === 0 && (
           <div className="empty-state">

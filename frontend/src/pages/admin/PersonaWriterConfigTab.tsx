@@ -90,11 +90,6 @@ export default function PersonaWriterConfigTab() {
 
   return (
     <>
-      <div style={{ marginBottom: 12, fontSize: 13, color: 'var(--gray-500)' }}>
-        人设脚本仿写的 4 条 Prompt（含占位符 {'{{name}}'} / {'{{soul}}'} / {'{{content_plan}}'} /{' '}
-        {'{{transcript}}'} / {'{{structure_analysis}}'} / {'{{topic}}'} / {'{{is_custom}}'}）和
-        轻重双 AI 模型配置。
-      </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginBottom: 24 }}>
         {configs.length === 0 && (
           <div className="empty-state">

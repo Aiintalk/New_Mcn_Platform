@@ -50,7 +50,7 @@ async def _create_kol(test_session, name="孙知羽", persona="人设A", content
     """创建一个有 persona+content_plan 的 kol，返回 id。"""
     result = await test_session.execute(text(
         "INSERT INTO kols (name, persona, content_plan, status, created_by) "
-        "VALUES (:name, :persona, :content_plan, 'active', :created_by) "
+        "VALUES (:name, :persona, :content_plan, 'signed', :created_by) "
         "RETURNING id"
     ), {
         "name": name, "persona": persona,
@@ -135,11 +135,11 @@ class TestPersonas:
     async def test_filters_incomplete_kol(self, test_client, operator_headers, test_session):
         await test_session.execute(text(
             "INSERT INTO kols (name, persona, content_plan, status) "
-            "VALUES ('无persona', NULL, '规划', 'active')"
+            "VALUES ('无persona', NULL, '规划', 'signed')"
         ))
         await test_session.execute(text(
             "INSERT INTO kols (name, persona, content_plan, status) "
-            "VALUES ('无content_plan', '人设', NULL, 'active')"
+            "VALUES ('无content_plan', '人设', NULL, 'signed')"
         ))
         await test_session.commit()
         resp = await test_client.get(

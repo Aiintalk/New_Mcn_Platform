@@ -835,7 +835,7 @@ Response:
 ```
 
 业务规则：
-- 从 `kols` 表查询 `persona IS NOT NULL AND deleted_at IS NULL`
+- 从 `kols` 表查询 `persona IS NOT NULL AND deleted_at IS NULL AND status IN ('signed', 'pending_renewal')`
 - 按 `name` ASC 排序
 
 ### 13.5 错误码
@@ -1045,7 +1045,7 @@ Response（200）：
 
 ### 16.3 GET `/api/tools/livestream-writer/kols/personas`
 
-SQL：`WHERE content_plan IS NOT NULL AND persona IS NOT NULL AND deleted_at IS NULL ORDER BY name`
+SQL：`WHERE content_plan IS NOT NULL AND persona IS NOT NULL AND deleted_at IS NULL AND status IN ('signed', 'pending_renewal') ORDER BY name`
 
 Response（200）：
 ```json
@@ -1390,7 +1390,7 @@ Response（200）：`{ "success": true, "data": { "config_key": "default" } }`
 
 ### 21.1 GET /kols/personas
 
-Step 1 达人下拉列表。返回 `persona + content_plan` 均非空且未删除、状态为 active 的达人。
+Step 1 达人下拉列表。返回 `persona + content_plan` 均非空且未删除、状态为 `signed` 或 `pending_renewal` 的达人。
 
 Response（200）：
 ```json
@@ -1530,7 +1530,7 @@ Response（200）：`{ "success": true, "data": { "config_key": "default" } }`
 
 ### 22.1 GET /kols/personas
 
-Step 1 达人下拉列表（同 qianchuan-writer）。返回 `persona + content_plan` 均非空、未删除、状态 active 的达人。
+Step 1 达人下拉列表（同 qianchuan-writer）。返回 `persona + content_plan` 均非空、未删除、状态为 `signed` 或 `pending_renewal` 的达人。
 
 Response（200）：
 ```json
