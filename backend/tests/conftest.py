@@ -70,6 +70,7 @@ _SESSION_LOCAL_PATCH_TARGETS = [
     "app.routers.operator_qianchuan_review.AsyncSessionLocal",
     "app.routers.operator_persona_review.AsyncSessionLocal",
     "app.routers.operator_tiktok_review.AsyncSessionLocal",
+    "app.routers.operator_qianchuan_writer.AsyncSessionLocal",
 ]
 
 

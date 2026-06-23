@@ -750,3 +750,58 @@ CREATE INDEX idx_asr_call_logs_created_at ON asr_call_logs(created_at DESC);
 ### 24.6 迁移文件
 
 `029_asr_call_logs.sql`
+
+## 25. qianchuan_writer_configs 千川文案写作配置表（Sprint 14）
+
+### 25.1 用途
+
+千川脚本仿写工具（`qianchuan-writer`）的配置表：存储 Prompt 模板 + 绑定的 AI 模型 + 启用开关。由管理端 `功能配置` Tab 维护（参照 `TiktokWriterConfig` 模式）。
+
+### 25.2 字段说明
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | BIGSERIAL | 是 | 主键 |
+| `config_key` | VARCHAR(64) | 是 | 配置键（UNIQUE，默认 `'default'`）|
+| `system_prompt` | TEXT | 否 | Prompt 模板（含 `{{name}}` / `{{soul}}` / `{{content_plan}}` 占位符）|
+| `ai_model_id` | BIGINT | 否 | 关联 `ai_models.id`（ON DELETE SET NULL）；留空走默认 `claude-opus-4-6-thinking` |
+| `is_active` | BOOLEAN | 是 | 启用开关（默认 TRUE）|
+| `created_at` | TIMESTAMPTZ | 是 | 创建时间（默认 NOW()）|
+| `updated_at` | TIMESTAMPTZ | 是 | 更新时间（默认 NOW()，管理端 PUT 时刷新）|
+
+### 25.3 种子 Prompt 模板（migration 030 内置）
+
+```
+你是一个千川脚本仿写专家。任务：把原版脚本改写成「{{name}}」视角的仿写版本。
+
+## {{name}} 人物档案
+{{soul}}
+
+## {{name}} 内容规划参考
+{{content_plan}}
+
+## 仿写铁律（必须严格执行）
+1. 结构完全不变：句式结构、段落顺序、整体框架100%保留
+2. 字数只能相同或更少，绝对不能更多
+3. 开头99%原封不动：只有当原版开头出现的人物/产品与{{name}}身份直接冲突时，才最多换一两个字
+4. 产品全部替换：把原版中所有产品信息、卖点，替换成用户提供的「{{name}}产品卖点」里对应的卖点
+5. 人物视角换成{{name}}：原版里的其他网红/人物换成{{name}}本人的第一人称视角
+
+直接输出仿写后的完整脚本，不要解释，不要加任何注释或标注。
+```
+
+**占位符**（后端 `app/services/qianchuan_writer_prompt.py::render_system_prompt` 用正则一次性替换，避免 soul 内含 `{{name}}` 文本时二次替换）：
+- `{{name}}` → `kols.name`
+- `{{soul}}` → `kols.persona`
+- `{{content_plan}}` → `kols.content_plan`
+
+### 25.4 workspace_tools 注册
+
+migration 030 同时在 `workspace_tools` 表注册工具：
+- `tool_code='qianchuan-writer'`, `tool_name='千川文案写作'`
+- `category='脚本创作'`, `status='dev'`（测试通过后管理端改 `online`）
+- `sort_order=100`
+
+### 25.5 迁移文件
+
+`030_qianchuan_writer.sql`

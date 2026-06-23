@@ -40,6 +40,7 @@ const QianchuanCollectionPage = lazy(() => import('./pages/operator/QianchuanCol
 const TiktokReviewPage = lazy(() => import('./pages/operator/TiktokReviewPage'));
 const LivestreamWriterPage = lazy(() => import('./pages/operator/LivestreamWriterPage'));
 const LivestreamReviewPage = lazy(() => import('./pages/operator/LivestreamReviewPage'));
+const QianchuanWriterPage = lazy(() => import('./pages/operator/QianchuanWriterPage'));
 
 function Page403() {
   return (
@@ -107,6 +108,7 @@ export default function App() {
               <Route path="/workspace/qianchuan-collection" element={<QianchuanCollectionPage />} />
               <Route path="/workspace/livestream-writer" element={<LivestreamWriterPage />} />
               <Route path="/workspace/livestream-review" element={<LivestreamReviewPage />} />
+              <Route path="/workspace/qianchuan-writer" element={<QianchuanWriterPage />} />
               <Route path="/workspace/persona-review" element={<PersonaReviewPage />} />
               <Route path="/workspace/kol-intake" element={<OperatorIntakePage />} />
               <Route path="/workspace/kol-intake/chat" element={<OperatorIntakeChatPage />} />

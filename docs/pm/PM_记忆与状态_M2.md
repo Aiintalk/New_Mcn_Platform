@@ -1,6 +1,6 @@
 # MCN_PM_Agent — 项目记忆与当前状态（M2）
 
-> 最后更新：2026-06-22（ASR 完整方案：建 asr_call_logs 表 + adapter 3 函数 + 3 个统计接口 + 测试端点扩 OSS+ASR 双分支 + 前端 ASR Tab 4 卡+2 图+3 子 Tab 完整 UI + 16 单测/10 集测/4 凭证测试/12 前端测全绿）
+> 最后更新：2026-06-22（Sprint 14 — 千川文案写作迁移：qianchuan_writer_configs 表 + 6 运营端/2 管理端接口 + Prompt 模板化（`{{name}}`/`{{soul}}`/`{{content_plan}}`）+ 4 步向导 UI + 账号绑定历史 + 8 单测/29 集测/11 前端测全绿，待 PM 签收 + 推 PR）
 > 更新角色：MCN_PM_Agent
 > 上一份文档：`docs/pm/PM_记忆与状态.md`（M1 阶段，已归档）
 
@@ -9,7 +9,7 @@
 ## 一、项目基本信息
 
 - **项目名**：MCN Information System Platform
-- **当前阶段**：M2 阶段 — ASR 完整方案完成（PR #4 已提交待合并），下一个 Sprint 候选：tool_transcribe 切到 ASR / TikHub 日志 bug 修复 / 凭证加密
+- **当前阶段**：M2 阶段 — Sprint 14 千川文案写作迁移完成（待签收 + 推 PR #5），上一个已合并：ASR 完整方案（PR #4 已合并到 main，merge commit 7fb84a7）。下一个 Sprint 候选：tool_transcribe 切到 ASR / TikHub 日志 bug 修复 / 凭证加密 / 其余 6 个工具迁移
 - **GitHub**：https://github.com/Aiintalk/New_Mcn_Platform
 - **工作目录**：`D:\2026年工作\AI相关\AI工具箱新架构方案\mcn-platform`（Windows 本地）
 - **后端**：`backend/`（FastAPI + PostgreSQL）
@@ -27,7 +27,58 @@
 
 ## 二、M2 阶段（当前）
 
-### M2 工作项 — ASR 完整方案（阿里云智能语音交互）✅ 完成（PR #4 已提交待合并）
+### M2 工作项 — Sprint 14 千川文案写作迁移（qianchuan-writer）✅ 完成（待 PM 签收 + 推 PR #5）
+
+**核心定位**：旧架构 `Ai_Toolbox/qianchuan-writer-web` 整体迁移到新架构。4 步向导业务逻辑 100% 保留（选达人→加载产品→输入脚本→生成仿写），Prompt 模板化（占位符从旧版 `${var}` 改为新架构 `{{var}}`），AI 模型可配，产出与账号绑定入库可查历史。参照样板：`tiktok-writer`（Prompt 表 + ConfigTab + operator 向导页）。
+
+**分支**：`migrate/qianchuan-writer`（从 main 拉新分支，PR #4 合并后开始）
+
+| 端 | 状态 | 备注 |
+|----|------|------|
+| Migration 030 | ✅ 完成 | `qianchuan_writer_configs` 表（config_key/system_prompt/ai_model_id/is_active）+ 种子 Prompt（含 `{{name}}`/`{{soul}}`/`{{content_plan}}` 占位符）+ `workspace_tools` 注册（status='dev'）|
+| ORM 模型 | ✅ 完成 | `QianchuanWriterConfig`（参照 TiktokWriterConfig 结构）|
+| Prompt 渲染 service | ✅ 完成 | `app/services/qianchuan_writer_prompt.py::render_system_prompt`，正则一次性替换 `{{name}}`/`{{soul}}`/`{{content_plan}}`（避免 soul 内含 `{{name}}` 文本时二次替换）|
+| operator router（6 接口）| ✅ 完成 | `operator_qianchuan_writer.py`：GET /kols/personas（JOIN users 拿 creator_name 标签）+ POST /parse-file（复用 file_parser）+ POST /chat（yunwu_adapter SSE 流式）+ POST /save-output（写 outputs 账号绑定）+ POST /export-word（docx StreamingResponse）+ GET /outputs（账号隔离分页）|
+| admin router（2 接口）| ✅ 完成 | `admin_qianchuan_writer.py`：GET/PUT /configs（参照 TiktokWriterConfigTab 模式）|
+| Router 注册 | ✅ 完成 | `app/main.py` include 两个 router；`conftest.py` patch 列表加 operator_qianchuan_writer（用 AsyncSessionLocal 流式）|
+| 前端 types | ✅ 完成 | `frontend/src/types/qianchuanWriter.ts`（8 接口请求/响应类型）|
+| 前端 API 层 | ✅ 完成 | `frontend/src/api/qianchuanWriter.ts`（8 函数，6 operator + 2 admin）|
+| 前端 4 步向导页面 | ✅ 完成 | `QianchuanWriterPage.tsx`（选达人 + 加载产品 6 格式 + 输入脚本实时字数 + 流式仿写 + 多轮追问 + 保存历史 + 导出 .txt/.docx）|
+| 前端 ConfigTab | ✅ 完成 | `QianchuanWriterConfigTab.tsx`（system_prompt/ai_model_id/is_active，参照 TiktokWriterConfigTab）|
+| 前端路由 + Tab 注册 | ✅ 完成 | `App.tsx` React.lazy + Route `/workspace/qianchuan-writer`；`WorkspaceConfigPage.tsx` 注册 ConfigTab |
+| 单元测试 | ✅ 8/8 | `test_qianchuan_writer_prompt.py`：4 占位符替换 + 2 缺失 fallback + 1 多次出现 + 1 真实模板 |
+| operator 集成测试 | ✅ 20/20 | 4 鉴权 + 3 personas + 3 parse-file + 4 chat + 3 save-output + 2 export-word + 2 outputs（账号隔离）|
+| admin 集成测试 | ✅ 9/9 | 4 鉴权 + 1 GET configs + 4 PUT configs（Prompt/ai_model_id/OperationLog/config_key 不存在）|
+| 前端组件测试 | ✅ 11/11 | 4 步向导渲染 + 各 Step 交互 + 流式输出 mock + 多轮追问 + 保存/导出 3 按钮 + ConfigTab 渲染与提交 |
+| 全量回归 | ✅ 后端 805 passed / 前端 138 passed | 后端 2 failed 为预存 snappy 问题（`test_livestream_writer_file_parser` .pages 解析），已 git stash 验证非本次引入 |
+| 契约同步 | ✅ 完成 | `MCN_M2_Base_API.md` 加 §21（6 运营端 + 2 管理端接口）；`MCN_M2_Base_Database.md` 加 §25 qianchuan_writer_configs（含种子 Prompt 模板）；前后端 README 计数同步（models 28/routers 50/migrations 030/api 31/types 21/tasks 42-43）|
+
+**关键设计点：**
+- **Prompt 模板化**：旧版 `${var}` 前端拼接 → 新版 DB 存 `{{name}}`/`{{soul}}`/`{{content_plan}}`，后端 `render_system_prompt()` 正则一次性替换
+- **三接口分离**：chat / save-output / export-word 各自独立（比 tiktok-writer 合并写库更清晰，前端两按钮独立调用）
+- **达人列表 creator_name 标签**：`LEFT JOIN users ON kols.created_by = users.id`，系统预设返回 `'系统预设'`，用户自建返回用户名（为后续「A 用户私享」预留）
+- **账号隔离**：outputs 查询 `WHERE created_by=current_user.id AND deleted_at IS NULL`
+- **导出文件名 URL 编码**：后端 `Content-Disposition: filename*=UTF-8''<encoded>`（支持中文）
+- **page_size 白名单**：仅允许 10/20/50，其他值 fallback 到 20
+- **流式 429 重试**：delays `[2, 4, 6]` 秒（最多 3 次）
+- **默认 AI 模型**：`ai_model_id` 留空或失效走 `claude-opus-4-6-thinking`
+- **三接口命中三层日志**：chat 写 ai_call_logs（adapter 自动）+ operation_logs（router BackgroundTask）+ save-output 写 outputs（历史）
+
+**技术决策（实施过程）：**
+1. React 19 + AntD 5 TextArea 受控组件在 jsdom 中 `user.type` 可工作，但需"下一步"按钮点击触发 Step 切换
+2. AntD Button 自动在两个字符按钮文本间加空格（"确认"→"确 认"），测试用 `/确\s*认/` 正则匹配
+3. jsdom 不支持 `Element.scrollIntoView`，测试文件顶部 mock
+4. `.txt` 前端 Blob 下载（不走后端）；`.docx` 调 `/export-word` 返回 StreamingResponse
+
+**不在本次范围（留作后续独立任务）：**
+- **workspace_tools 改 status='online'**：测试通过后管理端手动改（或后续脚本批量改）
+- **persona 数据补全**：旧架构本地仅 2 个 persona（孙知羽 v6.0 + 陶然 v2.0），新架构 kols 表 4 活跃但 persona=NULL，需要业务侧手工录入
+- **A 用户私享达人**：本次达人对全部公开，后续若需要"A 用户添加的达人 A 用户只能使用"需要改查询 SQL 加 `OR kols.created_by = current_user.id` 过滤
+- **其余 5 个"已迁移但未注册 workspace_tools"工具**：livestream-review / persona-review / qianchuan-collection / qianchuan-preview / seeding-writer 待迁移
+
+---
+
+### M2 工作项 — ASR 完整方案（阿里云智能语音交互）✅ 完成（已合并到 main，PR #4 merge commit 7fb84a7）
 
 **核心定位**：ASR（录音文件识别）完整方案，完全复刻 OSS Tab 的架构与 UI 范式。服务商：阿里云智能语音交互（`filetrans.cn-shanghai.aliyuncs.com`，POP RPC 风格）。`tool_transcribe.py` **不改**（继续用云雾 Whisper），ASR 作为独立功能模块。
 
