@@ -54,3 +54,6 @@ Thumbs.db
 
 # PM 私人记录（不进 git）
 docs/pm/BUG修复登记.md
+
+# 一次性 E2E seed 脚本（已跑完，保留工作区参考但不进 git）
+backend/scripts/_e2e_seed_personas.py

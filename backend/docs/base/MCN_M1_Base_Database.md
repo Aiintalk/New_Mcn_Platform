@@ -189,11 +189,20 @@ M1 基层阶段先建表预留，供后续 persona-writer 选择达人使用。
 | `content_plan` | TEXT | 否 | 内容规划 |
 | `style_notes` | TEXT | 否 | 风格说明 |
 | `owner_id` | BIGINT | 否 | 签约 / 负责运营人员，关联 `users.id` |
-| `status` | VARCHAR(32) | 是 | `active` / `archived` |
+| `status` | VARCHAR(32) | 是 | `signed` / `pending_renewal` / `terminated`；新建时 ORM 默认 `signed`（kol.py:27）。各 writer 下拉只展示 `signed` 和 `pending_renewal` |
 | `created_by` | BIGINT | 否 | 创建人 |
 | `created_at` | TIMESTAMPTZ | 是 | 创建时间 |
 | `updated_at` | TIMESTAMPTZ | 是 | 更新时间 |
 | `deleted_at` | TIMESTAMPTZ | 否 | 软删除时间 |
+
+### 6.3 索引
+
+| 索引名 | 类型 | 说明 |
+|---|---|---|
+| `idx_kols_douyin_id_unique` | UNIQUE（部分） | `WHERE deleted_at IS NULL AND douyin_id IS NOT NULL AND douyin_id <> ''`，防止重复添加红人（migration 032） |
+| `idx_kols_sec_uid_unique` | UNIQUE（部分） | `WHERE deleted_at IS NULL AND sec_uid IS NOT NULL AND sec_uid <> ''`，同上（migration 032） |
+
+> 参照 `idx_users_username`（001_init.sql）的部分唯一索引模式；软删记录不参与唯一性约束。
 
 ---
 

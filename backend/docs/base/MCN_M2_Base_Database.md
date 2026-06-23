@@ -805,3 +805,70 @@ migration 030 同时在 `workspace_tools` 表注册工具：
 ### 25.5 迁移文件
 
 `030_qianchuan_writer.sql`
+
+---
+
+## 26. persona_writer_configs 人设脚本仿写配置表（Sprint 15）
+
+### 26.1 用途
+
+人设脚本仿写工具（`persona-writer`）的配置表：存储 4 个 Prompt 模板 + 2 个 AI 模型绑定（light / heavy）+ 启用开关。由管理端 `功能配置` Tab 维护。
+
+### 26.2 字段说明
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | BIGSERIAL | 是 | 主键 |
+| `config_key` | VARCHAR(64) | 是 | 配置键（UNIQUE，默认 `'default'`）|
+| `evaluation_prompt` | TEXT | 否 | Step 2.4 开头评估 Prompt 模板（含 `{{transcript}}`）|
+| `analysis_prompt` | TEXT | 否 | Step 3.1 结构拆解 Prompt 模板（含 `{{transcript}}`）|
+| `writing_prompt` | TEXT | 否 | Step 3.3 写作 Prompt 模板（含 `{{is_custom}}...{{/is_custom}}` 块语法区分双模式）|
+| `iteration_prompt` | TEXT | 否 | Step 3.4 多轮追问 Prompt 模板 |
+| `light_model_id` | BIGINT | 否 | 评估/拆解用 AI 模型（`ai_models.id`，ON DELETE SET NULL）；留空走默认 `claude-haiku-4-5-20251001` |
+| `heavy_model_id` | BIGINT | 否 | 写作/追问用 AI 模型（`ai_models.id`，ON DELETE SET NULL）；留空走默认 `claude-opus-4-6` |
+| `is_active` | BOOLEAN | 是 | 启用开关（默认 TRUE）|
+| `created_at` | TIMESTAMPTZ | 是 | 创建时间（默认 NOW()）|
+| `updated_at` | TIMESTAMPTZ | 是 | 更新时间（默认 NOW()，管理端 PUT 时刷新）|
+
+### 26.3 Prompt 占位符（7 个 + 1 个块语法）
+
+后端 `app/services/persona_writer_prompt.py::render_prompt` 渲染：
+
+| 占位符 | 渲染值 | 用于 |
+|--------|--------|------|
+| `{{name}}` | `kols.name` | writing / iteration |
+| `{{soul}}` | `kols.persona` 全文 | writing / iteration |
+| `{{content_plan}}` | `kols.content_plan` | writing / iteration |
+| `{{transcript}}` | 对标文案全文 | evaluate / analyze / writing / iteration |
+| `{{structure_analysis}}` | Step 3.1 拆解结果 | writing / iteration |
+| `{{topic}}` | 选题 | writing |
+| `{{is_custom}}...{{/is_custom}}` | `is_custom=true` 时保留块内容，否则移除 | writing（双模式分支）|
+| `{{!is_custom}}...{{/!is_custom}}` | `is_custom=false` 时保留块内容，否则移除 | writing（双模式分支）|
+
+**渲染规则**：先处理 `{{is_custom}}` 块语法（按 `topic_mode='custom'|'default'` 保留/移除），再用 `re.compile(r"\{\{\s*(name|soul|content_plan|transcript|structure_analysis|topic)\s*\}\}")` 一次性 `re.sub` 替换其余占位符（避免 soul 内容含 `{{name}}` 文本时二次替换）。
+
+### 26.4 双模式逻辑（writing_prompt 内部）
+
+`POST /chat` body 传 `topic_mode`：
+- `topic_mode='custom'`（💡我有想法）：保留 `{{is_custom}}...{{/is_custom}}` 块，移除 `{{!is_custom}}...{{/!is_custom}}` 块；员工选题 > 对标结构 > 达人风格
+- `topic_mode='default'`（🤖我没想法）：保留 `{{!is_custom}}...{{/!is_custom}}` 块，移除 `{{is_custom}}...{{/is_custom}}` 块；原文结构 > 分析 > 人格档案
+
+### 26.5 种子 Prompt（migration 031 内置）
+
+4 个 Prompt 全部从旧架构 `persona-writer-web/src/app/page.tsx` 提取并改造：
+- `${var}` 前端拼字符串 → `{{var}}` 后端模板
+- 移除硬编码模型名（`qwen-flash` / `claude-opus-4-6-thinking`）→ 用 `light_model_id` / `heavy_model_id` 字段
+- 双选题 Prompt 合并到 1 个 `writing_prompt`，用 `{{is_custom}}` 块语法区分
+
+种子值：`config_key='default'`, `light_model_id=2`（claude-haiku-4-5-20251001）, `heavy_model_id=4`（claude-opus-4-6）, `is_active=TRUE`。
+
+### 26.6 workspace_tools 注册
+
+migration 031 同时 UPSERT `workspace_tools` 表（旧表已有 `persona-writer` 记录 status='disabled'）：
+- `tool_code='persona-writer'`, `tool_name='人设脚本仿写'`
+- `category='脚本创作'`, `status='online'`（直接上线，已通过 E2E）
+- `sort_order=110`
+
+### 26.7 迁移文件
+
+`031_persona_writer.sql`

@@ -140,6 +140,7 @@ M1 只定义两个角色：
 | `RESOURCE_NOT_FOUND` | 404 | 资源不存在 |
 | `USER_NOT_FOUND` | 404 | 用户不存在 |
 | `USERNAME_ALREADY_EXISTS` | 409 | 用户名已存在 |
+| `RESOURCE_ALREADY_EXISTS` | 409 | 资源已存在（如红人 douyin_id / sec_uid 重复） |
 | `TOOL_NOT_FOUND` | 404 | 工具不存在 |
 | `TOOL_NOT_ONLINE` | 403 | 工具未上线 |
 | `TASK_NOT_FOUND` | 404 | 任务不存在 |

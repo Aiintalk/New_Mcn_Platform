@@ -9,6 +9,7 @@ TikHub 服务适配器：
 import re
 import time
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -195,6 +196,17 @@ async def _resolve_short_url(url: str) -> str:
         return str(resp.url)
 
 
+def _clean_share_url(url: str) -> str:
+    """清洗抖音分享链接：丢弃所有 query 参数，只保留 scheme/netloc/path。
+
+    TikHub fetch_one_video_by_share_url 端点期望干净的 share URL；抖音 app 复制
+    出来的链接（含 iesdouyin.com/share/video/{id}/...）带大量 tracking 参数
+    （share_sign/ts/from_aid/did 等），原样转发会导致 400 Bad Request。
+    """
+    parts = urlsplit(url)
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
+
+
 async def resolve_sec_user_id(input_str: str, db: AsyncSession) -> dict:
     """
     解析用户输入的抖音号或分享链接，返回 sec_user_id 和 nickname。
@@ -302,6 +314,69 @@ async def fetch_user_videos(
     except Exception as e:
         await report_failure(cred_id, db)
         raise RuntimeError(f"TikHub fetch_user_videos failed: {e}") from e
+
+
+# ---------------------------------------------------------------------------
+# 分享链接视频解析（persona-writer 专用）
+# ---------------------------------------------------------------------------
+
+
+async def fetch_video_by_share_url(share_url: str, db: AsyncSession) -> dict:
+    """
+    通过抖音分享链接获取单个视频信息。
+
+    GET /api/v1/douyin/web/fetch_one_video_by_share_url
+    参数: share_url（抖音分享链接，含短链和分享文本）
+
+    Returns:
+        {"aweme_id": str, "title": str, "digg_count": int, "play_url": str}
+    """
+    cred_id, api_key, base_url = await _get_key_and_url(db)
+    try:
+        # 先从分享文本中提取 URL
+        url = _extract_douyin_url(share_url)
+        if not url:
+            raise RuntimeError("无法从输入中解析抖音链接")
+
+        # 解析短链接获取完整 URL
+        full_url = await _resolve_short_url(url)
+        # 清洗 tracking 参数（TikHub 期望干净的 share URL，脏 URL 会 400）
+        full_url = _clean_share_url(full_url)
+
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.get(
+                f"{base_url}/api/v1/douyin/web/fetch_one_video_by_share_url",
+                params={"share_url": full_url},
+                headers={"Authorization": f"Bearer {api_key}"},
+            )
+            response.raise_for_status()
+            raw = response.json()
+            await report_success(cred_id, db)
+
+        # TikHub 返回结构：data.aweme_detail
+        aweme = (raw.get("data") or {}).get("aweme_detail") or raw.get("data") or {}
+
+        aweme_id = aweme.get("aweme_id", "")
+        desc = aweme.get("desc", "")
+        digg_count = (aweme.get("statistics") or {}).get("digg_count", 0)
+
+        # play_url: 尝试多种路径
+        play_url = ""
+        video = aweme.get("video") or {}
+        play_addr = video.get("play_addr") or {}
+        url_list = play_addr.get("url_list") or []
+        if url_list:
+            play_url = url_list[0]
+
+        return {
+            "aweme_id": aweme_id,
+            "title": desc,
+            "digg_count": digg_count,
+            "play_url": play_url,
+        }
+    except Exception as e:
+        await report_failure(cred_id, db)
+        raise RuntimeError(f"TikHub fetch_video_by_share_url failed: {e}") from e
 
 
 # ---------------------------------------------------------------------------

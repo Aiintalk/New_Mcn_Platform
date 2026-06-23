@@ -165,6 +165,33 @@ async def create_kol(
     current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
+    # 预检查 douyin_id / sec_uid 唯一性（数据库层面已加部分唯一索引兜底，
+    # 这里提前返回友好错误，避免 IntegrityError 直接冒泡到 500）。
+    if body.douyin_id:
+        existing = (await db.execute(
+            select(Kol).where(
+                Kol.douyin_id == body.douyin_id,
+                Kol.deleted_at.is_(None),
+            )
+        )).scalar_one_or_none()
+        if existing:
+            return error_response(
+                ErrorCode.RESOURCE_ALREADY_EXISTS,
+                f"抖音号 {body.douyin_id} 已存在（红人：{existing.name}）",
+            )
+    if body.sec_uid:
+        existing = (await db.execute(
+            select(Kol).where(
+                Kol.sec_uid == body.sec_uid,
+                Kol.deleted_at.is_(None),
+            )
+        )).scalar_one_or_none()
+        if existing:
+            return error_response(
+                ErrorCode.RESOURCE_ALREADY_EXISTS,
+                f"sec_uid 已存在（红人：{existing.name}）",
+            )
+
     kol = Kol(
         name=body.name,
         account_name=body.account_name,

@@ -283,6 +283,7 @@ async def get_kol_personas(
             select(Kol.id, Kol.name, Kol.persona, Kol.content_plan)
             .where(Kol.persona.is_not(None))
             .where(Kol.deleted_at.is_(None))
+            .where(Kol.status.in_(["signed", "pending_renewal"]))
             .order_by(Kol.name)
         )
     ).all()

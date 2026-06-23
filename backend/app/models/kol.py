@@ -24,7 +24,7 @@ class Kol(Base):
     style_notes = Column(Text, nullable=True)
     tikhub_raw = Column(JSONB, nullable=True)
     owner_id = Column(BigInteger, ForeignKey("users.id"), nullable=True)
-    status = Column(String(32), nullable=False, default="active")
+    status = Column(String(32), nullable=False, default="signed")
     created_by = Column(BigInteger, ForeignKey("users.id"), nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())

@@ -175,7 +175,7 @@ class TestKolsPersonas:
         await test_session.execute(text("""
             INSERT INTO kols (name, persona, content_plan, status, created_at, updated_at)
             VALUES ('TestCreator', 'Soul content here', 'Content plan here',
-                    'active', NOW(), NOW())
+                    'signed', NOW(), NOW())
         """))
         await test_session.commit()
 
@@ -195,7 +195,7 @@ class TestKolsPersonas:
     async def test_kols_without_persona_excluded(self, test_client, operator_token, test_session):
         await test_session.execute(text("""
             INSERT INTO kols (name, persona, status, created_at, updated_at)
-            VALUES ('NullPersonaCreator', NULL, 'active', NOW(), NOW())
+            VALUES ('NullPersonaCreator', NULL, 'signed', NOW(), NOW())
         """))
         await test_session.commit()
 

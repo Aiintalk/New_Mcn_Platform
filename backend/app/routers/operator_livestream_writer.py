@@ -122,6 +122,7 @@ async def get_kol_personas(
             .where(Kol.content_plan.is_not(None))
             .where(Kol.persona.is_not(None))
             .where(Kol.deleted_at.is_(None))
+            .where(Kol.status.in_(["signed", "pending_renewal"]))
             .order_by(Kol.name)
         )
     ).all()

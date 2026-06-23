@@ -33,7 +33,7 @@ async def kol_with_both_fields(test_session):
     """插入一个 persona 和 content_plan 均非空的 KOL。"""
     await test_session.execute(text(
         "INSERT INTO kols (name, status, persona, content_plan, deleted_at) "
-        "VALUES ('测试达人', 'active', '达人人格', '内容规划', NULL) "
+        "VALUES ('测试达人', 'signed', '达人人格', '内容规划', NULL) "
         "ON CONFLICT DO NOTHING"
     ))
     await test_session.commit()
@@ -44,7 +44,7 @@ async def kol_missing_persona(test_session):
     """插入一个 persona 为 NULL 的 KOL（应被过滤）。"""
     await test_session.execute(text(
         "INSERT INTO kols (name, status, persona, content_plan, deleted_at) "
-        "VALUES ('无人格达人', 'active', NULL, '内容规划', NULL) "
+        "VALUES ('无人格达人', 'signed', NULL, '内容规划', NULL) "
         "ON CONFLICT DO NOTHING"
     ))
     await test_session.commit()

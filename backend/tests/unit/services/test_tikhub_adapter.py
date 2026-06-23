@@ -371,3 +371,189 @@ async def test_fetch_user_videos_api_error(mock_failure, mock_get_key):
             await fetch_user_videos("SEC123", mock_db)
 
     mock_failure.assert_called_once()
+
+
+# ── 纯函数测试：_clean_share_url ─────────────────────────────────
+
+
+def test_clean_share_url_strips_tracking_params():
+    """脏 URL（含 tracking 参数）清洗后只保留 scheme/netloc/path。"""
+    from app.adapters.tikhub import _clean_share_url
+
+    dirty = (
+        "https://www.iesdouyin.com/share/video/7645612531347639552/?region=CN"
+        "&mid=7645612582098995974&u_code=id7g6g60&did=MS4wLjABAAAAaHJYjI6SYxQTzX"
+        "&share_sign=Yg64raGi7VF4YQ_d7kVm6srJykCcIOSTVaB57vdywJw-"
+        "&ts=1782195454&from_aid=6383&from_ssr=1&from=web_code_link"
+    )
+    clean = _clean_share_url(dirty)
+    assert clean == "https://www.iesdouyin.com/share/video/7645612531347639552/"
+
+
+def test_clean_share_url_preserves_clean_url():
+    """干净 URL（无 query）原样返回。"""
+    from app.adapters.tikhub import _clean_share_url
+
+    clean_url = "https://www.douyin.com/video/7234"
+    assert _clean_share_url(clean_url) == clean_url
+
+
+def test_clean_share_url_strips_query_only():
+    """有 query 但无 fragment 时只清空 query。"""
+    from app.adapters.tikhub import _clean_share_url
+
+    url = "https://v.douyin.com/abc/?x=1&y=2"
+    assert _clean_share_url(url) == "https://v.douyin.com/abc/"
+
+
+def test_clean_share_url_preserves_https_scheme():
+    """scheme 保持 https，不会被改写。"""
+    from app.adapters.tikhub import _clean_share_url
+
+    url = "https://example.com/path?a=1"
+    result = _clean_share_url(url)
+    assert result.startswith("https://")
+
+
+# ── 异步函数测试：fetch_video_by_share_url ─────────────────────────
+
+
+@pytest.mark.asyncio
+@patch("app.adapters.tikhub._get_key_and_url")
+@patch("app.adapters.tikhub.report_success", new_callable=AsyncMock)
+@patch("app.adapters.tikhub.report_failure", new_callable=AsyncMock)
+@patch("app.adapters.tikhub._resolve_short_url", new_callable=AsyncMock)
+async def test_fetch_video_by_share_url_success(mock_resolve, mock_failure, mock_success, mock_get_key):
+    """成功解析分享链接获取视频信息。"""
+    mock_get_key.return_value = (1, "test_key", "https://api.tikhub.io")
+    mock_resolve.return_value = "https://www.douyin.com/video/7234"
+    mock_db = AsyncMock()
+
+    with patch("httpx.AsyncClient") as MockClient:
+        client_instance = AsyncMock()
+        MockClient.return_value.__aenter__.return_value = client_instance
+
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.raise_for_status = MagicMock()
+        resp.json.return_value = {
+            "data": {
+                "aweme_detail": {
+                    "aweme_id": "7234",
+                    "desc": "测试视频",
+                    "statistics": {"digg_count": 250000},
+                    "video": {
+                        "play_addr": {
+                            "url_list": ["https://example.com/play.mp4"]
+                        }
+                    },
+                }
+            }
+        }
+        client_instance.get.return_value = resp
+
+        from app.adapters.tikhub import fetch_video_by_share_url
+        result = await fetch_video_by_share_url("https://v.douyin.com/xxx/", mock_db)
+
+    assert result["aweme_id"] == "7234"
+    assert result["title"] == "测试视频"
+    assert result["digg_count"] == 250000
+    assert result["play_url"] == "https://example.com/play.mp4"
+
+
+@pytest.mark.asyncio
+@patch("app.adapters.tikhub._get_key_and_url")
+@patch("app.adapters.tikhub.report_failure", new_callable=AsyncMock)
+async def test_fetch_video_by_share_url_api_error(mock_failure, mock_get_key):
+    """API 异常应抛出 RuntimeError。"""
+    mock_get_key.return_value = (1, "test_key", "https://api.tikhub.io")
+    mock_db = AsyncMock()
+
+    with patch("app.adapters.tikhub._resolve_short_url", new_callable=AsyncMock) as mock_resolve:
+        mock_resolve.return_value = "https://www.douyin.com/video/123"
+        with patch("httpx.AsyncClient") as MockClient:
+            client_instance = AsyncMock()
+            MockClient.return_value.__aenter__.return_value = client_instance
+            client_instance.get.side_effect = Exception("网络超时")
+
+            from app.adapters.tikhub import fetch_video_by_share_url
+            with pytest.raises(RuntimeError, match="fetch_video_by_share_url failed"):
+                await fetch_video_by_share_url("https://v.douyin.com/xxx/", mock_db)
+
+    mock_failure.assert_called_once()
+
+
+@pytest.mark.asyncio
+@patch("app.adapters.tikhub._get_key_and_url")
+@patch("app.adapters.tikhub.report_failure", new_callable=AsyncMock)
+async def test_fetch_video_by_share_url_no_url_in_input(mock_failure, mock_get_key):
+    """输入不含 URL 时应抛出 RuntimeError。"""
+    mock_get_key.return_value = (1, "test_key", "https://api.tikhub.io")
+    mock_db = AsyncMock()
+
+    from app.adapters.tikhub import fetch_video_by_share_url
+    with pytest.raises(RuntimeError, match="fetch_video_by_share_url failed"):
+        await fetch_video_by_share_url("纯文本没有链接", mock_db)
+
+    mock_failure.assert_called_once()
+
+
+@pytest.mark.asyncio
+@patch("app.adapters.tikhub._get_key_and_url")
+@patch("app.adapters.tikhub.report_success", new_callable=AsyncMock)
+@patch("app.adapters.tikhub.report_failure", new_callable=AsyncMock)
+@patch("app.adapters.tikhub._resolve_short_url", new_callable=AsyncMock)
+async def test_fetch_video_by_share_url_cleans_dirty_redirect(
+    mock_resolve, mock_failure, mock_success, mock_get_key
+):
+    """回归：_resolve_short_url 返回带 tracking 参数的脏 URL 时，
+    传给 TikHub 的应是清洗后的干净 URL（修复用户报的 400 bug）。"""
+    mock_get_key.return_value = (1, "test_key", "https://api.tikhub.io")
+    # 模拟 v.douyin.com 短链 redirect 后的真实脏 URL
+    mock_resolve.return_value = (
+        "https://www.iesdouyin.com/share/video/7645612531347639552/?region=CN"
+        "&mid=7645612582098995974&share_sign=Yg64raGi7VF4YQ_d7kVm6srJykCcIOSTVaB57vdywJw-"
+        "&ts=1782195454&from_aid=6383&from_ssr=1&from=web_code_link"
+    )
+    mock_db = AsyncMock()
+
+    captured_params = {}
+
+    class CapturingClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def get(self, url, params=None, headers=None):
+            captured_params["url"] = url
+            captured_params["share_url"] = (params or {}).get("share_url", "")
+            resp = MagicMock()
+            resp.status_code = 200
+            resp.raise_for_status = MagicMock()
+            resp.json.return_value = {
+                "data": {
+                    "aweme_detail": {
+                        "aweme_id": "7645612531347639552",
+                        "desc": "测试",
+                        "statistics": {"digg_count": 100},
+                        "video": {"play_addr": {"url_list": ["https://x/y.mp4"]}},
+                    }
+                }
+            }
+            return resp
+
+    with patch("httpx.AsyncClient", CapturingClient):
+        from app.adapters.tikhub import fetch_video_by_share_url
+        await fetch_video_by_share_url("https://v.douyin.com/xxx/", mock_db)
+
+    # 关键断言：传给 TikHub 的是干净 URL，没有 tracking 参数
+    assert captured_params["share_url"] == (
+        "https://www.iesdouyin.com/share/video/7645612531347639552/"
+    )
+    assert "share_sign" not in captured_params["share_url"]
+    assert "from_aid" not in captured_params["share_url"]

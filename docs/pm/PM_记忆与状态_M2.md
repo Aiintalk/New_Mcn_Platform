@@ -1,6 +1,6 @@
 # MCN_PM_Agent — 项目记忆与当前状态（M2）
 
-> 最后更新：2026-06-22（Sprint 14 — 千川文案写作迁移：qianchuan_writer_configs 表 + 6 运营端/2 管理端接口 + Prompt 模板化（`{{name}}`/`{{soul}}`/`{{content_plan}}`）+ 4 步向导 UI + 账号绑定历史 + 8 单测/29 集测/11 前端测全绿，待 PM 签收 + 推 PR）
+> 最后更新：2026-06-23（Sprint 15 v2 — 人设脚本仿写 E2E 验收期 Bug 集中修复：7 Bug 全修复（TikHub 400 / 4 writer SQL 统一 / kols 唯一索引+预检查 migration 032 / kols.status 默认值 / 数据污染清理 / ConfigTab 描述 / KolsPage content_plan UI）；4 任务/验收/测试文档落地 + BUG-025~031 登记 + 契约 4 处同步；待 PM 签收 + 推 PR #6）
 > 更新角色：MCN_PM_Agent
 > 上一份文档：`docs/pm/PM_记忆与状态.md`（M1 阶段，已归档）
 
@@ -9,7 +9,7 @@
 ## 一、项目基本信息
 
 - **项目名**：MCN Information System Platform
-- **当前阶段**：M2 阶段 — Sprint 14 千川文案写作迁移完成（待签收 + 推 PR #5），上一个已合并：ASR 完整方案（PR #4 已合并到 main，merge commit 7fb84a7）。下一个 Sprint 候选：tool_transcribe 切到 ASR / TikHub 日志 bug 修复 / 凭证加密 / 其余 6 个工具迁移
+- **当前阶段**：M2 阶段 — Sprint 15 人设脚本仿写迁移完成（待签收 + 推 PR #6），上一个已合并：Sprint 14 千川文案写作（PR #5 已合并到 main，merge commit cc9d665）。下一个 Sprint 候选：tool_transcribe 切到 ASR / TikHub 日志 bug 修复 / 凭证加密 / 其余 5 个工具迁移（livestream-review / persona-review / qianchuan-collection / qianchuan-preview / seeding-writer）
 - **GitHub**：https://github.com/Aiintalk/New_Mcn_Platform
 - **工作目录**：`D:\2026年工作\AI相关\AI工具箱新架构方案\mcn-platform`（Windows 本地）
 - **后端**：`backend/`（FastAPI + PostgreSQL）
@@ -27,7 +27,7 @@
 
 ## 二、M2 阶段（当前）
 
-### M2 工作项 — Sprint 14 千川文案写作迁移（qianchuan-writer）✅ 完成（待 PM 签收 + 推 PR #5）
+### M2 工作项 — Sprint 14 千川文案写作迁移（qianchuan-writer）✅ 完成（已合并到 main，PR #5 merge commit cc9d665）
 
 **核心定位**：旧架构 `Ai_Toolbox/qianchuan-writer-web` 整体迁移到新架构。4 步向导业务逻辑 100% 保留（选达人→加载产品→输入脚本→生成仿写），Prompt 模板化（占位符从旧版 `${var}` 改为新架构 `{{var}}`），AI 模型可配，产出与账号绑定入库可查历史。参照样板：`tiktok-writer`（Prompt 表 + ConfigTab + operator 向导页）。
 
@@ -75,6 +75,96 @@
 - **persona 数据补全**：旧架构本地仅 2 个 persona（孙知羽 v6.0 + 陶然 v2.0），新架构 kols 表 4 活跃但 persona=NULL，需要业务侧手工录入
 - **A 用户私享达人**：本次达人对全部公开，后续若需要"A 用户添加的达人 A 用户只能使用"需要改查询 SQL 加 `OR kols.created_by = current_user.id` 过滤
 - **其余 5 个"已迁移但未注册 workspace_tools"工具**：livestream-review / persona-review / qianchuan-collection / qianchuan-preview / seeding-writer 待迁移
+
+---
+
+### M2 工作项 — Sprint 15 人设脚本仿写迁移（persona-writer）✅ 完成（待 PM 签收 + 推 PR #6）
+
+**核心定位**：旧架构 `Ai_Toolbox/persona-writer-web`（Next.js 14）整体迁移到新架构。3 步向导业务逻辑 100% 忠实旧版（加载风格 → 对标验证 → 仿写创作），4 个 Prompt + 2 个 AI 模型（light / heavy）admin 全部可配。Step 2 含抖音链接解析（TikHub）+ 点赞门槛硬编码（≥10万）+ AI 开头评估；Step 3 含 AI 结构拆解 + 双选题（💡我有想法 / 🤖我没想法）+ 多轮追问（含图片）+ 终稿编辑（手动复制对标原文）。参照样板：`qianchuan-writer`（Sprint 14）。
+
+**分支**：`migrate/persona-writer`（从 main 拉新分支，PR #5 合并后开始）
+
+| 端 | 状态 | 备注 |
+|----|------|------|
+| Migration 031 | ✅ 完成 | `persona_writer_configs` 表（4 Prompt 字段 + light/heavy_model_id + is_active）+ 种子 4 Prompt（从旧版 page.tsx 提取）+ `workspace_tools` UPSERT（status='online' 直接上线）|
+| ORM 模型 | ✅ 完成 | `PersonaWriterConfig`（参照 QianchuanWriterConfig 扩展为 4 Prompt + 2 模型）|
+| Prompt 渲染 service | ✅ 完成 | `app/services/persona_writer_prompt.py::render_prompt`，7 占位符 + `{{is_custom}}...{{/is_custom}}` / `{{!is_custom}}...{{/!is_custom}}` 块语法（双模式分支）+ 正则一次性替换防二次替换 |
+| tikhub adapter 扩展 | ✅ 完成 | `fetch_video_by_share_url(share_url, db)`，调 `GET /api/v1/douyin/web/fetch_one_video_by_share_url`，finally 写 TikHubCallLog |
+| operator router（8 接口）| ✅ 完成 | `operator_persona_writer.py`：GET /kols/personas + POST /fetch-video（含 likes_pass 门槛判定）+ POST /evaluate-opening（流式 light）+ POST /analyze-structure（流式 light）+ POST /chat（流式 heavy，scene=writing/iteration 双场景）+ POST /save-output + POST /export-word + GET /outputs |
+| admin router（2 接口）| ✅ 完成 | `admin_persona_writer.py`：GET/PUT /configs（4 Prompt + 2 模型 + is_active）|
+| Router 注册 | ✅ 完成 | `app/main.py` include 2 router；`conftest.py` patch 列表加 operator_persona_writer |
+| 前端 types | ✅ 完成 | `frontend/src/types/personaWriter.ts`（含 ChatRequest scene/topic_mode 双字段）|
+| 前端 API 层 | ✅ 完成 | `frontend/src/api/personaWriter.ts`（10 函数：8 operator + 2 admin；3 流式 + 1 Blob 例外）|
+| 前端 3 步向导页面 | ✅ 完成 | `PersonaWriterPage.tsx`（重写 placeholder）：Step 1 选达人预览 → Step 2 链接解析+点赞门槛+文案+AI 评估+质量门 → Step 3 结构拆解+双选题+写作+多轮追问+图片上传+终稿编辑+导出 |
+| 前端 ConfigTab | ✅ 完成 | `PersonaWriterConfigTab.tsx`（4 Prompt TextArea + 2 模型 Select + is_active Switch）|
+| 前端路由 + Tab 注册 | ✅ 完成 | `App.tsx` Route `/workspace/persona-writer`（已存在）；`WorkspaceConfigPage.tsx` 注册 ConfigTab |
+| 单元测试 | ✅ 16/16 | `test_persona_writer_prompt.py`：7 占位符替换 + 块语法 is_custom + fallback + 多次出现 + 真实模板 + 防二次替换 |
+| tikhub 单测扩展 | ✅ +3 | `test_tikhub_adapter.py` 扩展：fetch_video_by_share_url 成功/失败/URL 解析 |
+| operator 集成测试 | ✅ 30/30 | 鉴权 4 + personas 3 + fetch-video 5 + evaluate 3 + analyze 3 + chat 5 + save 3 + export 2 + outputs 2 |
+| admin 集成测试 | ✅ 9/9 | 鉴权 4 + GET 1 + PUT 4 |
+| 前端组件测试 | ✅ 19/19 | 3 步向导渲染 + Step 1/2/3 各环节 + 双选题切换 + 图片上传 mock + 多轮追问 + 终稿提示 + 保存/导出 + ConfigTab |
+| 全量回归 | ✅ 后端 863 passed / 前端 157 passed | 后端基线 805 → 863（+58）；前端基线 138 → 157（+19）；后端 2 failed 仍为预存 snappy 问题 |
+| 契约同步 | ✅ 完成 | `MCN_M2_Base_API.md` 加 §22（8 运营端 + 2 管理端）；`MCN_M2_Base_Database.md` 加 §26 persona_writer_configs（含 7 占位符 + 块语法）；前后端 README 计数同步（models 29/routers 52/migrations 031/api 32/types 22/tasks 43-44）|
+
+**关键设计点：**
+- **4 Prompt + 2 模型 admin 可配**：评估/拆解用 light（claude-haiku-4-5-20251001）；写作/追问用 heavy（claude-opus-4-6）。旧版 qwen-flash 在新架构 ai_models 表未注册，改用 claude-haiku-4-5 替代
+- **`{{is_custom}}` 块语法**：双选题（💡我有想法 / 🤖我没想法）Prompt 合并到 1 个 writing_prompt，用 `{{is_custom}}...{{/is_custom}}` 和 `{{!is_custom}}...{{/!is_custom}}` 块语法区分。比简单替换为 'true'/'false' 更优雅（AI 不需要理解 if-else 逻辑）
+- **图片追问复用 /api/files**：不新增专用上传接口，运营端 API 总数维持 8 个（决策 #15）
+- **点赞门槛硬编码 100000**：业务铁律（对标必须 ≥10 万赞），不让 admin 改（避免降标）
+- **质量门判定**：`likes_pass AND (评估含"通过"且不含"不通过") AND user_agree` 三件套全 ✅ 才能进 Step 3
+- **流式 429 重试**：delays `[2, 4, 6]` 秒（同 qianchuan-writer）
+- **5 张日志表全覆盖**：ai_call_logs（yunwu finally）+ tikhub_call_logs（tikhub finally）+ operation_logs（router 显式写 fetch-video/save-output/PUT configs/chat create_job）+ outputs（save-output 写）+ task_jobs（chat create_job=true 写）
+- **workspace_tools status='online' 直接上线**：已通过 E2E 测试，不需后续手动改
+
+**关键技术决策（实施过程）：**
+1. **subagent 派工模式**：PM 派 2 个 subagent（后端 + 前端）按需求文档 + qianchuan-writer 样板自主开发，PM 只做需求确认 + 验收 + 文档收尾。后端 subagent 86/86 测试全绿；前端 subagent 19/19 测试全绿
+2. **`{{is_custom}}` 块语法**（subagent 创新）：原需求文档设计是替换为 'true'/'false' 让 AI 理解 if-else；subagent 改为块语法，渲染阶段就移除/保留整段，AI 拿到的是单一确定 Prompt，更稳定
+3. **3.5 终稿编辑纯前端**：用户手动改 textarea + 复制对标原文前 2-3 句，无后端交互（业务铁律保留）
+4. **流式 API 设计**（前端 subagent）：3 个流式函数（evaluateOpeningStream / analyzeStructureStream / chatStream）接收 `onChunk` 回调，内部封装 `readPlainStream` helper
+5. **双分支顺序开发**：先后端 subagent 完成契约稳定，再派前端 subagent（避免并行契约漂移）
+
+**不在本次范围（留作后续独立任务）：**
+- **tool_transcribe 改造**：继续用云雾 Whisper（Sprint 3 债务）
+- **service_credentials.secret_enc 加密**：Sprint 3 债务
+- **TikHub adapter 日志写入 bug**：Sprint 11 发现，独立修复
+- **persona 数据补全**：旧架构本地仅 2 个 persona（孙静 + 陶然），新架构已通过 `_e2e_seed_personas.py` 一次性脚本补到 kols 表（脚本本身不进 git，保留工作区）
+- **ASR 业务集成**：把 tool_transcribe 调用方切到 ASR
+- **其余 5 个工具迁移**：livestream-review / persona-review / qianchuan-collection / qianchuan-preview / seeding-writer
+
+---
+
+### M2 工作项 — Sprint 15 v2 人设脚本仿写 E2E 验收期 Bug 集中修复 ✅ 完成（待 PM 签收 + 推 PR #6）
+
+**核心定位**：v1 主体完成后 E2E 验收发现 7 个 Bug（4 P1 + 3 P2），集中修复 + 配套契约同步 + 数据修复。不涉及新功能，全部为补齐与修复。
+
+**分支**：`migrate/persona-writer`（继承 v1，未切新分支）
+
+| 端 | 状态 | 备注 |
+|----|------|------|
+| TikHub URL 清洗（BUG-025）| ✅ 完成 | `app/adapters/tikhub.py` 新增 `_clean_share_url`（urlsplit + urlunsplit 丢 query/fragment）。单测 +5（30/30 全过）|
+| 4 writer SQL 统一（BUG-026）| ✅ 完成 | 4 个 `operator_*_writer.py` 统一 `status IN ('signed','pending_renewal')`；4 个测试 fixture 改 `'active'` → `'signed'`（10 处）|
+| kols 唯一索引 + 预检查（BUG-028）| ✅ 完成 | Migration 032 部分唯一索引（douyin_id + sec_uid）+ `admin_kols.py` 加预检查 + `response.py` 加 `RESOURCE_ALREADY_EXISTS`（409）+ `test_admin_kols.py` 新建 7 用例全过 |
+| kols.status 默认值修复（BUG-027）| ✅ 完成 | ORM `kol.py:27` default `'active'` → `'signed'`；前端 Form initialValue='signed'；数据修复现有 `'active'` → `'signed'` |
+| 数据污染清理（BUG-029）| ✅ 完成 | id=3（孙静/原搭搭）、id=4（陶然/原小A）软删；用户通过 UI 重建 |
+| ConfigTab 描述清理（BUG-030）| ✅ 完成 | `PersonaWriterConfigTab.tsx` + `QianchuanWriterConfigTab.tsx` 删除开发风格描述 div |
+| KolsPage content_plan UI（BUG-031）| ✅ 完成 | `KolsPage.tsx` 详情抽屉加内容规划编辑卡片 + 新建表单加 Form.Item；`types/kol.ts` 补 content_plan 字段 |
+| 契约同步 | ✅ 完成 | M1_Base_Database §6.2（status 修正）+ §6.3（索引说明，新建）+ M1_Base_API §3（错误码表加 RESOURCE_ALREADY_EXISTS）+ M2_Base_API §13.4/§16.3/§21.1/§22.1（4 writer SQL 统一）+ backend README migrations 031→032 |
+| 任务文档 v2 | ✅ 完成 | 后端 `M2_Sprint15_后端任务_persona-writer_v2_修复Bug.md` + 前端 `M2_Sprint15_前端任务_persona-writer_v2_修复Bug.md` |
+| 测试报告 v2 | ✅ 完成 | `backend/docs/tests/M2_Sprint15_测试报告_persona-writer_v2_修复Bug.md` |
+| 开发验收 v2 | ✅ 完成 | `backend/docs/tasks/M2_Sprint15_后端_开发验收_persona-writer_v2_修复Bug.md` |
+| BUG 登记 | ✅ 完成 | BUG-025 ~ BUG-031 共 7 条（`docs/pm/BUG修复登记.md` §九）|
+
+**关键设计点：**
+- **TikHub URL 清洗**：用 `urlsplit` + `urlunsplit` 丢弃所有 query/fragment，只留 scheme/netloc/path。在 `_resolve_short_url` 之后调用，确保脏 URL（含 share_sign/ts/from_aid 等 14 个 tracking 参数）被清洗
+- **部分唯一索引**（partial index）：参照 `001_init.sql:28 idx_users_username` 模式，`WHERE deleted_at IS NULL AND douyin_id IS NOT NULL AND douyin_id <> ''`，允许软删后用相同 douyin_id 重建
+- **预检查 + DB 索引双保险**：前端友好错误（预检查）+ DB 兜底（并发竞态 IntegrityError）
+- **ORM default 三层修复**：ORM default（后端兜底）+ Form initialValue（前端默认）+ 数据修复（现有 active → signed）
+- **数据修复不入 migration**：migration 只管 schema；数据修复用一次性 SQL（asyncpg 直连）
+
+**不在本次范围（留作后续独立任务）：**
+- **admin/kols 完整 API 章节契约**：M1_Base_API 缺整章（历史债务），独立任务
+- **运营添加红人权限**：当前仅 admin；运营走 kol-intake 问卷流程。若需运营直接添加，独立任务
+- **DB 唯一索引测试库验证**：测试库 metadata.create_all 不跑 migration，索引兜底未自动化覆盖；生产已应用，后续加 e2e 或 migration 验证脚本
 
 ---
 
