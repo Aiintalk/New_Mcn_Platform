@@ -1,6 +1,10 @@
 # MCN_PM_Agent — 项目记忆与当前状态（M2）
 
-> 最后更新：2026-06-24（**迁移收尾 + 日志链路修复 + 文档补遗**：① migration 021-025 执行，workspace_tools 14→19，5 工具注册；② persona-review/livestream-review 设 online，**16 工具全部迁移完成且上线**；③ yunwu adapter 双写 ExternalServiceLog，管理员「外部服务日志」页可见 AI 调用（PR #8）；④ Sprint 8/9/10 文档补遗——persona-review 需求文档 + 3 份测试报告 + 前后端 README（PR #8）；⑤ LivestreamReviewConfigTab 补建，5 工具管理员配置页全部对齐（PR #9）；PR #7 已合并。上一个：Sprint 16 种草内容仿写迁移完成）
+> 最后更新：2026-06-24（**迁移收尾 + 日志链路修复 + 文档补遗**：① migration 021-025 执行，workspace_tools 14→19，5 工具注册；② persona-review/livestream-review 设 online，**16 工具全部迁移完成且上线**；③ yunwu adapter 双写 ExternalServiceLog，管理员「外部服务日志」页可见 AI 调用（PR #8）；④ Sprint 8/9/10 文档补遗——persona-review 需求文档 + 3 份测试报告 + 前后端 README（PR #8）；⑤ LivestreamReviewConfigTab 补建，5 工具管理员配置页全部对齐（PR #9）；⑥ Sprint 3 文档补遗（需求+测试报告）+ Sprint 17 需求文档（管理端调用日志扩展 backlog）；PR #7 已合并。上一个：Sprint 16 种草内容仿写迁移完成）
+
+> **📋 Sprint 17 backlog**（已写需求文档，待开工）：管理端调用日志扩展（用户列 + 功能列）—— `docs/pm/M2_Sprint17_管理端调用日志扩展_需求文档.md`，方案 A 最小可用 ~75 分钟，5 个决策点待 review。同期排障发现 TikHub Cloudflare 网关间歇 502（约 40% 故障率，**非代码 bug**），后续如频繁影响可加 adapter 自动重试（独立任务，未开工）
+
+> **🔍 workspace_tools 旧名清理（待开工）**：2026-06-24 核查发现 3 条疑似旧名/废弃记录：`qianchuan (id=3, online) / review (id=4, dev) / subtitle (id=5, dev)`（Sprint 1-2 占位，被后续 Sprint 拆细替代）。5 条此前未注册的工具（livestream-writer/livestream-review/persona-review/qianchuan-preview/qianchuan-collection）**已在本日 migration 注册上线**。旧名清理待后续 migration 处理
 > 更新角色：MCN_PM_Agent
 > 上一份文档：`docs/pm/PM_记忆与状态.md`（M1 阶段，已归档）
 
@@ -586,6 +590,10 @@
 5. 历史记录点击无反应（loadHistoryDetail 加 setStep(3)）
 6. 产出中心预览为空（调详情接口获取 content）
 
+**文档补遗（2026-06-24）：** CLAUDE.md 功能完成链核查发现 Sprint 3 仅有任务单（v1/v2），缺 PM 视角的需求文档与测试报告。已补齐：
+- `docs/pm/M2_Sprint3_persona-positioning_需求文档.md`（695 行，整合 v1/v2 + 契约 + 产出双写 + 10 个决策点）
+- `docs/tests/M2_Sprint3_persona-positioning_测试报告.md`（339 行，221+71 测试详情 + 6 Bug 修复记录 + 15 步手工 E2E 走查）
+
 ---
 
 ### M2 Sprint 10 — 人设脚本复盘（persona-review）✅ 完成
@@ -941,6 +949,8 @@
 | `backend/docs/tests/M2_Sprint05_测试报告_selling-point-extractor_v1.md` | Sprint 5 测试报告（43/43 后端 + 86/86 前端）| ✅ 已完成 |
 | `backend/docs/tests/M2_Sprint04_测试报告_tiktok-writer_v1.md` | Sprint 4 测试报告（317/317 后端）| ✅ 已完成 |
 | `backend/docs/tests/M2_Sprint3_测试报告.md` | Sprint 3 测试报告（371/371） | ✅ 已完成 |
+| `docs/pm/M2_Sprint3_persona-positioning_需求文档.md` | Sprint 3 人格定位 PM 需求文档补遗（2026-06-24） | ✅ 已完成 |
+| `docs/tests/M2_Sprint3_persona-positioning_测试报告.md` | Sprint 3 人格定位测试报告补遗（2026-06-24） | ✅ 已完成 |
 
 
 ### 基础文档
