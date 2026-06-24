@@ -23,6 +23,7 @@ export default function WorkspacePage() {
     if (t.status !== 'online') { message.info('该工具暂不可用'); return; }
     if (t.tool_code === 'kol-intake') navigate('/workspace/kol-intake/chat');
     else if (t.tool_code === 'persona-writer') navigate('/workspace/persona-writer');
+    else if (t.tool_code === 'seeding-writer') navigate('/workspace/seeding-writer');
     else if (t.tool_code === 'persona-positioning') navigate('/workspace/persona-positioning');
     else if (t.tool_code === 'benchmark') navigate('/workspace/benchmark');
     else if (t.tool_code === 'tiktok-writer') navigate('/workspace/tiktok-writer');

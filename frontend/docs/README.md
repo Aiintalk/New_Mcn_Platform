@@ -9,7 +9,7 @@
 ```
 frontend/
 ├── src/                               # 源码
-│   ├── api/                           # API 调用层（32 个模块）
+│   ├── api/                           # API 调用层（33 个模块）
 │   │   ├── request.ts                 #   基础封装（get/post/patch/put/del + 拦截器）
 │   │   ├── auth.ts                    #   登录、改密码
 │   │   ├── users.ts                   #   用户管理
@@ -38,13 +38,14 @@ frontend/
 │   │   ├── livestreamReview.ts        #   直播间脚本复盘
 │   │   ├── personaReview.ts           #   人设脚本复盘
 │   │   ├── qianchuanWriter.ts         #   千川文案写作（Sprint 14）
-│   │   └── personaWriter.ts           #   人设脚本仿写（Sprint 15）
+│   │   ├── personaWriter.ts           #   人设脚本仿写（Sprint 15）
+│   │   └── seedingWriter.ts           #   种草内容仿写（Sprint 16）：22 个函数（16 走 request.ts + 4 SSE 流式 + 1 multipart + 1 Blob 下载例外）
 │   ├── layouts/                       # 布局组件
 │   │   ├── AdminLayout.tsx            #   管理端布局（左侧菜单 + 内容区）
 │   │   ├── OperatorLayout.tsx         #   运营端布局（左侧菜单 + 内容区）
 │   │   └── AuthLayout.tsx             #   登录/注册页布局
 │   ├── pages/                         # 页面组件
-│   │   ├── admin/                     #   管理端（24 个：14 页面 + 10 ConfigTab）
+│   │   ├── admin/                     #   管理端（25 个：14 页面 + 11 ConfigTab）
 │   │   │   ├── KolsPage.tsx           #     红人管理
 │   │   │   ├── UsersPage.tsx          #     用户管理
 │   │   │   ├── AiManagementPage.tsx   #     AI 密钥/模型管理
@@ -67,7 +68,8 @@ frontend/
 │   │   │   └── PersonaReviewConfigTab.tsx # 人设脚本复盘配置 Tab
 │   │   │   （另有 QianchuanWriterConfigTab.tsx — 千川文案写作配置 Tab，Sprint 14 新增）
 │   │   │   （另有 PersonaWriterConfigTab.tsx — 人设脚本仿写配置 Tab，Sprint 15 新增）
-│   │   ├── operator/                  #   运营端（17 个页面）
+│   │   │   （另有 SeedingWriterConfigTab.tsx — 种草内容仿写配置 Tab，Sprint 16 新增：6 个 Prompt + 轻量/重型模型 + 启用开关）
+│   │   ├── operator/                  #   运营端（18 个页面）
 │   │   │   ├── HomePage.tsx           #     首页（统计卡片 + 趋势图）
 │   │   │   ├── OperatorIntakePage.tsx #     入驻问卷列表
 │   │   │   ├── OperatorIntakeChatPage.tsx #  运营直发对话
@@ -86,6 +88,7 @@ frontend/
 │   │   │   └── PersonaReviewPage.tsx  #     人设脚本复盘
 │   │   │   （另有 QianchuanWriterPage.tsx — 千川文案写作，Sprint 14 新增）
 │   │   │   （另有 PersonaWriterPage.tsx — 人设脚本仿写，Sprint 15 重写 placeholder 上线）
+│   │   │   （另有 SeedingWriterPage.tsx — 种草内容仿写，Sprint 16 新增：4 步向导=选达人+产品信息+对标验证+种草仿写）
 │   │   ├── auth/                      #   登录/改密码
 │   │   │   ├── LoginPage.tsx
 │   │   │   └── ChangePasswordPage.tsx
@@ -99,7 +102,7 @@ frontend/
 │   ├── styles/                        # 全局样式
 │   │   ├── variables.css              #   CSS 变量（品牌色、字号、间距）
 │   │   └── admin.css                  #   管理端/运营端共享样式
-│   ├── types/                         # TypeScript 类型定义（22 个模块）
+│   ├── types/                         # TypeScript 类型定义（23 个模块）
 │   │   ├── api.ts                     #   ApiResponse<T> / PagedData<T>
 │   │   ├── user.ts                    #   UserInfo
 │   │   ├── kol.ts                     #   KolInfo
@@ -110,8 +113,9 @@ frontend/
 │   │   ├── benchmark.ts               #   对标分析相关
 │   │   ├── tiktokWriter.ts            #   TikTok 脚本仿写相关
 │   │   ├── sellingPoint.ts            #   卖点提取器相关
+│   │   ├── seedingWriter.ts           #   种草内容仿写相关（Sprint 16）
 │   │   └── ...                        #   task / output / log / file / system
-│   ├── __tests__/                     # 测试代码（87 个用例，全部通过）
+│   ├── __tests__/                     # 测试代码（180 个用例，全部通过）
 │   │   ├── unit/                      #   单元测试
 │   │   │   ├── api/                   #     API 层测试（6 个文件）
 │   │   │   │   ├── request.test.ts    #       request 封装
@@ -123,7 +127,9 @@ frontend/
 │   │   │   │   └── homepage.test.ts   #       运营首页 API
 │   │   │   └── store/authStore.test.ts #      authStore 测试
 │   │   └── components/                #   组件测试
-│   │       └── pages/LoginPage.test.tsx #     登录页测试
+│   │       └── pages/                 #     页面组件测试
+│   │           ├── LoginPage.test.tsx #       登录页
+│   │           └── SeedingWriterPage.test.tsx # 种草仿写（23 个用例：4 步向导全流程 + ConfigTab）
 │   ├── test/setup.ts                  # 测试环境 setup（matchMedia mock）
 │   ├── App.tsx                        # 路由定义
 │   └── main.tsx                       # 入口
@@ -149,6 +155,7 @@ frontend/
 │       ├── M2_Sprint06_前端任务_qianchuan-review_v1.md  #  千川脚本复盘
 │       ├── M2_Sprint07_前端任务_qianchuan-edit-review_v1.md  #  千川剪辑预审
 │       └── M2_Sprint07_前端_开发验收_qianchuan-edit-review_v1.md  #  千川剪辑预审验收
+│       └── M2_Sprint16_前端任务_seeding-writer.md  #  种草内容仿写（Sprint 16）
 │
 ├── vitest.config.ts                   # Vitest 测试配置
 ├── vite.config.ts                     # Vite 构建配置
