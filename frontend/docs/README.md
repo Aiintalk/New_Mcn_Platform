@@ -37,6 +37,8 @@ frontend/
 │   │   ├── livestreamWriter.ts        #   直播脚本仿写
 │   │   ├── livestreamReview.ts        #   直播间脚本复盘
 │   │   ├── personaReview.ts           #   人设脚本复盘
+│   │   ├── qianchuanPreview.ts        #   千川文案预审（Sprint 11）
+│   │   ├── qianchuanCollection.ts     #   千川爆文合集（Sprint 12）
 │   │   ├── qianchuanWriter.ts         #   千川文案写作（Sprint 14）
 │   │   ├── personaWriter.ts           #   人设脚本仿写（Sprint 15）
 │   │   └── seedingWriter.ts           #   种草内容仿写（Sprint 16）：22 个函数（16 走 request.ts + 4 SSE 流式 + 1 multipart + 1 Blob 下载例外）
