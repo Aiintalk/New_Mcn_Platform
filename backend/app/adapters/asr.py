@@ -46,6 +46,20 @@ def _make_client(access_key_id: str, access_key_secret: str, region: str) -> Acs
     return AcsClient(access_key_id, access_key_secret, region)
 
 
+def _build_task_dict(app_key: str, audio_url: str, language: str) -> dict:
+    """构造 SubmitTask 的 task 参数 dict（便于单测断言关键参数）。"""
+    return {
+        "appkey": app_key,
+        "file_link": audio_url,
+        "version": "4.0",
+        "enable_words": False,
+        # 阿里云 filetrans 默认只支持 8k/16k 采样率；抖音原声通常是 44.1k，
+        # 必须开自适应，否则报 41050008 UNSUPPORTED_SAMPLE_RATE
+        "enable_sample_rate_adaptive": True,
+        "language_hints": [language],
+    }
+
+
 def _build_submit_request(app_key: str, audio_url: str, language: str) -> CommonRequest:
     """构造 SubmitTask 请求（便于单测 mock 和参数验证）。"""
     req = CommonRequest()
@@ -54,13 +68,7 @@ def _build_submit_request(app_key: str, audio_url: str, language: str) -> Common
     req.set_product(_PRODUCT)
     req.set_action_name("SubmitTask")
     req.set_method("POST")
-    task = json.dumps({
-        "appkey": app_key,
-        "file_link": audio_url,
-        "version": "4.0",
-        "enable_words": False,
-        "language_hints": [language],
-    })
+    task = json.dumps(_build_task_dict(app_key, audio_url, language))
     req.add_body_params("Task", task)
     return req
 

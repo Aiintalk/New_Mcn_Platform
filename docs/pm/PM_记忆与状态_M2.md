@@ -1,6 +1,6 @@
 # MCN_PM_Agent — 项目记忆与当前状态（M2）
 
-> 最后更新：2026-06-24（Sprint 16 — 种草内容仿写迁移完成：旧架构 `Ai_Toolbox/seeding-writer-web` 整体迁移；3 表 + 20 operator + 2 admin 接口 + 4 步向导 UI + ConfigTab；6 Prompt 14 占位符 + 双模型；4 adapter 集成（yunwu/tikhub/oss/asr）；后端 101 新测试（970/973 通过）+ 前端 23 新测试（180/180 通过）；3 README + 契约 §23/§27 同步；待 PM 签收 + 推 PR #7）
+> 最后更新：2026-06-24（Sprint 16 — 种草内容仿写迁移完成：旧架构 `Ai_Toolbox/seeding-writer-web` 整体迁移；3 表 + 20 operator + 2 admin 接口 + 4 步向导 UI + ConfigTab；6 Prompt 14 占位符 + 双模型；4 adapter 集成（yunwu/tikhub/oss/asr）；后端 101 新测试（970/973 通过）+ 前端 23 新测试（180/180 通过）；3 README + 契约 §23/§27 同步；**E2E 走查期 BUG-032 ASR 采样率修复（1 行+重构+单测）已并入 PR #7，待用户浏览器验证**；待 PM 签收 + 推 PR #7）
 > 更新角色：MCN_PM_Agent
 > 上一份文档：`docs/pm/PM_记忆与状态.md`（M1 阶段，已归档）
 
@@ -175,6 +175,28 @@
 - **service_credentials 软删改造**：Sprint 3 债务
 - **预存在 livestream `.pages` 解析 2 个失败**：与本任务无关，独立修复
 - **旧架构 `Ai_Toolbox/seeding-writer-web` 下线**：等用户切换 + 数据迁移完成后
+
+---
+
+### M2 工作项 — Sprint 16 v2 种草内容仿写 E2E 验收期 Bug 修复 🔄 进行中（v1 PR #7 同分支内集中修复）
+
+**核心定位**：v1 主体（PR #7）已发后用户浏览器 E2E 走查发现，并入同分支 `migrate/seeding-writer` 集中修复，不开新分支。对齐 Sprint 15 v2 模式。
+
+| 端 | 状态 | 备注 |
+|----|------|------|
+| ASR 采样率适配（BUG-032）| ✅ 代码修复 + 单测 | Step 3 对标验证抖音链接报 `41050008 UNSUPPORTED_SAMPLE_RATE`；根因：旧架构 `subtitle-extractor-web/lib/aliyun-asr.ts:51` 有 `enable_sample_rate_adaptive: true`，新架构 `asr.py` 迁移时漏了。修复：提取 `_build_task_dict()` 函数 + 加参数 + 单测 `test_build_task_dict_includes_sample_rate_adaptive`；17/17 通过 |
+| 用户浏览器验证 | 🔄 进行中 | 用户在 Step 3 实际跑通 ASR 链路验证中 |
+| BUG 登记补齐 | ✅ 完成 | `docs/pm/BUG修复登记.md` §十 |
+| 测试报告补齐 | ✅ 完成 | `docs/tests/M2_Sprint16_seeding-writer_测试报告.md` §4.3 |
+
+**关键设计点：**
+- **1 行修复覆盖全量**：新架构所有 ASR 调用都走 `app/adapters/asr.py::submit_transcription`，提取 `_build_task_dict` 后该参数对所有调用点（seeding-writer Step 3 + 后续 tool_transcribe 切换）统一生效
+- **迁移漏参数模式**：从旧架构抄实现时只看了核心字段（appkey/file_link/version），漏了"看似可选实则必需"的容错参数（`enable_sample_rate_adaptive`）。教训：迁移前应通读旧实现完整 task/参数字典，不能只看 happy path
+- **与 Sprint 15 v2 模式对齐**：v1 主体完成后 E2E 走查发现的 bug 并入同分支修复；不开新分支；文档侧在 v1 章节后开 v2 子章节
+
+**不在本次范围（留作后续独立任务）：**
+- **并发测试** `tests/concurrent/test_seeding_writer_isolation.py`：seeding-writer outputs 严格用户隔离，应补但 Sprint 16 v2 内不强制；独立任务
+- **Playwright E2E 基础设施**：项目空白，独立立任务
 
 ---
 

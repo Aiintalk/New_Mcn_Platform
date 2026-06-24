@@ -124,6 +124,34 @@ app\models\seeding_writer.py            （被集成测试覆盖）
 npx tsc --noEmit  # exit 0，无错误
 ```
 
+### 4.3 ASR 采样率适配参数缺失修复（BUG-032，E2E 走查期发现）
+
+**发现时机**：v1 PR #7 已发后用户浏览器 E2E 走查；Step 3 对标验证输入抖音链接反馈：
+```
+ASR 状态异常: 41050008 UNSUPPORTED_SAMPLE_RATE
+```
+
+**根因**：
+- 抖音原声音频采样率多为 44.1kHz（以及更高）
+- 阿里云智能语音交互 filetrans 默认**仅支持 8k/16kHz**
+- 旧架构 `Ai_Toolbox/0516_te/subtitle-extractor-web/lib/aliyun-asr.ts:51` 通过 `enable_sample_rate_adaptive: true` 让阿里云自动重采样
+- 新架构 `app/adapters/asr.py` 实现 SubmitTask 时**漏了这个参数**
+
+**修复**（1 行 + 重构）：
+
+| 文件 | 改动 |
+|------|------|
+| `backend/app/adapters/asr.py` | 提取 `_build_task_dict(app_key, audio_url, language) -> dict` 函数（便于单测断言关键参数）+ 加 `"enable_sample_rate_adaptive": True` |
+| `backend/tests/unit/services/test_asr_adapter.py` | 新增 `test_build_task_dict_includes_sample_rate_adaptive`（断言新参数 + appkey + file_link + version + language_hints 全部正确）|
+
+**覆盖范围**：新架构所有 ASR 调用（seeding-writer Step 3 + 后续 tool_transcribe 切换）都走 `app/adapters/asr.py`，1 行修复全量生效。
+
+**单测结果**：17/17 通过（`tests/unit/services/test_asr_adapter.py`）。
+
+**防回归**：项目内任何 SubmitTask 必须通过 `_build_task_dict`，禁止裸构造 task dict。
+
+**用户验收**：⚠️ 代码层已修复，用户浏览器 E2E 实际跑通验证中。
+
 ---
 
 ## 五、验收清单（DoD）
