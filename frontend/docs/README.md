@@ -65,6 +65,7 @@ frontend/
 │   │   │   ├── QianchuanEditReviewConfigTab.tsx # 千川剪辑预审配置 Tab
 │   │   │   ├── TiktokWriterConfigTab.tsx # TikTok 仿写配置 Tab
 │   │   │   ├── LivestreamWriterConfigTab.tsx # 直播脚本仿写配置 Tab
+│   │   │   ├── LivestreamReviewConfigTab.tsx # 直播间脚本复盘配置 Tab（Prompt A/B + 模型）
 │   │   │   └── PersonaReviewConfigTab.tsx # 人设脚本复盘配置 Tab
 │   │   │   （另有 QianchuanWriterConfigTab.tsx — 千川文案写作配置 Tab，Sprint 14 新增）
 │   │   │   （另有 PersonaWriterConfigTab.tsx — 人设脚本仿写配置 Tab，Sprint 15 新增）
