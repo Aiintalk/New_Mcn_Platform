@@ -138,6 +138,13 @@ backend/
 │       ├── M2_Sprint05_测试报告_selling-point-extractor_v1.md  #  M2 Sprint5 测试报告
 │       ├── M2_Sprint06_测试报告_qianchuan-review_v1.md  #  M2 Sprint6 测试报告
 │       ├── M2_Sprint07_测试报告_qianchuan-edit-review_v1.md  #  M2 Sprint7 测试报告
+│       ├── M2_Sprint08_测试报告_livestream-writer_v1.md  #  M2 Sprint8 测试报告（34/34）
+│       ├── M2_Sprint09_测试报告_livestream-review_v1.md  #  M2 Sprint9 测试报告（58/58）
+│       ├── M2_Sprint10_测试报告_persona-review_v1.md     #  M2 Sprint10 测试报告（54/54）
+│       ├── M2_Sprint11_测试报告_qianchuan-preview_v1.md  #  M2 Sprint11 测试报告（25/25）
+│       ├── M2_Sprint11_测试报告_oss-adapter_v1.md        #  M2 Sprint11 OSS 测试报告
+│       ├── M2_Sprint12_测试报告_qianchuan-collection_v1.md  #  M2 Sprint12 测试报告
+│       ├── M2_Sprint15_测试报告_persona-writer_v2_修复Bug.md  #  M2 Sprint15 Bug修复测试报告
 │       └── MCN_Integration_Test_Fix_Report_2026-06-11.md  #  集成测试修复报告
 │
 ├── tests/                             # 测试代码

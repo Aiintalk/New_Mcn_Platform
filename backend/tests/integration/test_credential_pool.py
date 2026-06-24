@@ -111,6 +111,16 @@ async def _count_aicalllogs(factory, cred_id: int) -> int:
         return int(row[0])
 
 
+async def _count_external_logs(factory, service: str = "ai") -> int:
+    """统计某 service 的 ExternalServiceLog 条数（用于验证双写链路）。"""
+    async with factory() as s:
+        row = (await s.execute(
+            text("SELECT COUNT(*) FROM external_service_logs WHERE service = :svc"),
+            {"svc": service},
+        )).fetchone()
+        return int(row[0])
+
+
 async def _seed_user(factory, username: str = "pool_test_user") -> int:
     """创建测试用户并返回其 id（AiCallLog.user_id 有 FK 约束）。"""
     from passlib.context import CryptContext
@@ -564,7 +574,7 @@ class TestChatIntegration:
     async def test_chat_success_returns_content_and_writes_log(
         self, db_factory
     ):
-        """成功调用：返回内容 + 写 AiCallLog + 释放槽位。"""
+        """成功调用：返回内容 + 写 AiCallLog + 写 ExternalServiceLog（双写）+ 释放槽位。"""
         cred_id = await _seed_credential(db_factory, max_concurrent=5)
         uid = await _seed_user(db_factory)
         try:
@@ -582,6 +592,9 @@ class TestChatIntegration:
             # AiCallLog 已写入
             log_count = await _count_aicalllogs(db_factory, cred_id)
             assert log_count == 1
+            # ExternalServiceLog 也已写入（双写链路：管理员外部日志页可见）
+            ext_count = await _count_external_logs(db_factory, service="ai")
+            assert ext_count >= 1
         finally:
             await _cleanup(db_factory, cred_id, user_ids=[uid])
 

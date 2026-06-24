@@ -22,7 +22,7 @@ import httpx
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.log import AiCallLog
+from app.models.log import AiCallLog, ExternalServiceLog
 
 _DEFAULT_BASE_URLS = {
     "yunwu":       os.getenv("YUNWU_BASE_URL",       "https://yunwu.ai/v1"),
@@ -201,6 +201,17 @@ async def chat(
             status=status,
             error_message=error_message,
         ))
+        _tokens_used = (input_tokens or 0) + (output_tokens or 0)
+        db.add(ExternalServiceLog(
+            service="ai",
+            action=feature or "chat",
+            tokens_in=input_tokens,
+            tokens_out=output_tokens,
+            tokens_used=_tokens_used if _tokens_used else None,
+            duration_ms=latency_ms,
+            status=status,
+            error_message=error_message,
+        ))
         await db.commit()
 
 
@@ -309,6 +320,17 @@ async def chat_stream(
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             latency_ms=latency_ms,
+            status=status,
+            error_message=error_message,
+        ))
+        _tokens_used = (input_tokens or 0) + (output_tokens or 0)
+        db.add(ExternalServiceLog(
+            service="ai",
+            action=feature or "chat",
+            tokens_in=input_tokens,
+            tokens_out=output_tokens,
+            tokens_used=_tokens_used if _tokens_used else None,
+            duration_ms=latency_ms,
             status=status,
             error_message=error_message,
         ))
