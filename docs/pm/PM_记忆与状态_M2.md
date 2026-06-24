@@ -1,6 +1,6 @@
 # MCN_PM_Agent — 项目记忆与当前状态（M2）
 
-> 最后更新：2026-06-24（Sprint 16 — 种草内容仿写迁移完成 + v2 BUG-032 ASR 采样率修复 + **v3 并发测试 + Playwright E2E 补齐**：旧架构 `Ai_Toolbox/seeding-writer-web` 整体迁移；3 表 + 20 operator + 2 admin 接口 + 4 步向导 UI + ConfigTab；6 Prompt 14 占位符 + 双模型；4 adapter 集成（yunwu/tikhub/oss/asr）；后端 101 单测集成 + **4 并发隔离 SW-ISO-001~004** + 前端 23 单测 + **9 Playwright E2E（smoke 3 + seeding-writer 关键路径 6）**；3 README + 契约 §23/§27 同步；**E2E 走查期 BUG-032 ASR 采样率修复（1 行+重构+单测）已并入 PR #7，用户浏览器验证通过**；**Playwright 1.61.1 + 系统 Chrome channel + UI 登录绕开 zustand store 时序**；待 PM 签收 + 推 PR #7）
+> 最后更新：2026-06-24（**迁移收尾 + 日志链路修复 + 文档补遗**：① migration 021-025 执行，workspace_tools 14→19，5 工具注册；② persona-review/livestream-review 设 online，**16 工具全部迁移完成且上线**；③ yunwu adapter 双写 ExternalServiceLog，管理员「外部服务日志」页可见 AI 调用（PR #8）；④ Sprint 8/9/10 文档补遗——persona-review 需求文档 + 3 份测试报告 + 前后端 README（PR #8）；⑤ LivestreamReviewConfigTab 补建，5 工具管理员配置页全部对齐（PR #9）；PR #7 已合并。上一个：Sprint 16 种草内容仿写迁移完成）
 > 更新角色：MCN_PM_Agent
 > 上一份文档：`docs/pm/PM_记忆与状态.md`（M1 阶段，已归档）
 
@@ -9,7 +9,7 @@
 ## 一、项目基本信息
 
 - **项目名**：MCN Information System Platform
-- **当前阶段**：M2 阶段 — Sprint 16 种草内容仿写迁移完成（待签收 + 推 PR #7），上一个：Sprint 15 人设脚本仿写（待签收 + 推 PR #6），最近已合并：Sprint 14 千川文案写作（PR #5 已合并到 main，merge commit cc9d665）。下一个 Sprint 候选：tool_transcribe 切到 ASR / TikHub 日志 bug 修复 / 凭证加密 / 其余 4 个工具迁移（livestream-review / persona-review / qianchuan-collection / qianchuan-preview）
+- **当前阶段**：M2 阶段 — **迁移收尾 + 日志链路修复 + 文档补遗**（PR #8 日志修复+文档 / PR #9 ConfigTab，待 E2E 合并），上一个：Sprint 16 种草内容仿写（PR #7 已合并），最近已合并：Sprint 14 千川文案写作（PR #5）。**迁移进度：19 个旧工具中 16 个已迁移完成且 online**，剩余约 4 个未迁移（字幕提取/素材库/人格预览/涛然写作）。下一个候选：tool_transcribe 切到 ASR / TikHub 日志 bug 修复 / 凭证加密 / 4 个未迁移工具
 - **GitHub**：https://github.com/Aiintalk/New_Mcn_Platform
 - **工作目录**：`D:\2026年工作\AI相关\AI工具箱新架构方案\mcn-platform`（Windows 本地）
 - **后端**：`backend/`（FastAPI + PostgreSQL）
@@ -26,6 +26,42 @@
 ---
 
 ## 二、M2 阶段（当前）
+
+### M2 工作项 — 2026-06-24 迁移收尾 + 日志链路修复 + 文档补遗 ✅ 完成（PR #8 + #9 待合并）
+
+**背景**：Sprint 16 后核查发现 5 个工具（livestream-writer/review、persona-review、qianchuan-preview/collection）的 migration 021-025 未执行到数据库，workspace_tools 停在 14 条；同时 AI 调用日志链路有断层（管理员端不可见）；多个 Sprint 缺需求文档/测试报告。
+
+| # | 事项 | 结果 | 归属 |
+|---|------|------|------|
+| 1 | migration 021-025 执行 | workspace_tools 14→19 条，5 工具全部注册 | 本地 DB |
+| 2 | persona-review + livestream-review 设 online | 16 工具全部上线，运营端可用 | 本地 DB |
+| 3 | 日志链路修复 | yunwu adapter `chat()`/`chat_stream()` 双写 ExternalServiceLog（service="ai"），管理员「外部服务日志」页可见 AI 调用 | PR #8 |
+| 4 | Sprint 8/9/10 文档补遗 | persona-review 需求文档 + 3 份测试报告（34/58/54 passed）+ 前后端 README 补登 | PR #8 |
+| 5 | LivestreamReviewConfigTab 补建 | livestream-review 前端配置页（复刻 PersonaReviewConfigTab），5 工具管理员配置页全部对齐 | PR #9 |
+
+**日志链路修复详情**：
+- 问题：`ai_call_logs`（yunwu adapter 写）与 `external_service_logs`（管理员 ExternalLogsPage 读）是两张独立表，AI 调用只写前者 → 管理员端不可见
+- 修复：yunwu adapter finally 块增加 ExternalServiceLog 双写（service="ai"），与 AiCallLog 并行
+- 测试：test_credential_pool.py 新增 `_count_external_logs` helper + 双写断言，27 passed
+
+**5 工具管理员配置能力（修复后全部对齐）**：
+
+| 工具 | 后端 API | 前端 ConfigTab | 状态 |
+|------|:---:|:---:|:---:|
+| livestream-writer | ✅ | ✅ | online |
+| livestream-review | ✅ | ✅ PR #9 补建 | online |
+| persona-review | ✅ | ✅ | online |
+| qianchuan-preview | ✅ | ✅ | online |
+| qianchuan-collection | N/A（脚本库不调 AI） | N/A | online |
+
+**迁移进度统计**：19 个旧工具中 **16 个已迁移完成且 online**（14 原 online + 2 新上线）；3 个 workspace_tools 遗留占位（qianchuan/review/subtitle，无完整代码）；剩余约 4 个旧工具未迁移。
+
+**待办（不影响本批 PR）**：
+- stash@{0}：Sprint 3 补遗文档 + Sprint 17 需求文档，需独立 PR
+- 技术债务：`secret_enc` 明文加密 / TikHub 日志 bug / 软删改造
+- 新功能：ASR 完整方案（有 plan 未开工）/ 4 个未迁移工具（字幕提取/素材库/人格预览/涛然写作）
+
+---
 
 ### M2 工作项 — Sprint 14 千川文案写作迁移（qianchuan-writer）✅ 完成（已合并到 main，PR #5 merge commit cc9d665）
 
