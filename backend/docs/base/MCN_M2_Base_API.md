@@ -1707,3 +1707,103 @@ Request（JSON）：
 Response（200）：`{ "success": true, "data": { "config_key": "default" } }`
 
 错误：config_key 不存在 → 404 RESOURCE_NOT_FOUND。写 OperationLog（action=`admin_update_persona_writer_config`）。
+
+---
+
+## 23. seeding-writer（Sprint 16）
+
+种草内容仿写工具：4 步向导（选达人+素材库 → 产品信息 → 对标验证 → 种草仿写）。
+基础路径：`/api/tools/seeding-writer`（operator / admin 鉴权，需已改密）。
+
+### 23.1 运营端接口（20 个）
+
+| # | 方法 | 路径 | 用途 | 信封 | OperationLog |
+|---|------|------|------|------|-------------|
+| 1 | GET | `/kols/personas` | 达人下拉（同 persona-writer）| 标准 | 否 |
+| 2 | GET | `/references?kol_id=X` | 素材列表（达人维度共享）| 标准 | 否 |
+| 3 | POST | `/references` | 新增素材（粘贴文本）| 标准 | 是 |
+| 4 | POST | `/references/import-from-douyin` | 抖音链接导入（阻塞）| 标准 | 是 |
+| 5 | DELETE | `/references/{id}` | 软删素材 | 标准 | 是 |
+| 6 | GET | `/products` | 产品库列表（公司共享，分页）| 标准 | 否 |
+| 7 | POST | `/products` | 新建产品 | 标准 | 是 |
+| 8 | PUT | `/products/{id}` | 更新产品 | 标准 | 是 |
+| 9 | DELETE | `/products/{id}` | 软删产品 | 标准 | 是 |
+| 10 | POST | `/products/parse-document` | 文档解析（multipart）| 标准 | 是 |
+| 11 | POST | `/products/extract-selling-points` | AI 卖点讨论（流式）| 流式（裸文本）| 否 |
+| 12 | POST | `/fetch-video` | 抖音链接解析 | 标准 | 是 |
+| 13 | POST | `/transcribe/submit` | 提交 ASR | 标准 | 是 |
+| 14 | POST | `/transcribe/poll` | 轮询 ASR（高频）| 标准 | 否 |
+| 15 | POST | `/analyze-structure` | 结构拆解（流式，light）| 流式 | 否 |
+| 16 | POST | `/ai-recommend` | AI 推荐角度（流式，light）| 流式 | 否 |
+| 17 | POST | `/chat` | 写作+迭代（流式，heavy）| 流式 | create_job 时写 |
+| 18 | POST | `/save-output` | 保存产出 | 标准 | 是 |
+| 19 | POST | `/export-word` | 导出 Word | StreamingResponse | 否 |
+| 20 | GET | `/outputs` | 历史记录（账号隔离）| 标准 | 否 |
+
+### 23.2 关键接口
+
+#### POST /references（粘贴文本）
+
+Request：`{ "kol_id": 3, "title": "...", "content": "...", "type": "种草爆款", "likes": 120000, "source": "抖音" }`
+Response：`{ "success": true, "data": { "id": 456 } }`
+
+#### POST /references/import-from-douyin（同步阻塞）
+
+Request：`{ "kol_id": 3, "share_url": "https://v.douyin.com/xxx/", "type": "种草爆款" }`
+流程：fetch-video → download → OSS upload → sign → ASR transcribe（阻塞，max 600s）→ 写表
+Response：`{ "success": true, "data": { "id": 456, "title": "...", "content": "..." } }`
+
+#### POST /products/parse-document（multipart）
+
+Request：`multipart/form-data`，files 字段支持 PDF/DOCX/XLSX/PPTX/TXT
+流程：解析文本 → AI（heavy 模型 + parse_product_prompt）→ JSON 提取
+Response：`{ "success": true, "data": { "name": "...", "category": "...", "price": "...", "sellingPoints": "...", "targetAudience": "...", "scenario": "...", "medicalAestheticAnchor": "...", "_rawText": "..." } }`
+
+#### POST /products/extract-selling-points（流式）
+
+Request：`{ "raw_text": "产品资料原文", "preliminary_info": {...} }`
+调 yunwu（heavy 模型）+ sp_system_prompt → 裸文本流（AI 讨论 3 个核心卖点）
+
+#### POST /transcribe/submit
+
+Request：`{ "play_url": "https://..." }`
+Response：`{ "success": true, "data": { "task_id": "abc123", "expected_max_seconds": 600 } }`
+
+#### POST /transcribe/poll
+
+Request：`{ "task_id": "abc123" }`
+Response（processing）：`{ "success": true, "data": { "status": "processing" } }`
+Response（done）：`{ "success": true, "data": { "status": "done", "text": "..." } }`
+
+#### POST /chat
+
+Request：`{ "scene": "writing|iteration", "persona_id": 3, "product_id": 7, "reference_ids": [], "transcript": "...", "structure_analysis": "...", "topic": "...", "messages": [...], "create_job": false }`
+
+占位符（14 个）：`{{name}} {{soul}} {{content_plan}} {{product_name}} {{product_category}} {{product_price}} {{product_selling_points}} {{product_target_audience}} {{product_scenario}} {{references}} {{transcript}} {{structure_analysis}} {{topic}} {{raw_text}}`
+
+### 23.3 管理端接口（2 个）
+
+基础路径：`/api/admin/seeding-writer`（admin 鉴权）
+
+| # | 方法 | 路径 | 用途 |
+|---|------|------|------|
+| 1 | GET | `/configs` | 配置列表 |
+| 2 | PUT | `/configs/{config_key}` | 更新 6 Prompt + 2 模型 + 启用 |
+
+#### PUT /configs/{config_key}
+
+Request Body：
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `sp_system_prompt` | string \| null | 卖点提取 Prompt |
+| `parse_product_prompt` | string \| null | 文档解析 Prompt |
+| `structure_analysis_prompt` | string \| null | 结构拆解 Prompt |
+| `ai_recommend_prompt` | string \| null | AI 推荐角度 Prompt |
+| `writing_prompt` | string \| null | 写作 Prompt |
+| `iteration_prompt` | string \| null | 迭代 Prompt |
+| `light_model_id` | int \| null | 结构拆解/AI推荐用模型 |
+| `heavy_model_id` | int \| null | 写作/迭代/卖点讨论用模型 |
+| `is_active` | bool | 配置启用开关 |
+
+写 OperationLog（action=`admin_update_seeding_writer_config`）。
+

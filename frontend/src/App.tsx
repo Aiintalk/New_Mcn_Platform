@@ -12,6 +12,7 @@ const ChangePasswordPage = lazy(() => import('./pages/auth/ChangePasswordPage'))
 const HomePage = lazy(() => import('./pages/operator/HomePage'));
 const WorkspacePage = lazy(() => import('./pages/operator/WorkspacePage'));
 const PersonaWriterPage = lazy(() => import('./pages/operator/PersonaWriterPage'));
+const SeedingWriterPage = lazy(() => import('./pages/operator/SeedingWriterPage'));
 const PersonaPage = lazy(() => import('./pages/operator/PersonaPage'));
 const PersonaReviewPage = lazy(() => import('./pages/operator/PersonaReviewPage'));
 const OperatorIntakePage = lazy(() => import('./pages/operator/OperatorIntakePage'));
@@ -97,6 +98,7 @@ export default function App() {
               <Route path="/" element={<HomePage />} />
               <Route path="/workspace" element={<WorkspacePage />} />
               <Route path="/workspace/persona-writer" element={<PersonaWriterPage />} />
+              <Route path="/workspace/seeding-writer" element={<SeedingWriterPage />} />
               <Route path="/workspace/persona-positioning" element={<PersonaPage />} />
               <Route path="/workspace/benchmark" element={<BenchmarkPage />} />
               <Route path="/workspace/tiktok-writer" element={<TiktokWriterPage />} />

@@ -42,6 +42,7 @@ backend/
 │   │   ├── persona_review.py          #   人设脚本复盘配置表
 │   │   ├── qianchuan_writer.py        #   千川文案写作配置表（Sprint 14）
 │   │   ├── persona_writer.py          #   人设脚本仿写配置表（Sprint 15）
+│   │   ├── seeding_writer.py          #   种草内容仿写配置+产品+素材表（Sprint 16）
 │   │   └── ...                        #   log / file / output / session / task
 │   ├── routers/                       # API 路由（按角色分文件，52 个）
 │   │   ├── auth.py                    #   POST /api/auth/login、/change-password
@@ -66,6 +67,7 @@ backend/
 │   │   ├── admin_persona_review.py    #   人设脚本复盘配置（admin）
 │   │   ├── admin_qianchuan_writer.py  #   千川文案写作配置（admin，Sprint 14）
 │   │   ├── admin_persona_writer.py    #   人设脚本仿写配置（admin，Sprint 15）
+│   │   ├── admin_seeding_writer.py    #   种草内容仿写配置（admin，Sprint 16）
 │   │   ├── operator_homepage.py       #   运营首页数据
 │   │   ├── operator_intake.py         #   入驻问卷（运营端）
 │   │   ├── operator_intake_direct.py  #   运营直发对话
@@ -78,6 +80,7 @@ backend/
 │   │   ├── operator_persona_review.py #  人设脚本复盘（运营端）
 │   │   ├── operator_qianchuan_writer.py # 千川文案写作（运营端，Sprint 14）
 │   │   ├── operator_persona_writer.py #  人设脚本仿写（运营端，Sprint 15）
+│   │   ├── operator_seeding_writer.py #  种草内容仿写（运营端，Sprint 16）
 │   │   ├── persona.py                 #   人格定位（运营端）
 │   │   ├── intake_public.py           #   公开接口（博主填写问卷）
 │   │   ├── tool_chat_stream.py        #   工具：AI 流式对话
@@ -100,7 +103,9 @@ backend/
 │       ├── word_export.py             #   Word 文档导出
 │       ├── benchmark_report.py        #   对标分析报告生成
 │       ├── qianchuan_review_service.py #  千川复盘业务服务
-│       └── persona_docx.py            #   人格定位报告导出
+│       ├── persona_docx.py            #   人格定位报告导出
+│       ├── seeding_writer_prompt.py   #   种草仿写 Prompt 模板渲染（14 占位符）
+│       └── document_parser.py         #   文档解析（PDF/DOCX/XLSX/PPTX/TXT）
 │
 ├── docs/                              # ===== 本目录 =====
 │   ├── README.md                      #   本文件（架构 + 文档索引）
@@ -148,7 +153,7 @@ backend/
 │   ├── concurrent/                    #   并发隔离测试
 │   └── intake/                        #   入驻问卷专项测试
 │
-├── migrations/                        # SQL 迁移脚本（001 ~ 032）
+├── migrations/                        # SQL 迁移脚本（001 ~ 033）
 ├── scripts/                           # 工具脚本
 │   ├── init_db.sh                     #   一键初始化数据库
 │   └── run_coverage.py                #   覆盖率门禁脚本
@@ -215,3 +220,5 @@ BugFix：      BugFix_{序号}_{描述}.md
 | qianchuan-preview | 千川文案预审 | operator_qianchuan_preview.py / admin_qianchuan_preview.py | Sprint 11 |
 | qianchuan-collection | 千川爆文合集 | operator_qianchuan_collection.py | Sprint 12 |
 | tiktok-review | TT内容复盘 | operator_tiktok_review.py / admin_tiktok_review.py | Sprint 13 |
+| persona-writer | 人设脚本仿写 | operator_persona_writer.py / admin_persona_writer.py | Sprint 15 |
+| seeding-writer | 种草内容仿写 | operator_seeding_writer.py / admin_seeding_writer.py | Sprint 16 |

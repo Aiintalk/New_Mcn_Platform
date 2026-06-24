@@ -872,3 +872,98 @@ migration 031 同时 UPSERT `workspace_tools` 表（旧表已有 `persona-writer
 ### 26.7 迁移文件
 
 `031_persona_writer.sql`
+
+---
+
+## 27. seeding-writer 种草内容仿写（Sprint 16）
+
+3 张新表 + 6 种子 Prompt + workspace_tools 上线。
+
+### 27.1 seeding_writer_configs 配置表
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | BIGSERIAL | 是 | 主键 |
+| `config_key` | VARCHAR(64) | 是 | UNIQUE，默认 'default' |
+| `sp_system_prompt` | TEXT | 否 | Step 2 卖点提取系统 Prompt |
+| `parse_product_prompt` | TEXT | 否 | Step 2 文档解析 Prompt（JSON 输出）|
+| `structure_analysis_prompt` | TEXT | 否 | Step 3 结构拆解 Prompt |
+| `ai_recommend_prompt` | TEXT | 否 | Step 4.1 AI 推荐角度 Prompt |
+| `writing_prompt` | TEXT | 否 | Step 4.2 写作 Prompt |
+| `iteration_prompt` | TEXT | 否 | Step 4.4 迭代 Prompt |
+| `light_model_id` | BIGINT FK→ai_models | 否 | 轻量模型（结构拆解/AI推荐），默认 claude-haiku-4-5 |
+| `heavy_model_id` | BIGINT FK→ai_models | 否 | 重型模型（写作/迭代/卖点），默认 claude-opus-4-6 |
+| `is_active` | BOOLEAN | 是 | 默认 TRUE |
+| `created_at` | TIMESTAMPTZ | 是 | 默认 NOW() |
+| `updated_at` | TIMESTAMPTZ | 是 | 默认 NOW() |
+
+种子：6 Prompt 从旧版 page.tsx / parse-product/route.ts 提取，`${var}` 改 `{{var}}`。
+
+### 27.2 seeding_writer_products 产品库表（公司共享）
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | BIGSERIAL | 是 | 主键 |
+| `name` | TEXT | 是 | 产品名称 |
+| `category` | TEXT | 否 | 品类 |
+| `price` | TEXT | 否 | 价格区间 |
+| `selling_points` | TEXT | 否 | 核心卖点 |
+| `target_audience` | TEXT | 否 | 目标人群 |
+| `scenario` | TEXT | 否 | 使用场景 |
+| `medical_aesthetic_anchor` | TEXT | 否 | 医美锚定建议 |
+| `created_by` | BIGINT FK→users | 否 | 审计用（**不隔离查询**）|
+| `created_at` | TIMESTAMPTZ | 是 | 默认 NOW() |
+| `updated_at` | TIMESTAMPTZ | 是 | 默认 NOW() |
+| `deleted_at` | TIMESTAMPTZ | 否 | 软删 |
+
+索引：`idx_seeding_writer_products_name`（name 模糊查询，WHERE deleted_at IS NULL）+ `idx_seeding_writer_products_created_by`
+
+### 27.3 seeding_writer_references 素材库表（达人维度共享）
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | BIGSERIAL | 是 | 主键 |
+| `kol_id` | BIGINT FK→kols | 否 | ON DELETE SET NULL |
+| `title` | TEXT | 是 | 标题 |
+| `content` | TEXT | 是 | 正文 |
+| `type` | VARCHAR(32) | 否 | 种草爆款 / 对标种草 / 风格参考 |
+| `source` | VARCHAR(32) | 否 | 抖音 / 小红书 / 手写 |
+| `likes` | INT | 否 | 点赞数 |
+| `douyin_url` | TEXT | 否 | 抖音源链接（导入时填）|
+| `created_by` | BIGINT FK→users | 否 | 审计用（**不隔离查询**）|
+| `created_at` | TIMESTAMPTZ | 是 | 默认 NOW() |
+| `updated_at` | TIMESTAMPTZ | 是 | 默认 NOW() |
+| `deleted_at` | TIMESTAMPTZ | 否 | 软删 |
+
+索引：`idx_seeding_writer_references_kol_id`（WHERE deleted_at IS NULL）+ `idx_seeding_writer_references_created_by`
+
+### 27.4 workspace_tools 注册
+
+migration 033 UPSERT `workspace_tools` 表：
+- `tool_code='seeding-writer'`, `tool_name='种草内容仿写'`
+- `category='脚本创作'`, `status='online'`
+- `sort_order=120`
+
+### 27.5 Prompt 占位符（14 个）
+
+| 占位符 | 渲染值 | 用于哪个 Prompt |
+|--------|--------|---------------|
+| `{{name}}` | kols.name | writing / iteration |
+| `{{soul}}` | kols.persona | writing / iteration / ai_recommend |
+| `{{content_plan}}` | kols.content_plan | writing / iteration / ai_recommend |
+| `{{product_name}}` | products.name | writing / iteration |
+| `{{product_category}}` | products.category | writing / iteration |
+| `{{product_price}}` | products.price | writing / iteration |
+| `{{product_selling_points}}` | products.selling_points | writing / iteration / ai_recommend |
+| `{{product_target_audience}}` | products.target_audience | writing / iteration / ai_recommend |
+| `{{product_scenario}}` | products.scenario | writing / iteration |
+| `{{references}}` | references 拼接 | writing / iteration / ai_recommend |
+| `{{transcript}}` | 对标文案 | structure_analysis / writing / iteration / ai_recommend |
+| `{{structure_analysis}}` | 拆解结果 | writing / iteration |
+| `{{topic}}` | 选题 | writing |
+| `{{raw_text}}` | 产品资料原文 | sp_system_prompt |
+
+### 27.6 迁移文件
+
+`033_seeding_writer.sql`
+

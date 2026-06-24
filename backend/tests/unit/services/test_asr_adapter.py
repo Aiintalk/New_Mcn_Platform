@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.adapters.asr import (
+    _build_task_dict,
     query_transcription,
     submit_transcription,
     transcribe,
@@ -86,6 +87,19 @@ async def test_submit_transcription_network_failure(
 
     mock_report_failure.assert_awaited_once()
     mock_report_success.assert_not_awaited()
+
+
+def test_build_task_dict_includes_sample_rate_adaptive():
+    """task dict 必须包含 enable_sample_rate_adaptive=True。
+    阿里云 filetrans 默认只支持 8k/16k 采样率；抖音原声通常是 44.1kHz，
+    不开自适应会被 41050008 UNSUPPORTED_SAMPLE_RATE 拒绝。
+    """
+    task = _build_task_dict("appkey-x", "https://oss.com/a.mp3", "zh-CN")
+    assert task["enable_sample_rate_adaptive"] is True
+    assert task["appkey"] == "appkey-x"
+    assert task["file_link"] == "https://oss.com/a.mp3"
+    assert task["version"] == "4.0"
+    assert task["language_hints"] == ["zh-CN"]
 
 
 @patch("app.adapters.asr.report_success", new_callable=AsyncMock)

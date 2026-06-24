@@ -28,6 +28,7 @@ MCN 红人孵化管理平台，支持多用户、多并发场景，集成 AI 能
 - **直播脚本仿写**：选达人 + 上传产品卖点卡 + 对标直播间文案 → AI 流式生成 7 模块开播方案 → 多轮迭代 → 导出 .txt
 - **直播间脚本复盘**：上传直播脚本（多场）+ 直播数据 Excel → AI 流式生成复盘报告（话术效果 + 留人转化）→ 保存/导出/复制
 - **人设脚本复盘**：上传人设脚本（多视频）+ 可选运营 Excel → AI 流式生成复盘报告（内容质量 / 投放效率）→ 保存/历史管理
+- **种草内容仿写**：4 步向导（选达人 + 素材库 / 产品信息 / 对标验证 / 种草仿写）→ 抖音链接 ASR 转录 + 结构拆解 → AI 多轮迭代生成种草脚本 → 保存/导出 .txt/.docx。产品库 + 素材库公司共享，6 个 Prompt + 双模型可配置（Sprint 16）
 - **运营首页**：数据概览，产出趋势，常用工具
 - **产出中心**：AI 产出记录，入驻报告管理，分享链接管理
 
@@ -45,8 +46,8 @@ mcn-platform/
 │   │   ├── adapters/                  #     外部服务适配器（AI、TikHub、OSS、ASR）
 │   │   ├── core/                      #     配置、数据库、安全、响应封装
 │   │   ├── middlewares/               #     JWT 鉴权中间件
-│   │   ├── models/                    #     SQLAlchemy ORM 模型（29 个文件）
-│   │   ├── routers/                   #     API 路由（按角色分文件，52 个）
+│   │   ├── models/                    #     SQLAlchemy ORM 模型（30 个文件）
+│   │   ├── routers/                   #     API 路由（按角色分文件，54 个）
 │   │   ├── schemas/                   #     Pydantic schema
 │   │   └── services/                  #     业务逻辑服务
 │   ├── docs/                          #   后端文档
@@ -60,18 +61,18 @@ mcn-platform/
 │   │   ├── e2e/                       #     端到端测试
 │   │   ├── concurrent/                #     并发隔离测试
 │   │   └── intake/                    #     入驻问卷专项测试
-│   ├── migrations/                    #   SQL 迁移脚本（001 ~ 031）
+│   ├── migrations/                    #   SQL 迁移脚本（001 ~ 033）
 │   └── scripts/                       #   工具脚本（init_db.sh、init_test_db.sh、run_coverage.py）
 │
 ├── frontend/                          ← 前端（React + Vite）
 │   ├── src/                           #   源码
-│   │   ├── api/                       #     API 调用层（32 个模块）
+│   │   ├── api/                       #     API 调用层（33 个模块）
 │   │   ├── layouts/                   #     布局组件（Admin / Operator / Auth）
 │   │   ├── pages/                     #     页面组件（admin 22 个 / operator 19 个 / auth 2 个 / intake 1 个）
 │   │   ├── routes/                    #     路由守卫
 │   │   ├── store/                     #     Zustand 状态管理
 │   │   ├── styles/                    #     CSS 变量 + 全局样式
-│   │   ├── types/                     #     TypeScript 类型定义（22 个模块）
+│   │   ├── types/                     #     TypeScript 类型定义（23 个模块）
 │   │   └── __tests__/                 #     前端测试
 │   ├── docs/                          #   前端文档
 │   │   ├── README.md                  #     架构说明 + 文档索引

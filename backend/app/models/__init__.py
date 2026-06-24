@@ -28,6 +28,11 @@ from app.models.qianchuan_collection import QianchuanCollectionPersona, Qianchua
 from app.models.tiktok_review import TiktokReviewConfig
 from app.models.qianchuan_writer import QianchuanWriterConfig
 from app.models.persona_writer import PersonaWriterConfig
+from app.models.seeding_writer import (
+    SeedingWriterConfig,
+    SeedingWriterProduct,
+    SeedingWriterReference,
+)
 from app.models.oss_call_log import OssCallLog
 from app.models.asr_call_log import AsrCallLog
 
@@ -65,6 +70,9 @@ __all__ = [
     "TiktokReviewConfig",
     "QianchuanWriterConfig",
     "PersonaWriterConfig",
+    "SeedingWriterConfig",
+    "SeedingWriterProduct",
+    "SeedingWriterReference",
     "OssCallLog",
     "AsrCallLog",
 ]

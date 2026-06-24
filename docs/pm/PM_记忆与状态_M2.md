@@ -1,6 +1,6 @@
 # MCN_PM_Agent — 项目记忆与当前状态（M2）
 
-> 最后更新：2026-06-23（Sprint 15 v2 — 人设脚本仿写 E2E 验收期 Bug 集中修复：7 Bug 全修复（TikHub 400 / 4 writer SQL 统一 / kols 唯一索引+预检查 migration 032 / kols.status 默认值 / 数据污染清理 / ConfigTab 描述 / KolsPage content_plan UI）；4 任务/验收/测试文档落地 + BUG-025~031 登记 + 契约 4 处同步；待 PM 签收 + 推 PR #6）
+> 最后更新：2026-06-24（Sprint 16 — 种草内容仿写迁移完成 + v2 BUG-032 ASR 采样率修复 + **v3 并发测试 + Playwright E2E 补齐**：旧架构 `Ai_Toolbox/seeding-writer-web` 整体迁移；3 表 + 20 operator + 2 admin 接口 + 4 步向导 UI + ConfigTab；6 Prompt 14 占位符 + 双模型；4 adapter 集成（yunwu/tikhub/oss/asr）；后端 101 单测集成 + **4 并发隔离 SW-ISO-001~004** + 前端 23 单测 + **9 Playwright E2E（smoke 3 + seeding-writer 关键路径 6）**；3 README + 契约 §23/§27 同步；**E2E 走查期 BUG-032 ASR 采样率修复（1 行+重构+单测）已并入 PR #7，用户浏览器验证通过**；**Playwright 1.61.1 + 系统 Chrome channel + UI 登录绕开 zustand store 时序**；待 PM 签收 + 推 PR #7）
 > 更新角色：MCN_PM_Agent
 > 上一份文档：`docs/pm/PM_记忆与状态.md`（M1 阶段，已归档）
 
@@ -9,7 +9,7 @@
 ## 一、项目基本信息
 
 - **项目名**：MCN Information System Platform
-- **当前阶段**：M2 阶段 — Sprint 15 人设脚本仿写迁移完成（待签收 + 推 PR #6），上一个已合并：Sprint 14 千川文案写作（PR #5 已合并到 main，merge commit cc9d665）。下一个 Sprint 候选：tool_transcribe 切到 ASR / TikHub 日志 bug 修复 / 凭证加密 / 其余 5 个工具迁移（livestream-review / persona-review / qianchuan-collection / qianchuan-preview / seeding-writer）
+- **当前阶段**：M2 阶段 — Sprint 16 种草内容仿写迁移完成（待签收 + 推 PR #7），上一个：Sprint 15 人设脚本仿写（待签收 + 推 PR #6），最近已合并：Sprint 14 千川文案写作（PR #5 已合并到 main，merge commit cc9d665）。下一个 Sprint 候选：tool_transcribe 切到 ASR / TikHub 日志 bug 修复 / 凭证加密 / 其余 4 个工具迁移（livestream-review / persona-review / qianchuan-collection / qianchuan-preview）
 - **GitHub**：https://github.com/Aiintalk/New_Mcn_Platform
 - **工作目录**：`D:\2026年工作\AI相关\AI工具箱新架构方案\mcn-platform`（Windows 本地）
 - **后端**：`backend/`（FastAPI + PostgreSQL）
@@ -129,7 +129,111 @@
 - **TikHub adapter 日志写入 bug**：Sprint 11 发现，独立修复
 - **persona 数据补全**：旧架构本地仅 2 个 persona（孙静 + 陶然），新架构已通过 `_e2e_seed_personas.py` 一次性脚本补到 kols 表（脚本本身不进 git，保留工作区）
 - **ASR 业务集成**：把 tool_transcribe 调用方切到 ASR
-- **其余 5 个工具迁移**：livestream-review / persona-review / qianchuan-collection / qianchuan-preview / seeding-writer
+- **其余 5 个工具迁移**：livestream-review / persona-review / qianchuan-collection / qianchuan-preview / ~~seeding-writer~~（✅ Sprint 16 已迁移）
+
+---
+
+### M2 工作项 — Sprint 16 种草内容仿写迁移（seeding-writer）✅ 完成（待 PM 签收 + 推 PR #7）
+
+**核心定位**：旧架构 `Ai_Toolbox/seeding-writer-web` 整体迁移到新架构。4 步向导（选达人+素材库 → 产品信息 → 对标验证 → 种草仿写）业务逻辑 100% 保留。新增产品库 + 素材库公司共享（对齐 kols/references 语义），6 个 Prompt 模板（14 占位符）+ 双模型可配（light=haiku 默认 / heavy=opus 默认）。首次完整集成 4 个外部 adapter（yunwu AI / tikhub 视频解析 / oss 文档转 URL / asr 录音转录）。参照样板：`persona-writer`（Prompt 表 + ConfigTab + 4 步向导）。
+
+**分支**：`migrate/seeding-writer`（从 main 拉新分支）
+
+| 端 | 状态 | 备注 |
+|----|------|------|
+| Migration 033 | ✅ 完成 | 3 表（`seeding_writer_configs` / `seeding_writer_products` / `seeding_writer_references`）+ 6 seed Prompt（从旧版提取）+ `workspace_tools` UPSERT；dollar quoting `$PROMPT_SP$` 处理 Prompt 内单引号 |
+| 3 ORM 模型 | ✅ 完成 | `models/seeding_writer.py`：SeedingWriterConfig / SeedingWriterProduct / SeedingWriterReference |
+| Prompt 渲染 service | ✅ 完成 | `services/seeding_writer_prompt.py::render_prompt`，14 占位符 + `{{name}}...{{/name}}` 块循环（多产品字段）+ 正则一次性替换防二次替换 |
+| 文档解析 service | ✅ 完成 | `services/document_parser.py`：PDF（pypdf）/ DOCX（python-docx）/ XLSX（openpyxl）/ PPTX（python-pptx）/ TXT / MD，统一返回 7 字段 + `_rawText` |
+| operator router（20 接口）| ✅ 完成 | `operator_seeding_writer.py` ~780 行： personas/references/products CRUD + 文档解析 + 卖点流式 + 视频解析 + ASR submit/poll + 结构拆解流式 + AI 推荐 + 写作/迭代流式 + 保存/导出/历史 |
+| admin router（2 接口）| ✅ 完成 | `admin_seeding_writer.py`：GET/PUT /configs（6 Prompt + 2 模型 + is_active）|
+| Router 注册 | ✅ 完成 | `app/main.py` include 2 router；`conftest.py` patch 列表加 operator_seeding_writer（admin 不直接 import AsyncSessionLocal 无需 patch）|
+| 依赖 | ✅ 完成 | `requirements.txt` 加 `openpyxl` + `python-pptx` |
+| 前端 types | ✅ 完成 | `types/seedingWriter.ts` 200 行 |
+| 前端 API | ✅ 完成 | `api/seedingWriter.ts` 320 行 22 函数（16 走 request.ts + 4 SSE + 1 multipart + 1 Blob 例外）|
+| 前端 4 步向导 | ✅ 完成 | `pages/operator/SeedingWriterPage.tsx` 1412 行：Step 1 达人下拉+素材库（粘贴/抖音导入/删除）/ Step 2 产品库+文档 AI 解析+卖点流式讨论+6 字段表单 / Step 3 抖音解析+ASR 5s 轮询+结构拆解流式 / Step 4 三选题模式+写作流式+多轮迭代+保存+.txt/.docx 导出 |
+| 前端 ConfigTab | ✅ 完成 | `pages/admin/SeedingWriterConfigTab.tsx` 283 行：6 Prompt 卡片状态（字数/未设置）+ 编辑 Modal（8 字段：6 Prompt + light/heavy 模型 + 启用 Switch）|
+| 前端路由 + Tab 注册 | ✅ 完成 | `App.tsx` Route `/workspace/seeding-writer`；`WorkspaceConfigPage.tsx` 注册 ConfigTab；`HomePage.tsx` + `WorkspacePage.tsx` 加 navigate 分支 |
+| 后端单元测试 | ✅ 完成 | `test_seeding_writer_prompt.py`（14 占位符 + 块循环 + 防二次替换）+ `test_document_parser.py`（5 格式 + 异常路径）|
+| 后端集成测试 | ✅ 完成 | `test_operator_seeding_writer.py`（20 接口完整覆盖 + 鉴权 + SSE）+ `test_admin_seeding_writer.py`（2 接口 + 鉴权）|
+| 前端组件测试 | ✅ 23/23 | `SeedingWriterPage.test.tsx`：4 步向导全流程 + ConfigTab；ASR 测试用 `vi.setConfig({ testTimeout: 30000 })` 应对 5s 轮询；AntD 中文字间空格用正则匹配 |
+| 测试报告 | ✅ 完成 | `docs/tests/M2_Sprint16_seeding-writer_测试报告.md`：后端 970/973（2 预存在 livestream 失败无关）+ 前端 180/180 |
+| 契约同步 | ✅ 完成 | `MCN_M2_Base_API.md` 加 §23（20 运营端 + 2 管理端）；`MCN_M2_Base_Database.md` 加 §27（3 表 schema + 14 占位符说明）；3 README 计数同步（models 30/routers 54/migrations 033/api 33/types 23/tests 180）|
+
+**关键设计点：**
+- **产品库 + 素材库公司共享**：与 kols 一致——非用户隔离，所有运营共用一池。决策依据：旧架构已是公司共享，迁移保留语义；表字段含 `created_by` 但不强制隔离
+- **ASR submit + poll 分离**：避免长连接超时。`submit_transcribe` 立即返回 task_id；前端轮询 `poll_transcribe` 每 5s 一次（最多 60 次 = 5 分钟）。adapter 不锁连接
+- **6 Prompt + 14 占位符**：sp_system / parse_product / structure_analysis / ai_recommend / writing / iteration；占位符含 `{{name}}...{{/name}}` 块循环（多字段组），正则一次性替换防 `{{xx}}` 嵌套二次替换
+- **双模型策略**：light（结构拆解/AI 推荐）默认 claude-haiku-4-5；heavy（卖点/写作/迭代）默认 claude-opus-4-6。ConfigTab 可改
+- **文档解析后端 Python**：不用前端 JS 解析（DOCX/XLSX/PPTX 在 JS 生态依赖笨重）。pypdf/python-docx/openpyxl/python-pptx 各司其职，multipart 上传到后端 → 解析 → 返回结构化 JSON
+- **4 adapter 首次齐集**：本次是 4 个外部 adapter（yunwu/tikhub/oss/asr）首次在一个功能里全部调用——OSS 用于文档 URL（ASR 需要公网 URL），ASR 用于音频转录，tikhub 用于抖音视频解析，yunwu 用于所有 AI 流式
+- **测试 4 大坑（AntD 5 + Vitest 3）**：① 中文字符串按钮被 AntD 加空格（`保存`→`保 存`）→ 用正则 `/^保\s*存$/`；② `vi.setConfig({ testTimeout })` 在 `beforeEach` 里无效，必须在 `describe` 顶部；③ 多个 step 同时 in DOM 时 `openSelectAndPick` 要传 `selectIndex`；④ 列表+Modal 同文案冲突 → 用更精确的正则
+
+**不在本次范围（留作后续独立任务）：**
+- **tool_transcribe 切到 ASR**：现在继续用云雾 Whisper。本次 ASR 仅用于 seeding-writer 内部
+- **service_credentials.secret_enc 加密**：Sprint 3 债务。本次 OSS/ASR AK 仍明文（继承债务）
+- **service_credentials 软删改造**：Sprint 3 债务
+- **预存在 livestream `.pages` 解析 2 个失败**：与本任务无关，独立修复
+- **旧架构 `Ai_Toolbox/seeding-writer-web` 下线**：等用户切换 + 数据迁移完成后
+
+---
+
+### M2 工作项 — Sprint 16 v2 种草内容仿写 E2E 验收期 Bug 修复 🔄 进行中（v1 PR #7 同分支内集中修复）
+
+**核心定位**：v1 主体（PR #7）已发后用户浏览器 E2E 走查发现，并入同分支 `migrate/seeding-writer` 集中修复，不开新分支。对齐 Sprint 15 v2 模式。
+
+| 端 | 状态 | 备注 |
+|----|------|------|
+| ASR 采样率适配（BUG-032）| ✅ 代码修复 + 单测 | Step 3 对标验证抖音链接报 `41050008 UNSUPPORTED_SAMPLE_RATE`；根因：旧架构 `subtitle-extractor-web/lib/aliyun-asr.ts:51` 有 `enable_sample_rate_adaptive: true`，新架构 `asr.py` 迁移时漏了。修复：提取 `_build_task_dict()` 函数 + 加参数 + 单测 `test_build_task_dict_includes_sample_rate_adaptive`；17/17 通过 |
+| 用户浏览器验证 | 🔄 进行中 | 用户在 Step 3 实际跑通 ASR 链路验证中 |
+| BUG 登记补齐 | ✅ 完成 | `docs/pm/BUG修复登记.md` §十 |
+| 测试报告补齐 | ✅ 完成 | `docs/tests/M2_Sprint16_seeding-writer_测试报告.md` §4.3 |
+
+**关键设计点：**
+- **1 行修复覆盖全量**：新架构所有 ASR 调用都走 `app/adapters/asr.py::submit_transcription`，提取 `_build_task_dict` 后该参数对所有调用点（seeding-writer Step 3 + 后续 tool_transcribe 切换）统一生效
+- **迁移漏参数模式**：从旧架构抄实现时只看了核心字段（appkey/file_link/version），漏了"看似可选实则必需"的容错参数（`enable_sample_rate_adaptive`）。教训：迁移前应通读旧实现完整 task/参数字典，不能只看 happy path
+- **与 Sprint 15 v2 模式对齐**：v1 主体完成后 E2E 走查发现的 bug 并入同分支修复；不开新分支；文档侧在 v1 章节后开 v2 子章节
+
+**不在本次范围（留作后续独立任务）：**
+- ~~**并发测试** `tests/concurrent/test_seeding_writer_isolation.py`~~：✅ Sprint 16 v3 已补
+- ~~**Playwright E2E 基础设施**~~：✅ Sprint 16 v3 已补
+
+---
+
+### M2 工作项 — Sprint 16 v3 种草内容仿写 并发测试 + E2E 测试补齐 ✅ 完成（待 PM 签收 + 推 PR #7）
+
+**核心定位**：v2 BUG-032 修复后用户要求"并发测试完成 + E2E 测试完成再推 PR"。v3 在同分支 `migrate/seeding-writer` 内补齐两类测试基础设施，不开新分支。
+
+| 端 | 状态 | 备注 |
+|----|------|------|
+| 并发隔离测试 SW-ISO-001~004 | ✅ 完成 | `backend/tests/concurrent/test_seeding_writer_isolation.py`：20 op 并发写入隔离 / 跨工具隔离 / 60 条压力；4/4 通过（38.31s） |
+| Playwright 基础设施 | ✅ 完成 | `playwright.config.ts`（webServer 自动起 dev / channel:'chrome' 用系统 Chrome 绕开 CDN / workers=1） |
+| E2E 用例 9 个 | ✅ 完成 | smoke 3 + seeding-writer 关键路径 6（4 步向导 / Step 1 初始 / Step 1→2 切换 / Step 2 校验 / Step 3 抖音输入框 / ConfigTab）；9/9 通过（33.5s） |
+| auth helper | ✅ 完成 | `helpers/auth.ts` 走真实 UI 登录（绕开 zustand 模块作用域 init 时序问题） |
+| api-mock helper | ✅ 完成 | `helpers/api-mock.ts` mock OSS / 卖点流 / 抖音 / ASR / 结构分析流 / 对话流 |
+| CORS 补 5175 | ✅ 完成 | `backend/.env` `CORS_ORIGINS` 加 `http://localhost:5175`（前端 dev 端口，不进 git） |
+| vitest exclude E2E | ✅ 完成 | `vitest.config.ts` 加 `exclude: ['tests/e2e/**']` 防止 vitest 误收集 Playwright spec |
+| 测试报告补齐 | ✅ 完成 | `docs/tests/M2_Sprint16_seeding-writer_测试报告.md` §4.4（并发）+ §4.5（E2E）+ §一总览 + §七命令 |
+| 前端 README | ✅ 完成 | `frontend/docs/README.md` 加「测试体系」章节（Vitest + Playwright 双轨 + 端口约定） |
+
+**关键设计点：**
+- **channel:'chrome' 替代 Playwright chromium**：国内 Playwright CDN 1228 下载困难，改用系统已装的 Chrome（`C:/Program Files/Google/Chrome/Application/chrome.exe`），配置一行 `channel: 'chrome'` 解决
+- **UI 登录替代 storageState/addInitScript/evaluate 注入**：zustand store 是模块作用域单例，`request.ts::buildHeaders()` 用 `useAuthStore.getState().token` 而非 localStorage 直读。store init 时序在 React app 模块加载那一刻固化，后续 localStorage 写入不会同步到 store state。改走 `/login` 页填表单 → 点登录 → `waitForURL(/^(?!.*\/login).+$/)` 最稳，React app 走正常流程会调 `setAuth()` 正确填充 store
+- **复用 M1 并发测试基础设施**：op_users fixture（20 operator session 级）/ asyncpg + httpx 直调 API / TestResult reporter；新加 spec 文件 import 即用，不重写基础设施
+- **vitest vs playwright 分工**：vitest 跑组件/单测（src/__tests__/），playwright 跑浏览器 E2E（tests/e2e/）。`vitest.config.ts` 加 exclude 防止 vitest 把 e2e spec 当 vitest 测试误收集报 `test.describe() not expected here`
+- **5175 端口选择**：5173/5174 历史被旧项目占用，`vite.config.ts` 用 `strictPort: true` 锁定 5175，避免 vite 静默切换到 5176 导致 E2E webServer 探活失败
+
+**踩坑记录（E2E 调试期 6 个 debug spec 已删）：**
+1. **`.env` 改了 CORS 但 uvicorn --reload 不监听 .env**：Windows multiprocessing spawn 模式下 .env 变化不触发 reload，必须 kill 主+子进程重启（taskkill //F //PID 主 //PID 子）。本次 kill 了 40820/36220 重启生效
+2. **storageState LocalStorage 一直空**：debug2-7.spec.ts 排查发现 zustand store init 早于 evaluate-set localStorage，最终改走 UI 登录解决
+3. **`getByText('选达人')` strict mode violation**：page-desc 也有"选达人 · 产品信息..."文本，加 `{ exact: true }` 或换更精确选择器（heading role）
+4. **Step 1 实际是"选达人"不是"加素材"**：spec v1 基于猜测写 `getByText('上传种草爆款文案')`，实际页面没有；改为基于 error-context.md 的 page snapshot 重写为"Step 1 初始状态"测试
+5. **bash taskkill /F 被当路径**：git bash 下 `/F` 会被转换，必须用 `//F`（双斜杠转义）
+6. **concurrent conftest 默认密码错**：`DB_URL` 默认 admin123，实际是 postgres2026；测试必须传 `TEST_DB_URL` 环境变量
+
+**不在本次范围（留作后续独立任务）：**
+- 后端预存在 2 failed（`test_livestream_writer_file_parser.py`）+ 542 errors（`test_credential_pool.py / test_workspace.py` 的 fixture 问题）：Sprint 11 之前历史债，独立修复
+- **tool_transcribe 切换到 ASR**：现在继续用云雾 Whisper，独立任务
 
 ---
 

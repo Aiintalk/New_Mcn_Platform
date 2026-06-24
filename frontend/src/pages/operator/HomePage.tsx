@@ -251,6 +251,7 @@ export default function HomePage() {
                 }}
                 onClick={() => {
                   if (tool.tool_code === 'persona-writer') navigate('/workspace/persona-writer');
+                  else if (tool.tool_code === 'seeding-writer') navigate('/workspace/seeding-writer');
                   else navigate(`/workspace/${tool.tool_code}`);
                 }}
               >
