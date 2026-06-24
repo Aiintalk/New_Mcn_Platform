@@ -22,3 +22,10 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Playwright E2E（Sprint 16 v3 引入）
+# - .auth/ 含登录 token，禁止 commit
+# - test-results/ playwright-report/ 是测试产物
+.auth/
+test-results/
+playwright-report/

@@ -199,3 +199,32 @@ frontend/docs/
 - 管理端新配置放「工具配置」→「功能配置」
 - 页面组件命名：`XxxPage.tsx`，放 `src/pages/{角色}/`
 - 测试运行：`npx vitest run --coverage`
+
+---
+
+## 测试体系
+
+### 单元/组件测试（Vitest）
+
+- **位置**：`src/__tests__/`（与源码同仓，按业务域组织）
+- **配置**：`vitest.config.ts`（jsdom + setupFiles=`src/test/setup.ts`）
+- **运行**：`npx vitest run --coverage`
+- **覆盖**：180 个用例，覆盖所有 page / api / store / hooks
+
+### E2E 测试（Playwright，Sprint 16 v3 引入）
+
+- **位置**：`tests/e2e/`（vitest 通过 `exclude: ['tests/e2e/**']` 不收集）
+- **配置**：`playwright.config.ts`
+  - `webServer` 自动起 dev server（5175，`strictPort: true`）
+  - `channel: 'chrome'` 用系统 Chrome，绕开 Playwright chromium CDN 下载
+  - `workers: 1` 串行执行（避免并发污染数据库）
+- **helper**：
+  - `helpers/auth.ts` — `loginAsAdmin` 走真实 UI 登录（绕过 zustand 模块作用域 init 时序问题）
+  - `helpers/api-mock.ts` — mock OSS / 卖点流 / 抖音 / ASR / 结构分析流 / 对话流
+- **运行**：需后端 `uvicorn app.main:app --port 8000` 在跑，然后 `npx playwright test`
+- **当前覆盖**：smoke 3 个 + seeding-writer 关键路径 6 个 = 9 个
+
+### 端口约定
+
+- **5175**：前端 dev server（`vite.config.ts` 固定 `strictPort`）
+- **8000**：后端 API（`backend/.env` 的 `CORS_ORIGINS` 已含 5175）

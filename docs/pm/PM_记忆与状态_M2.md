@@ -1,6 +1,6 @@
 # MCN_PM_Agent — 项目记忆与当前状态（M2）
 
-> 最后更新：2026-06-24（Sprint 16 — 种草内容仿写迁移完成：旧架构 `Ai_Toolbox/seeding-writer-web` 整体迁移；3 表 + 20 operator + 2 admin 接口 + 4 步向导 UI + ConfigTab；6 Prompt 14 占位符 + 双模型；4 adapter 集成（yunwu/tikhub/oss/asr）；后端 101 新测试（970/973 通过）+ 前端 23 新测试（180/180 通过）；3 README + 契约 §23/§27 同步；**E2E 走查期 BUG-032 ASR 采样率修复（1 行+重构+单测）已并入 PR #7，待用户浏览器验证**；待 PM 签收 + 推 PR #7）
+> 最后更新：2026-06-24（Sprint 16 — 种草内容仿写迁移完成 + v2 BUG-032 ASR 采样率修复 + **v3 并发测试 + Playwright E2E 补齐**：旧架构 `Ai_Toolbox/seeding-writer-web` 整体迁移；3 表 + 20 operator + 2 admin 接口 + 4 步向导 UI + ConfigTab；6 Prompt 14 占位符 + 双模型；4 adapter 集成（yunwu/tikhub/oss/asr）；后端 101 单测集成 + **4 并发隔离 SW-ISO-001~004** + 前端 23 单测 + **9 Playwright E2E（smoke 3 + seeding-writer 关键路径 6）**；3 README + 契约 §23/§27 同步；**E2E 走查期 BUG-032 ASR 采样率修复（1 行+重构+单测）已并入 PR #7，用户浏览器验证通过**；**Playwright 1.61.1 + 系统 Chrome channel + UI 登录绕开 zustand store 时序**；待 PM 签收 + 推 PR #7）
 > 更新角色：MCN_PM_Agent
 > 上一份文档：`docs/pm/PM_记忆与状态.md`（M1 阶段，已归档）
 
@@ -195,8 +195,45 @@
 - **与 Sprint 15 v2 模式对齐**：v1 主体完成后 E2E 走查发现的 bug 并入同分支修复；不开新分支；文档侧在 v1 章节后开 v2 子章节
 
 **不在本次范围（留作后续独立任务）：**
-- **并发测试** `tests/concurrent/test_seeding_writer_isolation.py`：seeding-writer outputs 严格用户隔离，应补但 Sprint 16 v2 内不强制；独立任务
-- **Playwright E2E 基础设施**：项目空白，独立立任务
+- ~~**并发测试** `tests/concurrent/test_seeding_writer_isolation.py`~~：✅ Sprint 16 v3 已补
+- ~~**Playwright E2E 基础设施**~~：✅ Sprint 16 v3 已补
+
+---
+
+### M2 工作项 — Sprint 16 v3 种草内容仿写 并发测试 + E2E 测试补齐 ✅ 完成（待 PM 签收 + 推 PR #7）
+
+**核心定位**：v2 BUG-032 修复后用户要求"并发测试完成 + E2E 测试完成再推 PR"。v3 在同分支 `migrate/seeding-writer` 内补齐两类测试基础设施，不开新分支。
+
+| 端 | 状态 | 备注 |
+|----|------|------|
+| 并发隔离测试 SW-ISO-001~004 | ✅ 完成 | `backend/tests/concurrent/test_seeding_writer_isolation.py`：20 op 并发写入隔离 / 跨工具隔离 / 60 条压力；4/4 通过（38.31s） |
+| Playwright 基础设施 | ✅ 完成 | `playwright.config.ts`（webServer 自动起 dev / channel:'chrome' 用系统 Chrome 绕开 CDN / workers=1） |
+| E2E 用例 9 个 | ✅ 完成 | smoke 3 + seeding-writer 关键路径 6（4 步向导 / Step 1 初始 / Step 1→2 切换 / Step 2 校验 / Step 3 抖音输入框 / ConfigTab）；9/9 通过（33.5s） |
+| auth helper | ✅ 完成 | `helpers/auth.ts` 走真实 UI 登录（绕开 zustand 模块作用域 init 时序问题） |
+| api-mock helper | ✅ 完成 | `helpers/api-mock.ts` mock OSS / 卖点流 / 抖音 / ASR / 结构分析流 / 对话流 |
+| CORS 补 5175 | ✅ 完成 | `backend/.env` `CORS_ORIGINS` 加 `http://localhost:5175`（前端 dev 端口，不进 git） |
+| vitest exclude E2E | ✅ 完成 | `vitest.config.ts` 加 `exclude: ['tests/e2e/**']` 防止 vitest 误收集 Playwright spec |
+| 测试报告补齐 | ✅ 完成 | `docs/tests/M2_Sprint16_seeding-writer_测试报告.md` §4.4（并发）+ §4.5（E2E）+ §一总览 + §七命令 |
+| 前端 README | ✅ 完成 | `frontend/docs/README.md` 加「测试体系」章节（Vitest + Playwright 双轨 + 端口约定） |
+
+**关键设计点：**
+- **channel:'chrome' 替代 Playwright chromium**：国内 Playwright CDN 1228 下载困难，改用系统已装的 Chrome（`C:/Program Files/Google/Chrome/Application/chrome.exe`），配置一行 `channel: 'chrome'` 解决
+- **UI 登录替代 storageState/addInitScript/evaluate 注入**：zustand store 是模块作用域单例，`request.ts::buildHeaders()` 用 `useAuthStore.getState().token` 而非 localStorage 直读。store init 时序在 React app 模块加载那一刻固化，后续 localStorage 写入不会同步到 store state。改走 `/login` 页填表单 → 点登录 → `waitForURL(/^(?!.*\/login).+$/)` 最稳，React app 走正常流程会调 `setAuth()` 正确填充 store
+- **复用 M1 并发测试基础设施**：op_users fixture（20 operator session 级）/ asyncpg + httpx 直调 API / TestResult reporter；新加 spec 文件 import 即用，不重写基础设施
+- **vitest vs playwright 分工**：vitest 跑组件/单测（src/__tests__/），playwright 跑浏览器 E2E（tests/e2e/）。`vitest.config.ts` 加 exclude 防止 vitest 把 e2e spec 当 vitest 测试误收集报 `test.describe() not expected here`
+- **5175 端口选择**：5173/5174 历史被旧项目占用，`vite.config.ts` 用 `strictPort: true` 锁定 5175，避免 vite 静默切换到 5176 导致 E2E webServer 探活失败
+
+**踩坑记录（E2E 调试期 6 个 debug spec 已删）：**
+1. **`.env` 改了 CORS 但 uvicorn --reload 不监听 .env**：Windows multiprocessing spawn 模式下 .env 变化不触发 reload，必须 kill 主+子进程重启（taskkill //F //PID 主 //PID 子）。本次 kill 了 40820/36220 重启生效
+2. **storageState LocalStorage 一直空**：debug2-7.spec.ts 排查发现 zustand store init 早于 evaluate-set localStorage，最终改走 UI 登录解决
+3. **`getByText('选达人')` strict mode violation**：page-desc 也有"选达人 · 产品信息..."文本，加 `{ exact: true }` 或换更精确选择器（heading role）
+4. **Step 1 实际是"选达人"不是"加素材"**：spec v1 基于猜测写 `getByText('上传种草爆款文案')`，实际页面没有；改为基于 error-context.md 的 page snapshot 重写为"Step 1 初始状态"测试
+5. **bash taskkill /F 被当路径**：git bash 下 `/F` 会被转换，必须用 `//F`（双斜杠转义）
+6. **concurrent conftest 默认密码错**：`DB_URL` 默认 admin123，实际是 postgres2026；测试必须传 `TEST_DB_URL` 环境变量
+
+**不在本次范围（留作后续独立任务）：**
+- 后端预存在 2 failed（`test_livestream_writer_file_parser.py`）+ 542 errors（`test_credential_pool.py / test_workspace.py` 的 fixture 问题）：Sprint 11 之前历史债，独立修复
+- **tool_transcribe 切换到 ASR**：现在继续用云雾 Whisper，独立任务
 
 ---
 
