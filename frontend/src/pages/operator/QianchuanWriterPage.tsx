@@ -7,7 +7,7 @@
  *   Step 3 · 输入脚本 — 粘贴原版脚本 + 实时去空白字数
  *   Step 4 · 生成仿写 — 流式输出 + 多轮追问 + 保存/导出
  */
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Button, Input, Select, Steps, Upload, App } from 'antd';
 import type { UploadProps } from 'antd';
 import { UploadOutlined, SaveOutlined, FileTextOutlined, FileWordOutlined } from '@ant-design/icons';
@@ -56,14 +56,22 @@ function downloadBlob(content: string, filename: string, mime: string): void {
   URL.revokeObjectURL(url);
 }
 
-export default function QianchuanWriterPage() {
+// ── 核心 Module（接受外部 kolId，跳过 Step 1 选达人）───────────────────────
+export function QianchuanWriterModule({ kolId }: { kolId: number }) {
   const { message } = App.useApp();
-  const [currentStep, setCurrentStep] = useState(1);
+  const [currentStep, setCurrentStep] = useState(2);
 
-  // Step 1
-  const [personas, setPersonas] = useState<QianchuanWriterPersona[]>([]);
-  const [personasLoading, setPersonasLoading] = useState(false);
+  // 从接口加载达人信息
   const [selectedPersona, setSelectedPersona] = useState<QianchuanWriterPersona | null>(null);
+
+  useEffect(() => {
+    getPersonas().then((list) => {
+      const found = list.find((p) => p.id === kolId) ?? null;
+      setSelectedPersona(found);
+    }).catch(() => {
+      // 静默：达人名可能加载失败，不影响主流程
+    });
+  }, [kolId]);
 
   // Step 2
   const [productText, setProductText] = useState('');
@@ -80,23 +88,6 @@ export default function QianchuanWriterPage() {
   const [streaming, setStreaming] = useState(false);
   const [streamDisplay, setStreamDisplay] = useState('');
   const chatEndRef = useRef<HTMLDivElement>(null);
-
-  // Step 1: 加载达人列表
-  const loadPersonas = useCallback(async () => {
-    setPersonasLoading(true);
-    try {
-      const data = await getPersonas();
-      setPersonas(data);
-    } catch (err: unknown) {
-      message.error(err instanceof Error ? err.message : '加载达人列表失败');
-    } finally {
-      setPersonasLoading(false);
-    }
-  }, [message]);
-
-  useEffect(() => {
-    loadPersonas();
-  }, [loadPersonas]);
 
   // 自动滚动到聊天底部
   useEffect(() => {
@@ -249,7 +240,6 @@ export default function QianchuanWriterPage() {
     }
   }
 
-  const step1Ok = selectedPersona !== null;
   const step2Ok = productText.trim().length > 0;
   const step3Ok = originalScript.trim().length > 0;
   const hasResult = chatMessages.some((m) => m.role === 'assistant');
@@ -259,76 +249,19 @@ export default function QianchuanWriterPage() {
       <div className="page-header">
         <div>
           <h1 className="page-title">千川文案写作</h1>
-          <p className="page-desc">选择达人 · 加载产品卖点 · 输入原版脚本 · AI 仿写</p>
+          <p className="page-desc">加载产品卖点 · 输入原版脚本 · AI 仿写</p>
         </div>
       </div>
 
       <Steps
-        current={currentStep - 1}
+        current={currentStep - 2}
         items={[
-          { title: '选择达人' },
           { title: '加载产品' },
           { title: '输入脚本' },
           { title: '生成仿写' },
         ]}
         style={{ marginBottom: 'var(--sp-6)' }}
       />
-
-      {/* Step 1 · 选达人 */}
-      {currentStep >= 1 && (
-        <div className="card" style={{ marginBottom: 'var(--sp-4)' }}>
-          <h3 style={{ marginBottom: 'var(--sp-3)' }}>Step 1 · 选择达人</h3>
-          <div style={{ marginBottom: 'var(--sp-3)' }}>
-            <label style={{ display: 'block', marginBottom: 4, fontWeight: 500 }}>达人人设</label>
-            <Select
-              style={{ width: '100%' }}
-              placeholder="请选择达人..."
-              loading={personasLoading}
-              value={selectedPersona?.id || undefined}
-              onChange={(val) => {
-                const p = personas.find((p) => p.id === val) ?? null;
-                setSelectedPersona(p);
-              }}
-              options={personas.map((p) => ({
-                value: p.id,
-                label: `${p.name}（${p.creator_name}）`,
-              }))}
-            />
-          </div>
-          {selectedPersona && (
-            <div
-              style={{
-                background: 'var(--gray-50)',
-                padding: 'var(--sp-3)',
-                borderRadius: 'var(--radius-md)',
-                marginBottom: 'var(--sp-3)',
-              }}
-            >
-              <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 'var(--sp-2)' }}>
-                人物档案预览
-              </div>
-              <div
-                style={{
-                  fontSize: 13,
-                  color: 'var(--gray-700)',
-                  whiteSpace: 'pre-wrap',
-                  lineHeight: 1.6,
-                  maxHeight: 120,
-                  overflow: 'hidden',
-                }}
-              >
-                {selectedPersona.soul_preview}
-                {selectedPersona.soul_preview.length >= 400 ? '...' : ''}
-              </div>
-            </div>
-          )}
-          {currentStep === 1 && (
-            <Button type="primary" disabled={!step1Ok} onClick={() => setCurrentStep(2)}>
-              确认，去加载产品 →
-            </Button>
-          )}
-        </div>
-      )}
 
       {/* Step 2 · 加载产品 */}
       {currentStep >= 2 && (
@@ -584,6 +517,107 @@ export default function QianchuanWriterPage() {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── 独立页面（保留完整 Step 1 选达人流程）────────────────────────────────────
+export default function QianchuanWriterPage() {
+  const { message } = App.useApp();
+  const [kolId, setKolId] = useState<number | null>(null);
+  const [personas, setPersonas] = useState<QianchuanWriterPersona[]>([]);
+  const [personasLoading, setPersonasLoading] = useState(false);
+  const [selectedPersona, setSelectedPersona] = useState<QianchuanWriterPersona | null>(null);
+
+  useEffect(() => {
+    setPersonasLoading(true);
+    getPersonas()
+      .then((data) => setPersonas(data))
+      .catch((err: unknown) => {
+        message.error(err instanceof Error ? err.message : '加载达人列表失败');
+      })
+      .finally(() => setPersonasLoading(false));
+  }, [message]);
+
+  if (kolId !== null) {
+    return <QianchuanWriterModule kolId={kolId} />;
+  }
+
+  return (
+    <div style={{ maxWidth: 900, margin: '0 auto', padding: 'var(--sp-6)' }}>
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">千川文案写作</h1>
+          <p className="page-desc">选择达人 · 加载产品卖点 · 输入原版脚本 · AI 仿写</p>
+        </div>
+      </div>
+
+      <Steps
+        current={0}
+        items={[
+          { title: '选择达人' },
+          { title: '加载产品' },
+          { title: '输入脚本' },
+          { title: '生成仿写' },
+        ]}
+        style={{ marginBottom: 'var(--sp-6)' }}
+      />
+
+      {/* Step 1 · 选达人 */}
+      <div className="card" style={{ marginBottom: 'var(--sp-4)' }}>
+        <h3 style={{ marginBottom: 'var(--sp-3)' }}>Step 1 · 选择达人</h3>
+        <div style={{ marginBottom: 'var(--sp-3)' }}>
+          <label style={{ display: 'block', marginBottom: 4, fontWeight: 500 }}>达人人设</label>
+          <Select
+            style={{ width: '100%' }}
+            placeholder="请选择达人..."
+            loading={personasLoading}
+            value={selectedPersona?.id || undefined}
+            onChange={(val) => {
+              const p = personas.find((p) => p.id === val) ?? null;
+              setSelectedPersona(p);
+            }}
+            options={personas.map((p) => ({
+              value: p.id,
+              label: `${p.name}（${p.creator_name}）`,
+            }))}
+          />
+        </div>
+        {selectedPersona && (
+          <div
+            style={{
+              background: 'var(--gray-50)',
+              padding: 'var(--sp-3)',
+              borderRadius: 'var(--radius-md)',
+              marginBottom: 'var(--sp-3)',
+            }}
+          >
+            <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 'var(--sp-2)' }}>
+              人物档案预览
+            </div>
+            <div
+              style={{
+                fontSize: 13,
+                color: 'var(--gray-700)',
+                whiteSpace: 'pre-wrap',
+                lineHeight: 1.6,
+                maxHeight: 120,
+                overflow: 'hidden',
+              }}
+            >
+              {selectedPersona.soul_preview}
+              {selectedPersona.soul_preview.length >= 400 ? '...' : ''}
+            </div>
+          </div>
+        )}
+        <Button
+          type="primary"
+          disabled={!selectedPersona}
+          onClick={() => selectedPersona && setKolId(selectedPersona.id)}
+        >
+          确认，去加载产品 →
+        </Button>
+      </div>
     </div>
   );
 }
