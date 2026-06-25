@@ -53,8 +53,10 @@ function SimpleMarkdown({ text }: { text: string }) {
   );
 }
 
-export default function LivestreamWriterPage() {
-  const [step, setStep] = useState(0);
+// ── 内部实现（共享逻辑）──────────────────────────────────────────────────────
+function LivestreamWriterInner({ initKolId }: { initKolId?: number }) {
+  const isModule = initKolId !== undefined;
+  const [step, setStep] = useState(isModule ? 1 : 0);
   const [config, setConfig] = useState<LivestreamWriterConfig | null>(null);
   const [configLoading, setConfigLoading] = useState(true);
 
@@ -89,7 +91,15 @@ export default function LivestreamWriterPage() {
           getKolPersonas(),
         ]);
         setConfig(cfg);
-        setPersonas(kolResp.personas ?? []);
+        const personaList = kolResp.personas ?? [];
+        setPersonas(personaList);
+        // Module 模式：通过 workspace dashboard 获取 kol 名字，再匹配
+        if (isModule && initKolId) {
+          const { getWorkspaceDashboard } = await import('../../api/kolWorkspace');
+          const dashboard = await getWorkspaceDashboard(initKolId);
+          const found = personaList.find((p) => p.name === dashboard.kol.name) ?? null;
+          setSelectedPersona(found);
+        }
       } catch (e) {
         message.error('加载失败，请刷新重试');
       } finally {
@@ -97,7 +107,7 @@ export default function LivestreamWriterPage() {
       }
     }
     init();
-  }, []);
+  }, [isModule, initKolId]);
 
   // 自动滚动到底部
   useEffect(() => {
@@ -278,30 +288,28 @@ export default function LivestreamWriterPage() {
       <div className="page-header" style={{ marginBottom: 24 }}>
         <div>
           <h1 className="page-title">直播脚本仿写</h1>
-          <p className="page-desc">选达人 · 上传卖点卡 · 锁定对标 · AI 生成7模块开播方案</p>
+          <p className="page-desc">{isModule ? '上传卖点卡 · 锁定对标 · AI 生成7模块开播方案' : '选达人 · 上传卖点卡 · 锁定对标 · AI 生成7模块开播方案'}</p>
         </div>
       </div>
 
       {/* 步骤导航 */}
       <Steps
-        current={step}
-        onChange={setStep}
+        current={isModule ? step - 1 : step}
+        onChange={isModule ? (v) => setStep(v + 1) : setStep}
         style={{ marginBottom: 32 }}
-        items={[
-          { title: '选达人' },
-          { title: '上传卖点' },
-          { title: '锁定对标' },
-          { title: '生成方案' },
-        ]}
+        items={isModule
+          ? [{ title: '上传卖点' }, { title: '锁定对标' }, { title: '生成方案' }]
+          : [{ title: '选达人' }, { title: '上传卖点' }, { title: '锁定对标' }, { title: '生成方案' }]
+        }
       />
 
-      {/* Step 1 · 选达人 */}
-      {step === 0 && (
+      {/* Step 1 · 选达人（仅独立页面模式） */}
+      {!isModule && step === 0 && (
         <div className="card" style={{ padding: 24 }}>
           <h3 style={{ marginBottom: 16, fontWeight: 600 }}>选择达人</h3>
           <Select
             showSearch
-            placeholder="请选择达人"
+            placeholder="请选达人"
             style={{ width: '100%', maxWidth: 400 }}
             value={selectedPersona?.name}
             onChange={(name) => {
@@ -521,4 +529,14 @@ export default function LivestreamWriterPage() {
       )}
     </div>
   );
+}
+
+// ── 核心 Module（接受外部 kolId，跳过 Step 1 选达人）───────────────────────
+export function LivestreamWriterModule({ kolId }: { kolId: number }) {
+  return <LivestreamWriterInner initKolId={kolId} />;
+}
+
+// ── 独立页面（保留完整 Step 1 选达人流程）────────────────────────────────────
+export default function LivestreamWriterPage() {
+  return <LivestreamWriterInner />;
 }
