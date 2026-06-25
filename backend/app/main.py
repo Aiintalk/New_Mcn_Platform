@@ -59,6 +59,8 @@ from app.routers.operator_persona_writer import router as operator_persona_write
 from app.routers.admin_persona_writer import router as admin_persona_writer_router
 from app.routers.operator_seeding_writer import router as operator_seeding_writer_router
 from app.routers.admin_seeding_writer import router as admin_seeding_writer_router
+from app.routers.operator_material_library import router as operator_material_library_router
+from app.routers.admin_material_library import router as admin_material_library_router
 from app.routers import operator_tiktok_review
 from app.routers import admin_tiktok_review
 
@@ -172,3 +174,5 @@ app.include_router(operator_persona_writer_router, prefix="/api")
 app.include_router(admin_persona_writer_router, prefix="/api")
 app.include_router(operator_seeding_writer_router, prefix="/api")
 app.include_router(admin_seeding_writer_router, prefix="/api")
+app.include_router(operator_material_library_router, prefix="/api")
+app.include_router(admin_material_library_router, prefix="/api")

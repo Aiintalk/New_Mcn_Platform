@@ -35,6 +35,7 @@ from app.models.seeding_writer import (
 )
 from app.models.oss_call_log import OssCallLog
 from app.models.asr_call_log import AsrCallLog
+from app.models.material_library import KolReference, MaterialLibraryConfig
 
 __all__ = [
     "User",
@@ -75,4 +76,6 @@ __all__ = [
     "SeedingWriterReference",
     "OssCallLog",
     "AsrCallLog",
+    "KolReference",
+    "MaterialLibraryConfig",
 ]
