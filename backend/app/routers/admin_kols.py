@@ -12,13 +12,15 @@ app/routers/admin_kols.py
 import math
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Request
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select, update
 
 from app.core.database import AsyncSessionLocal, get_db
 from app.core.response import ApiResponse, ErrorCode, error_response, success_response
-from app.middlewares.auth import require_admin
+from app.middlewares.auth import get_current_user, require_admin
 from app.models.kol import Kol
 from app.models.log import OperationLog
 from app.models.user import User
@@ -366,3 +368,95 @@ async def fetch_tikhub(
         "tikhub": tikhub_result,
         "kol": _kol_to_dict(kol),
     })
+
+
+# ---------------------------------------------------------------------------
+# Persona Details — 运营端（GET/PUT /api/operator/kols/{kol_id}/persona-details）
+# ---------------------------------------------------------------------------
+
+_operator_router = APIRouter(prefix="/operator/kols", tags=["operator-kols"])
+
+
+async def _require_operator_kols(current_user: User = Depends(get_current_user)) -> User:
+    if current_user.password_changed_at is None:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "AUTH_FORCE_CHANGE_PASSWORD", "message": "请先修改初始密码"},
+        )
+    if current_user.role not in ("operator", "admin"):
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "PERMISSION_DENIED", "message": "无权限访问"},
+        )
+    return current_user
+
+
+class PersonaDetailsRequest(BaseModel):
+    background: Optional[str] = None
+    experience: Optional[str] = None
+    relationships: Optional[str] = None
+    unique_story: Optional[str] = None
+    extra_notes: Optional[str] = None
+
+
+def _persona_dict(kol: Kol) -> dict:
+    return {
+        "kol_id": kol.id,
+        "background": kol.background,
+        "experience": kol.experience,
+        "relationships": kol.relationships,
+        "unique_story": kol.unique_story,
+        "extra_notes": kol.extra_notes,
+        "updated_at": _ts(kol.updated_at),
+    }
+
+
+@_operator_router.get("/{kol_id}/persona-details", response_model=None)
+async def get_persona_details(
+    kol_id: int,
+    current_user: User = Depends(_require_operator_kols),
+):
+    async with AsyncSessionLocal() as session:
+        row = await session.execute(
+            select(Kol).where(Kol.id == kol_id, Kol.deleted_at.is_(None))
+        )
+        kol = row.scalar_one_or_none()
+        if not kol:
+            return error_response(ErrorCode.RESOURCE_NOT_FOUND, "达人不存在")
+        return success_response(data=_persona_dict(kol))
+
+
+@_operator_router.put("/{kol_id}/persona-details", response_model=None)
+async def update_persona_details(
+    kol_id: int,
+    body: PersonaDetailsRequest,
+    request: Request,
+    current_user: User = Depends(_require_operator_kols),
+):
+    async with AsyncSessionLocal() as session:
+        row = await session.execute(
+            select(Kol).where(Kol.id == kol_id, Kol.deleted_at.is_(None))
+        )
+        kol = row.scalar_one_or_none()
+        if not kol:
+            return error_response(ErrorCode.RESOURCE_NOT_FOUND, "达人不存在")
+
+        # PATCH 语义：只更新非 None 字段
+        updates = {k: v for k, v in body.model_dump().items() if v is not None}
+        updates["updated_at"] = datetime.now(timezone.utc)
+
+        await session.execute(
+            update(Kol).where(Kol.id == kol_id).values(**updates)
+        )
+        session.add(OperationLog(
+            user_id=current_user.id,
+            username=current_user.username,
+            role=current_user.role,
+            action="update_kol_persona_details",
+            target_type="kol",
+            target_id=kol_id,
+            ip=_get_ip(request),
+        ))
+        await session.commit()
+        await session.refresh(kol)
+        return success_response(data=_persona_dict(kol))

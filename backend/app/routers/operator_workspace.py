@@ -23,6 +23,7 @@ from app.middlewares.auth import get_current_user
 from app.models.kol import Kol
 from app.models.kol_active_product import KolActiveProduct
 from app.models.kol_benchmark import KolBenchmark
+from app.models.log import OperationLog
 from app.models.qianchuan_product import QianchuanProduct
 from app.models.user import User
 
@@ -37,6 +38,13 @@ async def require_operator(current_user: User = Depends(get_current_user)) -> Us
         raise HTTPException(status_code=403,
                             detail={"code": "PERMISSION_DENIED", "message": "无权限访问"})
     return current_user
+
+
+def _get_ip(request: Request) -> str:
+    fwd = request.headers.get("x-forwarded-for")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
 
 
 def _product_to_dict(p: QianchuanProduct) -> dict:
@@ -146,6 +154,7 @@ async def list_benchmarks(kol_id: int, current_user: User = Depends(require_oper
 async def create_benchmark(
     kol_id: int,
     body: BenchmarkRequest,
+    request: Request,
     current_user: User = Depends(require_operator),
 ):
     async with AsyncSessionLocal() as session:
@@ -159,6 +168,16 @@ async def create_benchmark(
             created_by=current_user.id,
         )
         session.add(b)
+        await session.flush()
+        session.add(OperationLog(
+            user_id=current_user.id,
+            username=current_user.username,
+            role=current_user.role,
+            action="create_kol_benchmark",
+            target_type="kol_benchmark",
+            target_id=b.id,
+            ip=_get_ip(request),
+        ))
         await session.commit()
         await session.refresh(b)
         return success_response(data=_benchmark_to_dict(b))
@@ -169,6 +188,7 @@ async def update_benchmark(
     kol_id: int,
     benchmark_id: int,
     body: BenchmarkRequest,
+    request: Request,
     current_user: User = Depends(require_operator),
 ):
     async with AsyncSessionLocal() as session:
@@ -187,6 +207,15 @@ async def update_benchmark(
         b.description = body.description
         b.sort_order = body.sort_order
         b.updated_at = datetime.now(timezone.utc)
+        session.add(OperationLog(
+            user_id=current_user.id,
+            username=current_user.username,
+            role=current_user.role,
+            action="update_kol_benchmark",
+            target_type="kol_benchmark",
+            target_id=benchmark_id,
+            ip=_get_ip(request),
+        ))
         await session.commit()
         await session.refresh(b)
         return success_response(data=_benchmark_to_dict(b))
@@ -196,6 +225,7 @@ async def update_benchmark(
 async def delete_benchmark(
     kol_id: int,
     benchmark_id: int,
+    request: Request,
     current_user: User = Depends(require_operator),
 ):
     async with AsyncSessionLocal() as session:
@@ -210,6 +240,15 @@ async def delete_benchmark(
                 detail={"code": ErrorCode.RESOURCE_NOT_FOUND, "message": "对标账号不存在"},
             )
         await session.delete(b)
+        session.add(OperationLog(
+            user_id=current_user.id,
+            username=current_user.username,
+            role=current_user.role,
+            action="delete_kol_benchmark",
+            target_type="kol_benchmark",
+            target_id=benchmark_id,
+            ip=_get_ip(request),
+        ))
         await session.commit()
         return success_response(data={"id": benchmark_id})
 
@@ -239,6 +278,7 @@ async def list_active_products(kol_id: int, current_user: User = Depends(require
 async def update_active_products(
     kol_id: int,
     body: ActiveProductsRequest,
+    request: Request,
     current_user: User = Depends(require_operator),
 ):
     async with AsyncSessionLocal() as session:
@@ -266,6 +306,15 @@ async def update_active_products(
         )
         for pid in body.product_ids:
             session.add(KolActiveProduct(kol_id=kol_id, product_id=pid))
+        session.add(OperationLog(
+            user_id=current_user.id,
+            username=current_user.username,
+            role=current_user.role,
+            action="update_kol_active_products",
+            target_type="kol",
+            target_id=kol_id,
+            ip=_get_ip(request),
+        ))
         await session.commit()
 
         return success_response(data={"active_product_ids": body.product_ids})

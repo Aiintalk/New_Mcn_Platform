@@ -20,7 +20,7 @@ from app.routers.admin_logs import router as admin_logs_router
 from app.routers.admin_credentials import router as admin_credentials_router
 from app.routers.admin_system import router as admin_system_router
 from app.routers.admin_ai import router as admin_ai_router
-from app.routers.admin_kols import router as admin_kols_router
+from app.routers.admin_kols import router as admin_kols_router, _operator_router as operator_kols_router
 from app.routers.intake_public import router as intake_public_router
 from app.routers.operator_intake import router as operator_intake_router
 from app.routers.operator_homepage import router as operator_homepage_router
@@ -134,6 +134,7 @@ app.include_router(admin_credentials_router, prefix="/api")
 app.include_router(admin_system_router, prefix="/api")
 app.include_router(admin_ai_router, prefix="/api")
 app.include_router(admin_kols_router, prefix="/api")
+app.include_router(operator_kols_router, prefix="/api")
 app.include_router(intake_public_router, prefix="/api")
 app.include_router(operator_intake_router, prefix="/api")
 app.include_router(operator_homepage_router, prefix="/api")
