@@ -76,9 +76,11 @@ function downloadBlob(content: string, filename: string, mime: string): void {
   URL.revokeObjectURL(url);
 }
 
-export default function PersonaWriterPage() {
+// ── 内部实现（共享逻辑）──────────────────────────────────────────────────────
+function PersonaWriterInner({ initKolId }: { initKolId?: number }) {
   const { message } = App.useApp();
-  const [currentStep, setCurrentStep] = useState(1);
+  const isModule = initKolId !== undefined;
+  const [currentStep, setCurrentStep] = useState(isModule ? 2 : 1);
 
   // Step 1
   const [personas, setPersonas] = useState<PersonaWriterPersona[]>([]);
@@ -121,12 +123,20 @@ export default function PersonaWriterPage() {
     try {
       const data = await getPersonas();
       setPersonas(data);
+      // Module 模式：从列表中找到当前达人
+      if (isModule && initKolId) {
+        const found = data.find((p) => p.id === initKolId) ?? null;
+        if (found) {
+          setSelectedPersona(found);
+          setContentPlanPreview(previewContentPlan(found.soul_preview));
+        }
+      }
     } catch (err: unknown) {
       message.error(err instanceof Error ? err.message : '加载达人列表失败');
     } finally {
       setPersonasLoading(false);
     }
-  }, [message]);
+  }, [message, isModule, initKolId]);
 
   useEffect(() => {
     loadPersonas();
@@ -375,22 +385,21 @@ export default function PersonaWriterPage() {
       <div className="page-header">
         <div>
           <h1 className="page-title">人设脚本仿写</h1>
-          <p className="page-desc">加载风格 · 对标验证 · 仿写创作</p>
+          <p className="page-desc">{isModule ? '对标验证 · 仿写创作' : '加载风格 · 对标验证 · 仿写创作'}</p>
         </div>
       </div>
 
       <Steps
-        current={currentStep - 1}
-        items={[
-          { title: '加载风格' },
-          { title: '对标验证' },
-          { title: '仿写创作' },
-        ]}
+        current={isModule ? currentStep - 2 : currentStep - 1}
+        items={isModule
+          ? [{ title: '对标验证' }, { title: '仿写创作' }]
+          : [{ title: '加载风格' }, { title: '对标验证' }, { title: '仿写创作' }]
+        }
         style={{ marginBottom: 'var(--sp-6)' }}
       />
 
-      {/* Step 1 · 加载风格 */}
-      {currentStep >= 1 && (
+      {/* Step 1 · 加载风格（仅独立页面模式） */}
+      {!isModule && currentStep >= 1 && (
         <div className="card" style={{ marginBottom: 'var(--sp-4)' }}>
           <h3 style={{ marginBottom: 'var(--sp-3)' }}>Step 1 · 选择达人</h3>
           <div style={{ marginBottom: 'var(--sp-3)' }}>
@@ -850,4 +859,14 @@ export default function PersonaWriterPage() {
       )}
     </div>
   );
+}
+
+// ── 核心 Module（接受外部 kolId，跳过 Step 1 选达人）───────────────────────
+export function PersonaWriterModule({ kolId }: { kolId: number }) {
+  return <PersonaWriterInner initKolId={kolId} />;
+}
+
+// ── 独立页面（保留完整 Step 1 选达人流程）────────────────────────────────────
+export default function PersonaWriterPage() {
+  return <PersonaWriterInner />;
 }
