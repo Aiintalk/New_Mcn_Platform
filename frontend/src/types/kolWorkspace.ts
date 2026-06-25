@@ -52,11 +52,15 @@ export interface PersonaDetails {
 // 工作台 Tab 枚举
 export type WorkspaceTab =
   | 'dashboard'
-  | 'persona'           // Sprint 19
+  | 'persona'            // Sprint 19
   | 'products'
-  | 'qianchuan-writer'  // Sprint 19
-  | 'values-writer'     // Sprint 20
-  | 'script-review'     // Sprint 21
-  | 'film-review'       // Sprint 23
-  | 'retrospective'     // Sprint 22
-  | 'references';       // Sprint 19
+  | 'qianchuan-writer'   // Sprint 19
+  | 'seeding-writer'     // Sprint 19
+  | 'persona-writer'     // Sprint 19
+  | 'livestream-writer'  // Sprint 19
+  | 'livestream-review'  // Sprint 19
+  | 'values-writer'      // Sprint 20
+  | 'script-review'      // Sprint 21
+  | 'film-review'        // Sprint 23
+  | 'retrospective'      // Sprint 22
+  | 'references';        // Sprint 19

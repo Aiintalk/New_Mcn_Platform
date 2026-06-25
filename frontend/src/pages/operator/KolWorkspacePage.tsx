@@ -12,10 +12,21 @@ import {
   BarChartOutlined,
   FolderOutlined,
   ArrowLeftOutlined,
+  EditOutlined,
+  UserSwitchOutlined,
+  AudioOutlined,
+  PlayCircleOutlined,
 } from '@ant-design/icons';
 import type { WorkspaceTab } from '../../types/kolWorkspace';
 import WorkspaceDashboard from './workspace/WorkspaceDashboard';
 import QianchuanProductsModule from './workspace/QianchuanProductsModule';
+import WorkspacePersona from './workspace/WorkspacePersona';
+import WorkspaceReferences from './workspace/WorkspaceReferences';
+import { QianchuanWriterModule } from './QianchuanWriterPage';
+import { SeedingWriterModule } from './SeedingWriterPage';
+import { PersonaWriterModule } from './PersonaWriterPage';
+import { LivestreamWriterModule } from './LivestreamWriterPage';
+import { LivestreamReviewModule } from './LivestreamReviewPage';
 
 interface NavItem {
   tab: WorkspaceTab;
@@ -25,15 +36,19 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { tab: 'dashboard',        label: '工作台首页', icon: <HomeOutlined /> },
-  { tab: 'persona',          label: '人物档案',   icon: <UserOutlined />,          disabled: true },
-  { tab: 'products',         label: '产品库',     icon: <ShoppingOutlined /> },
-  { tab: 'qianchuan-writer', label: '千川仿写',   icon: <ScissorOutlined />,       disabled: true },
-  { tab: 'values-writer',    label: '价值观仿写', icon: <HeartOutlined />,         disabled: true },
-  { tab: 'script-review',    label: '千川脚本预审', icon: <SearchOutlined />,       disabled: true },
-  { tab: 'film-review',      label: '千川成片预审', icon: <VideoCameraOutlined />,  disabled: true },
-  { tab: 'retrospective',    label: '复盘',       icon: <BarChartOutlined />,      disabled: true },
-  { tab: 'references',       label: '素材库',     icon: <FolderOutlined />,        disabled: true },
+  { tab: 'dashboard',         label: '工作台首页', icon: <HomeOutlined /> },
+  { tab: 'persona',           label: '人物档案',   icon: <UserOutlined /> },
+  { tab: 'references',        label: '素材库',     icon: <FolderOutlined /> },
+  { tab: 'products',          label: '产品库',     icon: <ShoppingOutlined /> },
+  { tab: 'qianchuan-writer',  label: '千川仿写',   icon: <ScissorOutlined /> },
+  { tab: 'seeding-writer',    label: '种草仿写',   icon: <EditOutlined /> },
+  { tab: 'persona-writer',    label: '人设仿写',   icon: <UserSwitchOutlined /> },
+  { tab: 'livestream-writer', label: '直播仿写',   icon: <AudioOutlined /> },
+  { tab: 'livestream-review', label: '直播复盘',   icon: <PlayCircleOutlined /> },
+  { tab: 'values-writer',     label: '价值观仿写', icon: <HeartOutlined />,         disabled: true },
+  { tab: 'script-review',     label: '千川脚本预审', icon: <SearchOutlined />,       disabled: true },
+  { tab: 'film-review',       label: '千川成片预审', icon: <VideoCameraOutlined />,  disabled: true },
+  { tab: 'retrospective',     label: '复盘',       icon: <BarChartOutlined />,      disabled: true },
 ];
 
 export default function KolWorkspacePage() {
@@ -176,6 +191,13 @@ export default function KolWorkspacePage() {
             />
           )}
           {activeTab === 'products' && <QianchuanProductsModule />}
+          {activeTab === 'persona' && <WorkspacePersona kolId={kolId} />}
+          {activeTab === 'references' && <WorkspaceReferences kolId={kolId} />}
+          {activeTab === 'qianchuan-writer' && <QianchuanWriterModule kolId={kolId} />}
+          {activeTab === 'seeding-writer' && <SeedingWriterModule kolId={kolId} />}
+          {activeTab === 'persona-writer' && <PersonaWriterModule kolId={kolId} />}
+          {activeTab === 'livestream-writer' && <LivestreamWriterModule kolId={kolId} />}
+          {activeTab === 'livestream-review' && <LivestreamReviewModule kolId={kolId} />}
         </main>
       </div>
     </div>
