@@ -91,10 +91,13 @@ frontend/
 │   │   │   ├── LivestreamWriterPage.tsx #   直播脚本仿写
 │   │   │   ├── LivestreamReviewPage.tsx #   直播间脚本复盘
 │   │   │   ├── PersonaReviewPage.tsx  #     人设脚本复盘
-│   │   │   ├── KolWorkspacePage.tsx   #     红人工作台 Shell（Sprint 18）路由 /kol-workspace/:kol_id
-│   │   │   └── workspace/             #     工作台子模块
-│   │   │       ├── WorkspaceDashboard.tsx  #  工作台首页（对标账号 + 在售商品）
-│   │   │       └── QianchuanProductsModule.tsx # 千川产品库 CRUD
+│   │   │   ├── KolWorkspacePage.tsx   #     红人工作台 Shell（Sprint 18-19）路由 /kol-workspace/:kol_id，9 个激活导航项
+│   │   │   └── workspace/             #     工作台子模块（Sprint 18-19）
+│   │   │       ├── WorkspaceDashboard.tsx      #  工作台首页（对标账号 + 在售商品）
+│   │   │       ├── WorkspacePersona.tsx        #  人物档案 5 分区 inline 编辑器（Sprint 19）
+│   │   │       ├── WorkspaceReferences.tsx     #  素材库 6 类管理（Sprint 19）
+│   │   │       └── QianchuanProductsModule.tsx #  千川产品库 CRUD
+│   │   │   （QianchuanWriterPage/SeedingWriterPage/PersonaWriterPage/LivestreamWriterPage/LivestreamReviewPage 均已拆出 XxxModule 组件供工作台内嵌，Sprint 19）
 │   │   │   （另有 QianchuanWriterPage.tsx — 千川文案写作，Sprint 14 新增）
 │   │   │   （另有 PersonaWriterPage.tsx — 人设脚本仿写，Sprint 15 重写 placeholder 上线）
 │   │   │   （另有 SeedingWriterPage.tsx — 种草内容仿写，Sprint 16 新增：4 步向导=选达人+产品信息+对标验证+种草仿写）

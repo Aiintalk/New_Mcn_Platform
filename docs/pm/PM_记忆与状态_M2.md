@@ -1,12 +1,10 @@
 # MCN_PM_Agent — 项目记忆与当前状态（M2）
 
-> 最后更新：2026-06-25（**Sprint 18 红人工作台基础架构完成**：Migration 034-037 + ORM 3 个新模型 + kols 表扩 5 列 + 后端 13 个接口（千川产品库/工作台首页/对标账号/在售商品/人物档案）+ 前端 KolWorkspacePage Shell + WorkspaceDashboard + QianchuanProductsModule + 路由注册 + KolsPage 入口按钮。后端 1006 个测试全部通过，前端 197/198 测试通过（SeedingWriterPage 1 个预存失败，非本次引入）。上一个：2026-06-24 迁移收尾+日志链路修复+文档补遗）
+> 最后更新：2026-06-26（**Sprint 19 红人工作台扩展完成**：WorkspacePersona 人物档案 5 分区编辑器 + WorkspaceReferences 素材库 6 类管理 + 5 个工具页拆 Module（千川仿写/种草仿写/人设仿写/直播仿写/直播复盘）+ KolWorkspacePage 接入全部 Module，9 个导航项激活。前端 198/198 测试全部通过（含修复 Sprint 16 预存失败）。上一个：Sprint 18 工作台基础架构）
 
-> **🚧 当前进行中**：红人工作台 Sprint 18 已完成，待 PR + CI。Sprint 19（人物档案编辑器 + 素材库 + 现有工具页 Module 改造）待开工。
+> **🚧 当前进行中**：Sprint 19 完成，代码在 `feature/kol-workspace` 分支（PR #13）。下一个：Sprint 20 价值观仿写。
 
 > **📋 Sprint 17 backlog**（已写需求文档，待开工）：管理端调用日志扩展（用户列 + 功能列）—— `docs/pm/M2_Sprint17_管理端调用日志扩展_需求文档.md`
-
-> **🔍 SeedingWriterPage.test.tsx 预存失败**（Sprint 16 遗留，非 Sprint 18 引入）：1 个测试失败，位于 test:558，与 `mockChatStream` 的 scene='writing' 调用有关，需独立排查。
 
 > 更新角色：MCN_PM_Agent
 > 上一份文档：`docs/pm/PM_记忆与状态.md`（M1 阶段，已归档）
@@ -34,7 +32,21 @@
 
 ## 二、M2 阶段（当前）
 
-### M2 工作项 — Sprint 18 红人工作台基础架构 🚧 进行中（待 PR）
+### M2 工作项 — Sprint 19 红人工作台扩展 ✅ 完成（feature/kol-workspace，PR #13）
+
+**背景**：Sprint 18 建立了工作台框架，Sprint 19 补全达人相关的内容模块，并让工具以 Module 方式内嵌进工作台。
+
+| # | 事项 | 结果 |
+|---|------|------|
+| 1 | WorkspacePersona | 5 分区人物档案 inline 编辑（background/experience/relationships/unique_story/extra_notes） |
+| 2 | WorkspaceReferences | 素材库 6 类管理（人设/千川各 3 类，折叠列表 + Popconfirm 删除） |
+| 3 | 5 个工具页拆 Module | QianchuanWriterModule / SeedingWriterModule / PersonaWriterModule / LivestreamWriterModule / LivestreamReviewModule |
+| 4 | KolWorkspacePage 接入 | 9 个导航项激活（含新增 seeding-writer/persona-writer/livestream-writer/livestream-review） |
+| 5 | 测试 | 198/198 全通过（含修复 Sprint 16 预存失败） |
+
+---
+
+### M2 工作项 — Sprint 18 红人工作台基础架构 ✅ 完成（feature/kol-workspace，PR #13）
 
 **背景**：huimin-studio 全量迁移需求确认，以达人为中心建立「红人工作台」，本 Sprint 建立数据层 + Shell + 首页 Dashboard + 千川产品库 Module。
 
