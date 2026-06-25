@@ -15,6 +15,7 @@ import TiktokReviewConfigTab from './TiktokReviewConfigTab';
 import QianchuanWriterConfigTab from './QianchuanWriterConfigTab';
 import PersonaWriterConfigTab from './PersonaWriterConfigTab';
 import SeedingWriterConfigTab from './SeedingWriterConfigTab';
+import ValuesWriterConfigTab from './ValuesWriterConfigTab';
 import type { WorkspaceTool } from '../../types/workspace';
 export default function WorkspaceConfigPage() {
   const [tools, setTools] = useState<WorkspaceTool[]>([]);
@@ -101,6 +102,7 @@ export default function WorkspaceConfigPage() {
           { key: 'qianchuan-writer', label: '千川文案写作', children: <QianchuanWriterConfigTab /> },
           { key: 'persona-writer', label: '人设脚本仿写', children: <PersonaWriterConfigTab /> },
           { key: 'seeding-writer', label: '种草内容仿写', children: <SeedingWriterConfigTab /> },
+          { key: 'values-writer', label: '价值观仿写', children: <ValuesWriterConfigTab /> },
         ]}
       />
     </>
