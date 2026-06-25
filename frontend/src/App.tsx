@@ -42,6 +42,7 @@ const TiktokReviewPage = lazy(() => import('./pages/operator/TiktokReviewPage'))
 const LivestreamWriterPage = lazy(() => import('./pages/operator/LivestreamWriterPage'));
 const LivestreamReviewPage = lazy(() => import('./pages/operator/LivestreamReviewPage'));
 const QianchuanWriterPage = lazy(() => import('./pages/operator/QianchuanWriterPage'));
+const KolWorkspacePage = lazy(() => import('./pages/operator/KolWorkspacePage'));
 
 function Page403() {
   return (
@@ -94,6 +95,9 @@ export default function App() {
 
           {/* Operator routes */}
           <Route element={<ProtectedRoute />}>
+            {/* 工作台：独立布局，不用 OperatorLayout */}
+            <Route path="/kol-workspace/:kol_id" element={<KolWorkspacePage />} />
+
             <Route element={<OperatorLayout />}>
               <Route path="/" element={<HomePage />} />
               <Route path="/workspace" element={<WorkspacePage />} />

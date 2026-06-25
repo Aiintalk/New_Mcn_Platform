@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import type { ReactNode } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Modal, Drawer, Form, Input, Select, Tabs, Tag, Popconfirm, message } from 'antd';
 import { getKols, createKol, getKol, updateKol, deleteKol, fetchTikhub } from '../../api/kols';
 import type { Kol, KolDetail, KolListParams, CreateKolRequest, UpdateKolRequest, KolStatus, TikhubFansData } from '../../types/kol';
@@ -181,6 +182,7 @@ function FansPanel({ data, onFetch, fetching, updatedAt }: {
 const PLATFORMS = ['抖音', '快手', '小红书', 'B站'];
 
 export default function KolsPage() {
+  const navigate = useNavigate();
   const [data, setData] = useState<PagedData<Kol> | null>(null);
   const [filters, setFilters] = useState<KolListParams>({ page: 1, page_size: PAGE_SIZE });
   const [loading, setLoading] = useState(false);
@@ -404,6 +406,12 @@ export default function KolsPage() {
                     </td>
                     <td className="col-actions">
                       <button className="btn btn-ghost btn-sm" onClick={() => loadDetail(k.id)}>详情</button>
+                      <button
+                        className="btn btn-primary btn-sm"
+                        onClick={() => navigate(`/kol-workspace/${k.id}`)}
+                      >
+                        进入工作台
+                      </button>
                       <button
                         className="btn btn-ghost btn-sm"
                         onClick={() => {
