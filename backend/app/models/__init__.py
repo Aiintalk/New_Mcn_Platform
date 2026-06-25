@@ -35,6 +35,9 @@ from app.models.seeding_writer import (
 )
 from app.models.oss_call_log import OssCallLog
 from app.models.asr_call_log import AsrCallLog
+from app.models.qianchuan_product import QianchuanProduct
+from app.models.kol_benchmark import KolBenchmark
+from app.models.kol_active_product import KolActiveProduct
 
 __all__ = [
     "User",
@@ -75,4 +78,7 @@ __all__ = [
     "SeedingWriterReference",
     "OssCallLog",
     "AsrCallLog",
+    "QianchuanProduct",
+    "KolBenchmark",
+    "KolActiveProduct",
 ]
