@@ -1,10 +1,13 @@
 # MCN_PM_Agent — 项目记忆与当前状态（M2）
 
-> 最后更新：2026-06-24（**迁移收尾 + 日志链路修复 + 文档补遗**：① migration 021-025 执行，workspace_tools 14→19，5 工具注册；② persona-review/livestream-review 设 online，**16 工具全部迁移完成且上线**；③ yunwu adapter 双写 ExternalServiceLog，管理员「外部服务日志」页可见 AI 调用（PR #8）；④ Sprint 8/9/10 文档补遗——persona-review 需求文档 + 3 份测试报告 + 前后端 README（PR #8）；⑤ LivestreamReviewConfigTab 补建，5 工具管理员配置页全部对齐（PR #9）；⑥ Sprint 3 文档补遗（需求+测试报告）+ Sprint 17 需求文档（管理端调用日志扩展 backlog）；PR #7 已合并。上一个：Sprint 16 种草内容仿写迁移完成）
+> 最后更新：2026-06-25（**Sprint 18 红人工作台基础架构完成**：Migration 034-037 + ORM 3 个新模型 + kols 表扩 5 列 + 后端 13 个接口（千川产品库/工作台首页/对标账号/在售商品/人物档案）+ 前端 KolWorkspacePage Shell + WorkspaceDashboard + QianchuanProductsModule + 路由注册 + KolsPage 入口按钮。后端 1006 个测试全部通过，前端 197/198 测试通过（SeedingWriterPage 1 个预存失败，非本次引入）。上一个：2026-06-24 迁移收尾+日志链路修复+文档补遗）
 
-> **📋 Sprint 17 backlog**（已写需求文档，待开工）：管理端调用日志扩展（用户列 + 功能列）—— `docs/pm/M2_Sprint17_管理端调用日志扩展_需求文档.md`，方案 A 最小可用 ~75 分钟，5 个决策点待 review。同期排障发现 TikHub Cloudflare 网关间歇 502（约 40% 故障率，**非代码 bug**），后续如频繁影响可加 adapter 自动重试（独立任务，未开工）
+> **🚧 当前进行中**：红人工作台 Sprint 18 已完成，待 PR + CI。Sprint 19（人物档案编辑器 + 素材库 + 现有工具页 Module 改造）待开工。
 
-> **🔍 workspace_tools 旧名清理（待开工）**：2026-06-24 核查发现 3 条疑似旧名/废弃记录：`qianchuan (id=3, online) / review (id=4, dev) / subtitle (id=5, dev)`（Sprint 1-2 占位，被后续 Sprint 拆细替代）。5 条此前未注册的工具（livestream-writer/livestream-review/persona-review/qianchuan-preview/qianchuan-collection）**已在本日 migration 注册上线**。旧名清理待后续 migration 处理
+> **📋 Sprint 17 backlog**（已写需求文档，待开工）：管理端调用日志扩展（用户列 + 功能列）—— `docs/pm/M2_Sprint17_管理端调用日志扩展_需求文档.md`
+
+> **🔍 SeedingWriterPage.test.tsx 预存失败**（Sprint 16 遗留，非 Sprint 18 引入）：1 个测试失败，位于 test:558，与 `mockChatStream` 的 scene='writing' 调用有关，需独立排查。
+
 > 更新角色：MCN_PM_Agent
 > 上一份文档：`docs/pm/PM_记忆与状态.md`（M1 阶段，已归档）
 
@@ -30,6 +33,23 @@
 ---
 
 ## 二、M2 阶段（当前）
+
+### M2 工作项 — Sprint 18 红人工作台基础架构 🚧 进行中（待 PR）
+
+**背景**：huimin-studio 全量迁移需求确认，以达人为中心建立「红人工作台」，本 Sprint 建立数据层 + Shell + 首页 Dashboard + 千川产品库 Module。
+
+| # | 事项 | 结果 | 归属 |
+|---|------|------|------|
+| 1 | Migration 034-037 | kols+5列 + qianchuan_products + kol_benchmarks + kol_active_products | 本地 DB |
+| 2 | ORM 模型 3 个 + kol.py 扩展 | QianchuanProduct / KolBenchmark / KolActiveProduct | 后端 |
+| 3 | 后端接口 13 个 | 千川产品库(4) + 工作台首页(1) + 对标账号(4) + 在售商品(2) + 人物档案(2) | 后端 |
+| 4 | 前端工作台框架 | KolWorkspacePage Shell + WorkspaceDashboard + QianchuanProductsModule | 前端 |
+| 5 | 路由 + 入口 | /kol-workspace/:kol_id 路由 + KolsPage「进入工作台」按钮 | 前端 |
+| 6 | 测试 | 后端 32 个集成测试全通过（1006/1006）；前端 18 个单元测试全通过 | 测试 |
+
+**待办**：PR 创建 + CI 通过 + 人工验收（访问 http://localhost:5175，从红人列表进入工作台验证）
+
+---
 
 ### M2 工作项 — 2026-06-24 迁移收尾 + 日志链路修复 + 文档补遗 ✅ 完成（PR #8 + #9 待合并）
 

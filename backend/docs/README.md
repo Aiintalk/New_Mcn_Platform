@@ -23,9 +23,9 @@ backend/
 │   │   └── seed.py                    #   初始数据填充
 │   ├── middlewares/
 │   │   └── auth.py                    #   JWT 鉴权（get_current_user / require_admin）
-│   ├── models/                        # SQLAlchemy ORM 模型（29 个文件）
+│   ├── models/                        # SQLAlchemy ORM 模型（33 个文件）
 │   │   ├── user.py                    #   用户表
-│   │   ├── kol.py                     #   红人表
+│   │   ├── kol.py                     #   红人表（Sprint 18 新增 background/experience/relationships/unique_story/extra_notes 5 列）
 │   │   ├── credential.py              #   AI 密钥池表
 │   │   ├── workspace.py               #   工作空间 / 工具配置表
 │   │   ├── kol_intake.py              #   入驻问卷相关表（5 张）
@@ -43,6 +43,9 @@ backend/
 │   │   ├── qianchuan_writer.py        #   千川文案写作配置表（Sprint 14）
 │   │   ├── persona_writer.py          #   人设脚本仿写配置表（Sprint 15）
 │   │   ├── seeding_writer.py          #   种草内容仿写配置+产品+素材表（Sprint 16）
+│   │   ├── qianchuan_product.py       #   千川产品库（Sprint 18）
+│   │   ├── kol_benchmark.py           #   达人对标账号（Sprint 18）
+│   │   ├── kol_active_product.py      #   达人在售商品关联（Sprint 18）
 │   │   └── ...                        #   log / file / output / session / task
 │   ├── routers/                       # API 路由（按角色分文件，52 个）
 │   │   ├── auth.py                    #   POST /api/auth/login、/change-password
@@ -81,6 +84,9 @@ backend/
 │   │   ├── operator_qianchuan_writer.py # 千川文案写作（运营端，Sprint 14）
 │   │   ├── operator_persona_writer.py #  人设脚本仿写（运营端，Sprint 15）
 │   │   ├── operator_seeding_writer.py #  种草内容仿写（运营端，Sprint 16）
+│   │   ├── operator_qianchuan_products.py # 千川产品库 CRUD（运营端，Sprint 18）
+│   │   ├── operator_workspace.py      #   红人工作台（首页/对标/在售商品，Sprint 18）
+│   │   ├── admin_kols.py + _operator_router # 红人管理（admin）+ persona-details（operator，Sprint 18）
 │   │   ├── persona.py                 #   人格定位（运营端）
 │   │   ├── intake_public.py           #   公开接口（博主填写问卷）
 │   │   ├── tool_chat_stream.py        #   工具：AI 流式对话

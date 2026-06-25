@@ -9,7 +9,7 @@
 ```
 frontend/
 ├── src/                               # 源码
-│   ├── api/                           # API 调用层（33 个模块）
+│   ├── api/                           # API 调用层（36 个模块）
 │   │   ├── request.ts                 #   基础封装（get/post/patch/put/del + 拦截器）
 │   │   ├── auth.ts                    #   登录、改密码
 │   │   ├── users.ts                   #   用户管理
@@ -41,7 +41,9 @@ frontend/
 │   │   ├── qianchuanCollection.ts     #   千川爆文合集（Sprint 12）
 │   │   ├── qianchuanWriter.ts         #   千川文案写作（Sprint 14）
 │   │   ├── personaWriter.ts           #   人设脚本仿写（Sprint 15）
-│   │   └── seedingWriter.ts           #   种草内容仿写（Sprint 16）：22 个函数（16 走 request.ts + 4 SSE 流式 + 1 multipart + 1 Blob 下载例外）
+│   │   ├── seedingWriter.ts           #   种草内容仿写（Sprint 16）：22 个函数（16 走 request.ts + 4 SSE 流式 + 1 multipart + 1 Blob 下载例外）
+│   │   ├── qianchuanProducts.ts       #   千川产品库 CRUD（Sprint 18）
+│   │   └── kolWorkspace.ts            #   红人工作台 API（dashboard/benchmarks/active-products/persona-details，Sprint 18）
 │   ├── layouts/                       # 布局组件
 │   │   ├── AdminLayout.tsx            #   管理端布局（左侧菜单 + 内容区）
 │   │   ├── OperatorLayout.tsx         #   运营端布局（左侧菜单 + 内容区）
@@ -72,7 +74,7 @@ frontend/
 │   │   │   （另有 QianchuanWriterConfigTab.tsx — 千川文案写作配置 Tab，Sprint 14 新增）
 │   │   │   （另有 PersonaWriterConfigTab.tsx — 人设脚本仿写配置 Tab，Sprint 15 新增）
 │   │   │   （另有 SeedingWriterConfigTab.tsx — 种草内容仿写配置 Tab，Sprint 16 新增：6 个 Prompt + 轻量/重型模型 + 启用开关）
-│   │   ├── operator/                  #   运营端（18 个页面）
+│   │   ├── operator/                  #   运营端（21 个页面 + workspace/ 子目录）
 │   │   │   ├── HomePage.tsx           #     首页（统计卡片 + 趋势图）
 │   │   │   ├── OperatorIntakePage.tsx #     入驻问卷列表
 │   │   │   ├── OperatorIntakeChatPage.tsx #  运营直发对话
@@ -88,7 +90,11 @@ frontend/
 │   │   │   ├── QianChuanEditReviewPage.tsx # 千川剪辑预审
 │   │   │   ├── LivestreamWriterPage.tsx #   直播脚本仿写
 │   │   │   ├── LivestreamReviewPage.tsx #   直播间脚本复盘
-│   │   │   └── PersonaReviewPage.tsx  #     人设脚本复盘
+│   │   │   ├── PersonaReviewPage.tsx  #     人设脚本复盘
+│   │   │   ├── KolWorkspacePage.tsx   #     红人工作台 Shell（Sprint 18）路由 /kol-workspace/:kol_id
+│   │   │   └── workspace/             #     工作台子模块
+│   │   │       ├── WorkspaceDashboard.tsx  #  工作台首页（对标账号 + 在售商品）
+│   │   │       └── QianchuanProductsModule.tsx # 千川产品库 CRUD
 │   │   │   （另有 QianchuanWriterPage.tsx — 千川文案写作，Sprint 14 新增）
 │   │   │   （另有 PersonaWriterPage.tsx — 人设脚本仿写，Sprint 15 重写 placeholder 上线）
 │   │   │   （另有 SeedingWriterPage.tsx — 种草内容仿写，Sprint 16 新增：4 步向导=选达人+产品信息+对标验证+种草仿写）
