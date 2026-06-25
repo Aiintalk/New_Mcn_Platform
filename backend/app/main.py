@@ -62,6 +62,7 @@ from app.routers.admin_seeding_writer import router as admin_seeding_writer_rout
 from app.routers import operator_tiktok_review
 from app.routers import admin_tiktok_review
 from app.routers import operator_qianchuan_products
+from app.routers import operator_workspace
 
 
 @asynccontextmanager
@@ -174,3 +175,4 @@ app.include_router(admin_persona_writer_router, prefix="/api")
 app.include_router(operator_seeding_writer_router, prefix="/api")
 app.include_router(admin_seeding_writer_router, prefix="/api")
 app.include_router(operator_qianchuan_products.router, prefix="/api")
+app.include_router(operator_workspace.router, prefix="/api")
