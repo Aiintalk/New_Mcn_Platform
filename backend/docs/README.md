@@ -160,10 +160,12 @@ backend/
 │   ├── concurrent/                    #   并发隔离测试
 │   └── intake/                        #   入驻问卷专项测试
 │
-├── migrations/                        # SQL 迁移脚本（001 ~ 033）
+├── migrations/                        # SQL 迁移脚本（001 ~ 034）
 ├── scripts/                           # 工具脚本
 │   ├── init_db.sh                     #   一键初始化数据库
-│   └── run_coverage.py                #   覆盖率门禁脚本
+│   ├── run_coverage.py                #   覆盖率门禁脚本
+│   ├── migrate_qianchuan_reports.py   #   旧千川复盘数据迁移
+│   └── migrate_material_library.py    #   旧素材库（soul.md/content-plan.md）迁移
 ├── requirements.txt                   # Python 依赖
 ├── seed_local.sql                     # 本地种子数据
 └── pytest.ini                         # pytest 配置
@@ -229,3 +231,4 @@ BugFix：      BugFix_{序号}_{描述}.md
 | tiktok-review | TT内容复盘 | operator_tiktok_review.py / admin_tiktok_review.py | Sprint 13 |
 | persona-writer | 人设脚本仿写 | operator_persona_writer.py / admin_persona_writer.py | Sprint 15 |
 | seeding-writer | 种草内容仿写 | operator_seeding_writer.py / admin_seeding_writer.py | Sprint 16 |
+| material-library | 素材库（红人素材中枢） | operator_material_library.py / admin_material_library.py | Sprint 18（迁移） |

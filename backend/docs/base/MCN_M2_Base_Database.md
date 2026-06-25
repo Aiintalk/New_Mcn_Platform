@@ -967,3 +967,73 @@ migration 033 UPSERT `workspace_tools` 表：
 
 `033_seeding_writer.sql`
 
+---
+
+## 28. kol_references 素材库参考素材（Sprint 18 — material-library）
+
+红人素材库的参考素材表。每位红人可有多条参考素材，按 `type` 字段分 6 类管理。
+软删策略：`deleted_at IS NULL` 视为有效；FK CASCADE（kol 删除时连带素材一并删除）。
+
+### 28.1 字段
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | BIGSERIAL | 是 | 主键 |
+| `kol_id` | BIGINT FK→kols | 是 | ON DELETE CASCADE |
+| `title` | VARCHAR(500) | 是 | 素材标题 |
+| `likes` | INT | 否 | 点赞数 |
+| `source` | VARCHAR(100) | 否 | 来源，默认 '抖音' |
+| `type` | VARCHAR(50) | 是 | 6 类之一（见下） |
+| `content` | TEXT | 是 | 正文内容 |
+| `created_by` | BIGINT FK→users | 否 | 审计用 |
+| `created_at` | TIMESTAMPTZ | 是 | 默认 NOW() |
+| `updated_at` | TIMESTAMPTZ | 是 | 默认 NOW() |
+| `deleted_at` | TIMESTAMPTZ | 否 | 软删 |
+
+`type` 枚举：`红人爆款文案 / 红人喜欢的内容 / 风格参考 / 千川爆款文案 / 千川喜欢的内容 / 千川风格参考`
+
+### 28.2 索引
+
+- `idx_kol_references_kol_type`：`(kol_id, type) WHERE deleted_at IS NULL` — 列表分组查询主索引
+- `idx_kol_references_kol_recent`：`(kol_id, created_at DESC)` — 最新素材排序
+
+### 28.3 迁移文件
+
+`034_material_library.sql`
+
+---
+
+## 29. material_library_configs 素材库 AI 配置（Sprint 18）
+
+存放 soul_generator（从入驻问卷生成人格档案初稿）的系统提示词与模型选择。
+
+### 29.1 字段
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | BIGSERIAL | 是 | 主键 |
+| `config_key` | VARCHAR(64) | 是 | UNIQUE，目前固定 'soul_generator' |
+| `ai_model_id` | BIGINT FK→ai_models | 否 | AI 模型 ID |
+| `system_prompt` | TEXT | 否 | 系统提示词，占位符 `{{kol_name}} {{intake_answers}} {{intake_report}}` |
+| `is_active` | BOOLEAN | 是 | 默认 TRUE |
+| `created_at` | TIMESTAMPTZ | 是 | 默认 NOW() |
+| `updated_at` | TIMESTAMPTZ | 是 | 默认 NOW() |
+
+### 29.2 种子数据
+
+migration 034 INSERT soul_generator 默认配置：
+- `ai_model_id=3`（claude-sonnet-4-6）
+- `is_active=true`
+- `system_prompt` 含 3 个占位符 + 中文撰写要求（745 字符）
+
+### 29.3 workspace_tools 注册
+
+migration 034 UPSERT：
+- `tool_code='material-library'`, `tool_name='素材库'`
+- `category='素材管理'`, `status='dev'`（先以开发中状态上线）
+- `sort_order=130`
+
+### 29.4 迁移文件
+
+`034_material_library.sql`
+
