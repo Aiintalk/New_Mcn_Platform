@@ -12,6 +12,8 @@ const mockUpdateBenchmark          = vi.fn();
 const mockDeleteBenchmark          = vi.fn();
 const mockGetActiveProducts        = vi.fn();
 const mockUpdateActiveProducts     = vi.fn();
+const mockGetPersonaDetails        = vi.fn();
+const mockUpdatePersonaDetails     = vi.fn();
 
 vi.mock('../../../api/kolWorkspace', () => ({
   getWorkspaceDashboard:  (...args: unknown[]) => mockGetWorkspaceDashboard(...args),
@@ -21,6 +23,8 @@ vi.mock('../../../api/kolWorkspace', () => ({
   deleteBenchmark:        (...args: unknown[]) => mockDeleteBenchmark(...args),
   getActiveProducts:      (...args: unknown[]) => mockGetActiveProducts(...args),
   updateActiveProducts:   (...args: unknown[]) => mockUpdateActiveProducts(...args),
+  getPersonaDetails:      (...args: unknown[]) => mockGetPersonaDetails(...args),
+  updatePersonaDetails:   (...args: unknown[]) => mockUpdatePersonaDetails(...args),
 }));
 
 const mockGetQianchuanProducts     = vi.fn();
@@ -33,6 +37,70 @@ vi.mock('../../../api/qianchuanProducts', () => ({
   createQianchuanProduct: (...args: unknown[]) => mockCreateQianchuanProduct(...args),
   updateQianchuanProduct: (...args: unknown[]) => mockUpdateQianchuanProduct(...args),
   deleteQianchuanProduct: (...args: unknown[]) => mockDeleteQianchuanProduct(...args),
+}));
+
+// Mock APIs used by tool Modules
+vi.mock('../../../api/qianchuanWriter', () => ({
+  getPersonas: vi.fn().mockResolvedValue([]),
+  parseFile: vi.fn(),
+  chatStream: vi.fn(),
+  saveOutput: vi.fn(),
+  exportWord: vi.fn(),
+}));
+
+vi.mock('../../../api/seedingWriter', () => ({
+  getPersonas: vi.fn().mockResolvedValue([]),
+  getReferences: vi.fn().mockResolvedValue([]),
+  createReference: vi.fn(),
+  importReferenceFromDouyin: vi.fn(),
+  deleteReference: vi.fn(),
+  getProducts: vi.fn().mockResolvedValue({ items: [], pagination: { page: 1, page_size: 20, total: 0, total_pages: 0 } }),
+  createProduct: vi.fn(),
+  updateProduct: vi.fn(),
+  deleteProduct: vi.fn(),
+  parseProductDocument: vi.fn(),
+  extractSellingPointsStream: vi.fn(),
+  fetchVideo: vi.fn(),
+  submitTranscribe: vi.fn(),
+  pollTranscribe: vi.fn(),
+  analyzeStructureStream: vi.fn(),
+  aiRecommendStream: vi.fn(),
+  chatStream: vi.fn(),
+  saveOutput: vi.fn(),
+  exportWord: vi.fn(),
+}));
+
+vi.mock('../../../api/personaWriter', () => ({
+  getPersonas: vi.fn().mockResolvedValue([]),
+  fetchVideo: vi.fn(),
+  evaluateOpeningStream: vi.fn(),
+  analyzeStructureStream: vi.fn(),
+  chatStream: vi.fn(),
+  saveOutput: vi.fn(),
+  exportWord: vi.fn(),
+}));
+
+vi.mock('../../../api/livestreamWriter', () => ({
+  getLivestreamWriterConfig: vi.fn().mockResolvedValue({ generate_prompt: '', iterate_prompt: '', model_id: '' }),
+  getKolPersonas: vi.fn().mockResolvedValue({ personas: [] }),
+  parseFile: vi.fn(),
+  chatStream: vi.fn(),
+}));
+
+vi.mock('../../../api/livestreamReview', () => ({
+  parseFile: vi.fn(),
+  generateStream: vi.fn(),
+  saveReport: vi.fn(),
+  getOutputs: vi.fn().mockResolvedValue({ items: [], pagination: { page: 1, page_size: 20, total: 0, total_pages: 0 } }),
+}));
+
+// Mock request.ts for WorkspaceReferences
+vi.mock('../../../api/request', () => ({
+  get: vi.fn().mockResolvedValue([]),
+  post: vi.fn().mockResolvedValue({ id: 1 }),
+  put: vi.fn().mockResolvedValue({}),
+  del: vi.fn().mockResolvedValue({}),
+  patch: vi.fn().mockResolvedValue({}),
 }));
 
 vi.mock('../../../store/authStore', () => ({
@@ -105,6 +173,9 @@ describe('KolWorkspacePage', () => {
     mockGetQianchuanProducts.mockResolvedValue(sampleProducts);
     mockCreateBenchmark.mockResolvedValue({ id: 99, kol_id: 1, account_name: '新账号', account_type: 'content', description: null, sort_order: 0 });
     mockUpdateActiveProducts.mockResolvedValue({ active_product_ids: [10] });
+    mockGetPersonaDetails.mockResolvedValue({
+      kol_id: 1, background: null, experience: null, relationships: null, unique_story: null, extra_notes: null, updated_at: null,
+    });
   });
 
   // Test 1: Shell 正常渲染（顶部栏显示、左侧导航显示）
@@ -146,7 +217,7 @@ describe('KolWorkspacePage', () => {
     expect(mockGetQianchuanProducts).toHaveBeenCalled();
   });
 
-  // Test 4: 禁用 Tab（人物档案/千川仿写等）点击后 activeTab 不变
+  // Test 4: 禁用 Tab（价值观仿写等 Sprint 20+）点击后 activeTab 不变
   it('does not change activeTab when disabled nav item is clicked', async () => {
     const user = userEvent.setup();
     renderWorkspacePage();
@@ -154,8 +225,8 @@ describe('KolWorkspacePage', () => {
     await waitFor(() => {
       expect(screen.getByText('对标账号')).toBeInTheDocument();
     });
-    // 点击禁用的人物档案
-    await user.click(screen.getByTestId('nav-item-persona'));
+    // 点击仍然禁用的价值观仿写（Sprint 20）
+    await user.click(screen.getByTestId('nav-item-values-writer'));
     // Dashboard 应仍然存在（activeTab 没变）
     await waitFor(() => {
       expect(screen.getByText('对标账号')).toBeInTheDocument();
@@ -269,17 +340,17 @@ describe('KolWorkspacePage', () => {
     });
   });
 
-  // Test 13: 点击禁用的千川仿写 Tab 不切换页面
-  it('does not navigate when qianchuan-writer tab is clicked', async () => {
+  // Test 13: Sprint 19 启用千川仿写 Tab — 点击后切换到 QianchuanWriterModule
+  it('navigates to qianchuan-writer module when tab is clicked', async () => {
     const user = userEvent.setup();
     renderWorkspacePage();
     await waitFor(() => {
       expect(screen.getByText('对标账号')).toBeInTheDocument();
     });
     await user.click(screen.getByTestId('nav-item-qianchuan-writer'));
-    // Dashboard 仍存在
+    // 千川仿写模块展示（加载产品卖点步骤出现）
     await waitFor(() => {
-      expect(screen.getByText('对标账号')).toBeInTheDocument();
+      expect(screen.getByText('千川文案写作')).toBeInTheDocument();
     });
   });
 
