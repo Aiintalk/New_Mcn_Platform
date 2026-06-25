@@ -75,6 +75,8 @@ _SESSION_LOCAL_PATCH_TARGETS = [
     "app.routers.operator_seeding_writer.AsyncSessionLocal",
     "app.routers.operator_qianchuan_products.AsyncSessionLocal",
     "app.routers.operator_workspace.AsyncSessionLocal",
+    "app.routers.admin_values_writer.AsyncSessionLocal",
+    "app.routers.operator_values_writer.AsyncSessionLocal",
 ]
 
 
