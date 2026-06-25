@@ -1807,3 +1807,127 @@ Request Body：
 
 写 OperationLog（action=`admin_update_seeding_writer_config`）。
 
+---
+
+## 24. material-library 素材库（Sprint 18 — 迁移自旧架构）
+
+红人素材中枢：管理每位红人的人格档案（soul.md）、内容规划（content-plan.md）、参考素材（6 类），
+并支持 AI 从入驻问卷数据生成 soul.md 初稿。
+基础路径：`/api/tools/material-library`（运营端）与 `/api/admin/material-library`（管理端）。
+迁移自旧架构 `Ai_Toolbox/material-library-web/`。
+
+### 24.1 数据存储说明
+
+- 人格档案、内容规划**复用 `kols.persona` 与 `kols.content_plan` 字段**（不新建 profile 表）。
+- 参考素材存于新表 `kol_references`（详见 `MCN_M2_Base_Database.md` §28）。
+- AI 配置存于新表 `material_library_configs`（详见 §29）。
+
+### 24.2 运营端接口（7 个）
+
+基础路径：`/api/tools/material-library`（operator / admin 鉴权，需已改密）
+
+| # | 方法 | 路径 | 用途 | 信封 | OperationLog |
+|---|------|------|------|------|-------------|
+| 1 | GET | `/kols?search=` | 红人列表（搜索+聚合）| 标准 | 否 |
+| 2 | GET | `/kols/{kol_id}` | 红人详情（persona + plan + references 按类型分组）| 标准 | 否 |
+| 3 | PUT | `/kols/{kol_id}/profile` | 更新 persona 和/或 content_plan | 标准 | 是 |
+| 4 | POST | `/kols/{kol_id}/references` | 新增参考素材 | 标准 | 是 |
+| 5 | DELETE | `/kols/{kol_id}/references/{ref_id}` | 软删参考素材 | 标准 | 是 |
+| 6 | GET | `/kols/{kol_id}/intake` | 红人最新入驻问卷数据 | 标准 | 否 |
+| 7 | POST | `/kols/{kol_id}/generate-soul` | AI 生成 soul.md 初稿（不自动保存）| 标准 | 否 |
+
+#### GET /kols?search=
+Response.data：`KolListItem[]`
+```json
+[{
+  "id": 3, "name": "孙静", "account_name": "sunjing", "category": "美妆",
+  "follower_count": 1200000,
+  "has_persona": true, "has_content_plan": false,
+  "reference_count": 3, "has_intake": true,
+  "updated_at": "2026-06-20T10:00:00+08:00"
+}]
+```
+
+#### GET /kols/{kol_id}
+Response.data：`KolDetail`
+```json
+{
+  "id": 3, "name": "孙静", "account_name": "sunjing",
+  "category": "美妆", "follower_count": 1200000,
+  "persona": "我是孙静...",
+  "content_plan": "",
+  "references": {
+    "红人爆款文案": [{ "id": 10, "title": "...", "likes": 50000, "source": "抖音", "content": "...", "created_at": "..." }],
+    "风格参考": [],
+    "红人喜欢的内容": [],
+    "千川爆款文案": [],
+    "千川喜欢的内容": [],
+    "千川风格参考": []
+  }
+}
+```
+
+#### PUT /kols/{kol_id}/profile
+Request Body（两个字段都可选，至少传一个）：
+```json
+{ "persona": "新的人格档案文本", "content_plan": "新的内容规划文本" }
+```
+Response.data：`{ "success": true }`
+写 OperationLog（action=`update_kol_profile`，target_type=`kols`，target_id=kol_id）。
+
+#### POST /kols/{kol_id}/references
+Request Body：
+```json
+{
+  "type": "红人爆款文案",
+  "title": "夏季护肤心得",
+  "likes": 50000,
+  "source": "抖音",
+  "content": "正文..."
+}
+```
+`type` 必须是 6 类之一：`红人爆款文案 / 红人喜欢的内容 / 风格参考 / 千川爆款文案 / 千川喜欢的内容 / 千川风格参考`
+Response.data：`{ "id": 456 }`
+写 OperationLog（action=`create_kol_reference`）。
+
+#### DELETE /kols/{kol_id}/references/{ref_id}
+软删（`deleted_at = NOW()`）。Response.data：`{ "success": true }`
+写 OperationLog（action=`delete_kol_reference`）。
+
+#### GET /kols/{kol_id}/intake
+查询 kol 最新入驻问卷数据（先查 KolIntakeSubmission，再查 KolIntakeOperatorSession）。
+Response.data：`IntakeData | null`
+```json
+{
+  "source": "submission",
+  "messages": [{ "role": "user", "content": "..." }, ...],
+  "ai_report": "AI 分析报告全文",
+  "report_status": "completed",
+  "created_at": "..."
+}
+```
+
+#### POST /kols/{kol_id}/generate-soul
+读取 `material_library_configs` 中 `soul_generator` 配置，渲染占位符（`{{kol_name}} {{intake_answers}} {{intake_report}}`），
+调用 yunwu_adapter.chat() 生成初稿。**不自动保存**，仅返回文本供前端预览编辑。
+Response.data：`{ "soul_md": "AI 生成的人格档案初稿..." }`
+
+### 24.3 管理端接口（2 个）
+
+基础路径：`/api/admin/material-library`（admin 鉴权）
+
+| # | 方法 | 路径 | 用途 | OperationLog |
+|---|------|------|------|-------------|
+| 1 | GET | `/configs` | 获取 soul_generator 配置 | 否 |
+| 2 | PUT | `/configs` | 更新配置 | 是 |
+
+#### PUT /configs
+Request Body：
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `ai_model_id` | int \| null | AI 模型 ID |
+| `system_prompt` | string \| null | soul_generator 系统提示词 |
+| `is_active` | bool | 启用开关 |
+
+写 OperationLog（action=`admin_update_material_library_config`）。
+

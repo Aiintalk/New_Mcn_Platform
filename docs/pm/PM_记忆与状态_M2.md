@@ -1,6 +1,7 @@
 # MCN_PM_Agent — 项目记忆与当前状态（M2）
 
-> 最后更新：2026-06-24（**迁移收尾 + 日志链路修复 + 文档补遗**：① migration 021-025 执行，workspace_tools 14→19，5 工具注册；② persona-review/livestream-review 设 online，**16 工具全部迁移完成且上线**；③ yunwu adapter 双写 ExternalServiceLog，管理员「外部服务日志」页可见 AI 调用（PR #8）；④ Sprint 8/9/10 文档补遗——persona-review 需求文档 + 3 份测试报告 + 前后端 README（PR #8）；⑤ LivestreamReviewConfigTab 补建，5 工具管理员配置页全部对齐（PR #9）；⑥ Sprint 3 文档补遗（需求+测试报告）+ Sprint 17 需求文档（管理端调用日志扩展 backlog）；PR #7 已合并。上一个：Sprint 16 种草内容仿写迁移完成）
+> 最后更新：2026-06-25（**Sprint 18 素材库迁移完成（分支 migrate/material-library，待 PR）**：迁移自旧架构 `Ai_Toolbox/material-library-web/`。后端 migration 034 + 2 张新表（kol_references + material_library_configs）+ 9 个 API（7 运营 + 2 管理）+ 22 个后端测试通过 + 6/6 convention_guard；前端 MaterialLibraryPage（左右分栏 4 Tab：人格档案/内容规划/参考素材/入驻信息）+ MaterialLibraryConfigTab + 18 个前端测试通过（vitest 全量 198/198）。关键决策：人格档案/内容规划复用 kols.persona + kols.content_plan（**不新建 profile 表**，避免字段重复）。契约文档同步：Base_API §24 + Base_Database §28-29 + 前后端 README + 根 README。带旧数据迁移脚本 `migrate_material_library.py`（dry-run 验证 OK）。上一个：Sprint 16 种草内容仿写迁移完成）
+
 
 > **📋 Sprint 17 backlog**（已写需求文档，待开工）：管理端调用日志扩展（用户列 + 功能列）—— `docs/pm/M2_Sprint17_管理端调用日志扩展_需求文档.md`，方案 A 最小可用 ~75 分钟，5 个决策点待 review。同期排障发现 TikHub Cloudflare 网关间歇 502（约 40% 故障率，**非代码 bug**），后续如频繁影响可加 adapter 自动重试（独立任务，未开工）
 
@@ -309,6 +310,32 @@
 - **admin/kols 完整 API 章节契约**：M1_Base_API 缺整章（历史债务），独立任务
 - **运营添加红人权限**：当前仅 admin；运营走 kol-intake 问卷流程。若需运营直接添加，独立任务
 - **DB 唯一索引测试库验证**：测试库 metadata.create_all 不跑 migration，索引兜底未自动化覆盖；生产已应用，后续加 e2e 或 migration 验证脚本
+
+---
+
+### M2 工作项 — Sprint 18 素材库（material-library）迁移 ✅ 完成（分支 `migrate/material-library`，待 PR）
+
+**核心定位**：迁移自旧架构 `Ai_Toolbox/material-library-web/`。红人素材中枢 —— 管理每位红人的人格档案（soul.md）+ 内容规划（content-plan.md）+ 6 类参考素材（红人爆款/红人喜欢/风格参考/千川爆款/千川喜欢/千川风格），支持 AI 从入驻问卷数据生成 soul.md 初稿。
+
+**关键决策**：人格档案、内容规划**复用 kols.persona + kols.content_plan**（kols 表已有 Text 字段），**不新建 profile 表**（避免字段重复、保持单一事实源）。
+
+| 端 | 状态 | 备注 |
+|----|------|------|
+| Migration 034 | ✅ 完成 | 2 张新表（kol_references + material_library_configs）+ 4 个索引 + soul_generator 种子配置（默认 ai_model_id=3 claude-sonnet-4-6）+ workspace_tools 注册（tool_code='material-library', status='dev'） |
+| ORM 模型 | ✅ 完成 | `KolReference` + `MaterialLibraryConfig`（新建 `app/models/material_library.py`），注册到 `__init__.py` |
+| 后端运营 API | ✅ 完成 | `app/routers/operator_material_library.py`（7 接口）：kols 列表/详情、profile 更新、references CRUD、intake 查询、generate-soul（yunwu adapter，占位符 `{{kol_name}} {{intake_answers}} {{intake_report}}`） |
+| 后端管理 API | ✅ 完成 | `app/routers/admin_material_library.py`（2 接口）：GET / PUT /configs |
+| 旧数据迁移脚本 | ✅ 完成 | `scripts/migrate_material_library.py`：扫描旧 personas 目录 → soul.md / content-plan.md → UPDATE kols（仅填 NULL，--overwrite 覆盖）；编码容错（GBK/UTF-8）；dry-run 验证 OK |
+| 后端测试 | ✅ 完成 | 22 个测试通过（test_operator_material_library 14 + test_admin_material_library 8）；convention_guard 6/6 |
+| 前端 API | ✅ 完成 | `api/materialLibrary.ts`（10 函数 = 7 运营 + 3 管理，全部走 request.ts） |
+| 前端运营页 | ✅ 完成 | `pages/operator/MaterialLibraryPage.tsx`（左右分栏：280px 红人列表 + 4 Tab） |
+| 前端管理 Tab | ✅ 完成 | `pages/admin/MaterialLibraryConfigTab.tsx`（soul_generator Prompt + 模型 + 启用开关） |
+| 路由/Tab 注册 | ✅ 完成 | App.tsx 加 `/workspace/material-library`；WorkspaceConfigPage 加 'material-library' Tab |
+| 前端测试 | ✅ 完成 | 18 个测试通过（MaterialLibraryPage 12 + MaterialLibraryConfigTab 6）；vitest 全量 198/198 |
+| 契约文档 | ✅ 完成 | Base_API §24（7+2 接口）+ Base_Database §28-29（2 张表）+ 前后端 README + 根 README |
+| TypeScript | ✅ 通过 | `tsc --noEmit` clean |
+
+**踩坑**：① AntD Tabs 测试切换需用 `getByRole('tab', { name })`，`getByText` 在 tab label + tab content 同时存在时会匹配多个元素；② AntD Popconfirm / Modal.confirm 默认 OK 按钮文本是 **英文 "OK"**（无 ConfigProvider + zhCN 时）；③ AntD v5 `Modal.confirm()` 静态方法在测试环境无法挂载到 DOM（设计限制），需测直调分支绕过。
 
 ---
 
