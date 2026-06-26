@@ -1954,11 +1954,13 @@ Request Body：
 |---|------|------|------|------|-------------|
 | 1 | POST | `/extract` | 单条：share_text 或 file_url → ASR → 字幕 | 标准 | 是 |
 | 2 | POST | `/batch` | 批量：多 share_text → 创建 job + 后台执行 | 标准 | 是 |
-| 3 | GET | `/batch/{job_code}` | 查询批量任务（含 items 进度）| 标准 | 否 |
-| 4 | GET | `/batch/by-access/{access_code}` | 用户用 access_code 跨设备查询 | 标准 | 否 |
+| 3 | GET | `/batch/{job_code}` | 查询自己创建的批量任务（含 items 进度，绑定 created_by）| 标准 | 否 |
+| 4 | GET | `/batches` | 我的批量任务列表（分页，绑定 created_by）| 标准 | 否 |
 | 5 | POST | `/mindmap` | 字幕 → AI 思维导图（JSON）| 标准 | 是 |
 | 6 | POST | `/save-output` | 保存字幕到产出中心（写共享 outputs 表）| 标准 | 是 |
 | 7 | GET | `/outputs`（**复用全局 `/api/outputs?tool_code=subtitle`**）| 我的字幕产出列表 | 标准 | 否 |
+
+> 任务通过 `created_by` 绑定用户身份（JWT 鉴权），无需额外查询码。
 
 #### POST /extract
 Request Body（二选一）：
@@ -1988,10 +1990,10 @@ Request Body：
 ```json
 { "items": [{ "share_text": "https://v.douyin.com/aaa/" }, { "share_text": "https://v.douyin.com/bbb/" }] }
 ```
-流程：生成 job_code + access_code → INSERT subtitle_jobs + N subtitle_items → `asyncio.create_task(_run_batch(job_id, user_id))`。
+流程：生成 job_code → INSERT subtitle_jobs（created_by=current_user.id）+ N subtitle_items → `asyncio.create_task(_run_batch(job_id, user_id))`。
 Response.data：
 ```json
-{ "job_code": "sub_20260625_xxxxxxxx", "access_code": "ABCD-1234", "total": 2 }
+{ "job_code": "sub_20260625_xxxxxxxx", "total": 2 }
 ```
 错误码：400（items 为空）。
 写 OperationLog（action=`subtitle_batch_create`，target_type=`subtitle_job`）。
@@ -2003,12 +2005,12 @@ Response.data：
 4. tikhub / asr 异常捕获写入 item.error；ASR 调用日志由 adapter 自动写。
 
 #### GET /batch/{job_code}
+查询条件：`job_code == :job_code AND created_by == current_user.id`（仅能查到自己创建的任务，他人 job_code → 404）。
 Response.data：`SubtitleJob`（含 items 数组）
 ```json
 {
-  "id": 12, "job_code": "sub_...", "access_code": "ABCD-1234",
-  "status": "processing", "phase": "running",
-  "total": 2, "success": 1, "failed": 0,
+  "id": 12, "job_code": "sub_...", "status": "processing", "phase": "running",
+  "total": 2, "success": 1, "failed": 0, "created_by": 7,
   "created_at": "...", "updated_at": "...",
   "items": [{
     "id": 23, "row_number": 1, "original_url": "https://v.douyin.com/aaa/",
@@ -2017,10 +2019,22 @@ Response.data：`SubtitleJob`（含 items 数组）
   }]
 }
 ```
-错误码：404（任务不存在）。
+错误码：404（任务不存在或无权限访问）。
 
-#### GET /batch/by-access/{access_code}
-同上响应结构，便于用户跨设备查询。
+#### GET /batches
+查询当前用户的批量任务列表（分页，按 created_at 倒序，不含 items）。
+Query 参数：`page`（默认 1）、`page_size`（默认 20，1-50）。
+Response.data：
+```json
+{
+  "items": [{
+    "id": 12, "job_code": "sub_...", "status": "completed", "phase": "done",
+    "total": 5, "success": 4, "failed": 1, "created_by": 7,
+    "created_at": "...", "updated_at": "..."
+  }],
+  "pagination": { "page": 1, "page_size": 20, "total": 3, "total_pages": 1 }
+}
+```
 
 #### POST /mindmap
 Request Body：
@@ -2058,7 +2072,7 @@ Response.data：
 错误码：400（transcript 为空）。
 写 OperationLog（action=`subtitle_save_output`，target_type=`output`）。
 
-### 25.3 管理端接口（2 个）
+### 25.3 管理端接口（3 个）
 
 基础路径：`/api/admin/subtitle`（admin 鉴权）
 
@@ -2066,6 +2080,7 @@ Response.data：
 |---|------|------|------|-------------|
 | 1 | GET | `/configs` | 获取思维导图 Prompt + 模型配置 | 否 |
 | 2 | PUT | `/configs` | 更新配置 | 是 |
+| 3 | GET | `/batches` | 全部批量任务列表（跨用户，支持 user_id 过滤）| 否 |
 
 #### GET /configs
 Response.data：`SubtitleConfig[]`
@@ -2086,4 +2101,19 @@ Request Body（所有字段可选）：
 | `is_active` | bool | 启用开关 |
 
 写 OperationLog（action=`admin_subtitle_config_update`，target_type=`subtitle_config`）。
+
+#### GET /batches
+查询全部批量任务（跨用户，可选 user_id 过滤），按 created_at 倒序。响应含 `created_by_username`（前端展示创建人）。
+Query 参数：`page`（默认 1）、`page_size`（默认 20，1-50）、`user_id`（可选，>0 时按用户过滤）。
+Response.data：
+```json
+{
+  "items": [{
+    "id": 12, "job_code": "sub_...", "status": "completed", "phase": "done",
+    "total": 5, "success": 4, "failed": 1, "created_by": 7, "created_by_username": "operatorA",
+    "created_at": "...", "updated_at": "..."
+  }],
+  "pagination": { "page": 1, "page_size": 20, "total": 3, "total_pages": 1 }
+}
+```
 

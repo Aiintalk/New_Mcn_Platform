@@ -36,33 +36,35 @@
 
 **背景**：旧架构 `Ai_Toolbox/subtitle-extractor-web/` 全量迁移。Sprint 3 起即有 `tool_transcribe.py`（云雾 Whisper，Sprint 3 债务），本次新建 `operator_subtitle.py` + `admin_subtitle.py`，与 tool_transcribe.py 不冲突。ASR adapter 已在 Sprint 4+ 就绪可调用。
 
-**实施记录**（7 步全部完成）：
+**实施记录**（8 步全部完成）：
 
 | 步骤 | 状态 | 产物 |
 |------|------|------|
 | Step 1 分支 + 数据库 | ✅ | migration 035（3 表 + seed + workspace_tools subtitle online/140）+ 3 ORM（SubtitleJob/Item/Config）|
 | Step 2 单条字幕提取 | ✅ | POST /extract（share_text/file_url 路径）+ 5 tests + 前端 Tab 1 |
 | Step 3 思维导图 + admin 配置 | ✅ | POST /mindmap（yunwu + JSON 解析含 markdown fence 清理）+ 6 tests + admin 2 端点 + 8 tests + SubtitleConfigTab + WorkspaceConfigPage 注册 |
-| Step 4 批量字幕提取 | ✅ | POST /batch + _run_batch（AsyncSessionLocal 后台任务）+ 2 GET 查询（job_code + access_code）+ 6 tests + 前端批量 Tab + conftest `_SESSION_LOCAL_PATCH_TARGETS` 加 `app.routers.operator_subtitle.AsyncSessionLocal`（红线 #7）|
+| Step 4 批量字幕提取 | ✅ | POST /batch + _run_batch（AsyncSessionLocal 后台任务）+ GET /batch/{job_code}（含 items 进度）+ 前端批量 Tab + conftest `_SESSION_LOCAL_PATCH_TARGETS` 加 `app.routers.operator_subtitle.AsyncSessionLocal`（红线 #7）|
 | Step 5 导出 + 产出接入 | ✅ | POST /save-output（写共享 outputs 表 tool_code='subtitle'）+ 4 tests + 前端 SRT/Excel/Zip 导出按钮（xlsx + jszip）+ 保存到产出中心按钮 |
 | Step 6 workspace_tools online + 文档 | ✅ | workspace_tools.subtitle online/140（migration 035 内 UPDATE）+ Base_API §25 + Base_Database §30 + 前后端 README + M2_Sprint19 需求文档 |
 | Step 7 全量回归 + PR | 🔄 待 PR | 测试 25+8 全过，待 commit + push + PR |
+| Step 8 移除 access_code 改用 created_by | ✅ | 旧架构无用户系统的产物（`access_code` 8 位跨设备查询码）改为 JWT + `created_by` 绑定；migration 035 删字段、3 个端点重做（删 by-access、加 /batches 运营端、加 /admin/subtitle/batches 管理端）、operator 25→28 tests + admin 8→11 tests、前端批量 Tab 用「我的批量任务」列表替代 access_code 输入框 |
 
 **关键技术决策**：
 1. **批量后台执行**：`asyncio.create_task(_run_batch())`，用 AsyncSessionLocal 独立 session 脱离请求生命周期；conftest patch 列表已加。
 2. **思维导图**：默认模型 `claude-haiku-4-5-20251001`（mindmap_model_id 配置缺失或失效时回退）；yunwu_adapter.chat() 非流式调用。
 3. **JSON 解析容错**：`re.sub(r"^```(?:json)?\s*\n?", "", raw, flags=re.MULTILINE)` 清理 markdown fence 后再 json.loads。
 4. **产出接入复用全局路由**：`POST /save-output` 写共享 outputs 表，列表/详情/删除走全局 `/api/outputs?tool_code=subtitle`，不重复。
-5. **access_code 跨设备查询**：`XXXX-XXXX` 8 位字母数字格式，便于多端切换。
+5. **批量任务身份绑定改用 created_by**（Step 8 决策，覆盖原 access_code 方案）：新架构 JWT 已足够；任务通过 `subtitle_jobs.created_by` 绑定用户身份，`GET /batch/{job_code}` 加 `created_by == current_user.id` 过滤，`GET /batches` 列表只看自己；管理员通过 `GET /admin/subtitle/batches` 跨用户查询。原 access_code 字段、`_gen_access_code` helper、`GET /batch/by-access` 端点、前端「跨设备查询」输入框全部删除。
 
-**测试统计**：
-- `test_operator_subtitle.py` 25/25 ✅（TestAuth 4 + TestExtract 5 + TestMindmap 6 + TestBatch 2 + TestBatchQuery 4 + TestSaveOutput 4）
-- `test_admin_subtitle.py` 8/8 ✅（TestAuth 4 + TestGetConfigs 1 + TestUpdateConfigs 3）
+**测试统计**（Step 8 后）：
+- `test_operator_subtitle.py` 28/28 ✅（TestAuth 4 + TestExtract 5 + TestMindmap 6 + TestBatch 2 + TestBatchQuery 3 + TestBatchesList 4 + TestSaveOutput 4）
+- `test_admin_subtitle.py` 11/11 ✅（TestAuth 4 + TestGetConfigs 1 + TestUpdateConfigs 3 + TestAdminBatches 3）
 
 **不在本次范围**：
 - tool_transcribe.py 改造（Sprint 3 债务，继续云雾 Whisper）
 - 批量任务多进程（Celery/RQ）
 - 字幕翻译 / 字幕时间轴对齐（旧架构也没做）
+- access_code 跨设备查询模式（Step 8 已废弃，新架构 JWT + created_by 替代）
 
 ---
 

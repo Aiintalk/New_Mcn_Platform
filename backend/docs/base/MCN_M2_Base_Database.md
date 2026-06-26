@@ -1050,13 +1050,12 @@ migration 034 UPSERT：
 |------|------|------|------|
 | `id` | BIGSERIAL | 是 | 主键 |
 | `job_code` | VARCHAR(32) UNIQUE | 是 | 服务端任务码 `sub_yyyymmdd_xxxxxxxx` |
-| `access_code` | VARCHAR(16) UNIQUE | 是 | 用户查询码 `XXXX-XXXX`（跨设备）|
 | `status` | VARCHAR(16) | 是 | `processing` / `completed` / `failed`（默认 `processing`）|
 | `phase` | VARCHAR(64) | 是 | 执行阶段：`queued` / `running` / `done` |
 | `total` | INT | 是 | 总条数 |
 | `success` | INT | 是 | 成功条数 |
 | `failed` | INT | 是 | 失败条数 |
-| `created_by` | BIGINT FK → users(id) ON DELETE SET NULL | 否 | 创建者 |
+| `created_by` | BIGINT FK → users(id) ON DELETE SET NULL | 否 | 创建者（任务通过此字段绑定用户身份，无 access_code）|
 | `created_at` / `updated_at` | TIMESTAMPTZ | 是 | 默认 NOW() |
 
 索引：`idx_subtitle_jobs_created_by`、`idx_subtitle_jobs_status`。
