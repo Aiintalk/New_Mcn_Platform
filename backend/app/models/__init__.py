@@ -36,6 +36,7 @@ from app.models.seeding_writer import (
 from app.models.oss_call_log import OssCallLog
 from app.models.asr_call_log import AsrCallLog
 from app.models.material_library import KolReference, MaterialLibraryConfig
+from app.models.subtitle import SubtitleJob, SubtitleItem, SubtitleConfig
 
 __all__ = [
     "User",
@@ -78,4 +79,7 @@ __all__ = [
     "AsrCallLog",
     "KolReference",
     "MaterialLibraryConfig",
+    "SubtitleJob",
+    "SubtitleItem",
+    "SubtitleConfig",
 ]

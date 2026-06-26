@@ -73,6 +73,7 @@ _SESSION_LOCAL_PATCH_TARGETS = [
     "app.routers.operator_qianchuan_writer.AsyncSessionLocal",
     "app.routers.operator_persona_writer.AsyncSessionLocal",
     "app.routers.operator_seeding_writer.AsyncSessionLocal",
+    "app.routers.operator_subtitle.AsyncSessionLocal",
 ]
 
 
