@@ -1,8 +1,24 @@
 """
 Integration tests for admin_subtitle router — Sprint 19
+
+Covers:
+- Auth (4 scenarios: no token / operator forbidden / admin OK / invalid token)
+- GET /configs (returns default config)
+- PUT /configs (update prompt + is_active + no-fields)
+- GET /batches (admin list all + filter by user_id + cross-user visibility)
 """
+import uuid
+from datetime import datetime, timezone
+from unittest.mock import patch, AsyncMock
+
 import pytest
+from passlib.context import CryptContext
 from sqlalchemy import text
+
+from app.core.security import create_access_token
+from app.models.user import User
+
+_pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 @pytest.fixture(autouse=True)
@@ -108,3 +124,69 @@ class TestUpdateConfigs:
             json={},
         )
         assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# GET /admin/subtitle/batches — admin 查全部批量任务
+# ---------------------------------------------------------------------------
+
+class TestAdminBatches:
+    @pytest.mark.asyncio
+    async def test_admin_list_all_batches(
+        self, test_client, admin_headers, operator_headers, test_session
+    ):
+        """admin 看全部跨用户的批量任务，响应含 created_by_username"""
+        # operator 创建 1 个
+        with patch(
+            "app.routers.operator_subtitle._run_batch",
+            AsyncMock(return_value=None),
+        ):
+            await test_client.post(
+                "/api/tools/subtitle/batch",
+                headers=operator_headers,
+                json={"items": [{"share_text": "https://v.douyin.com/adm1/"}]},
+            )
+
+        resp = await test_client.get(
+            "/api/admin/subtitle/batches",
+            headers=admin_headers,
+        )
+        assert resp.status_code == 200
+        body = resp.json()["data"]
+        assert body["pagination"]["total"] >= 1
+        # admin 列表必须含 username 字段
+        assert all("created_by_username" in it for it in body["items"])
+
+    @pytest.mark.asyncio
+    async def test_admin_list_filter_by_user(
+        self, test_client, admin_headers, operator_headers, operator_user, test_session
+    ):
+        """user_id 过滤只返回该用户的任务"""
+        with patch(
+            "app.routers.operator_subtitle._run_batch",
+            AsyncMock(return_value=None),
+        ):
+            await test_client.post(
+                "/api/tools/subtitle/batch",
+                headers=operator_headers,
+                json={"items": [{"share_text": "https://v.douyin.com/f1/"}]},
+            )
+
+        # 用 operator_user.id 过滤
+        resp = await test_client.get(
+            f"/api/admin/subtitle/batches?user_id={operator_user.id}",
+            headers=admin_headers,
+        )
+        assert resp.status_code == 200
+        body = resp.json()["data"]
+        assert body["pagination"]["total"] >= 1
+        assert all(it["created_by"] == operator_user.id for it in body["items"])
+
+    @pytest.mark.asyncio
+    async def test_admin_batches_operator_forbidden(self, test_client, operator_headers):
+        """operator 访问 admin 端点 → 403"""
+        resp = await test_client.get(
+            "/api/admin/subtitle/batches",
+            headers=operator_headers,
+        )
+        assert resp.status_code == 403

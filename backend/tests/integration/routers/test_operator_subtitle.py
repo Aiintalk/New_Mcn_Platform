@@ -5,15 +5,23 @@ Covers:
 - 4 auth scenarios (no token / operator OK / admin OK / invalid token)
 - POST /extract (success via share_text + success via file_url + empty input + tikhub failure + asr failure)
 - POST /batch (create + status transitions, mock _run_batch)
-- GET /batch/{job_code} (found + not found + access_code query)
+- GET /batch/{job_code} (found + not found + cross-user 404)
+- GET /batches (我的批量任务列表 + 分页 + 空列表 + 跨用户隔离)
 - POST /mindmap (success + empty transcript + AI failure + JSON parse failure + config missing)
 - POST /save-output (success + empty content + account isolation)
-- GET /outputs (list + account isolation)
 """
+import uuid
+from datetime import datetime, timezone
 from unittest.mock import patch, AsyncMock
 
 import pytest
+from passlib.context import CryptContext
 from sqlalchemy import text
+
+from app.core.security import create_access_token
+from app.models.user import User
+
+_pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 # ---------- fixtures ----------
@@ -306,7 +314,7 @@ class TestBatch:
         data = body["data"]
         assert data["total"] == 2
         assert data["job_code"].startswith("sub_")
-        assert "-" in data["access_code"]
+        assert "access_code" not in data  # 已改用 created_by 绑定用户身份
 
         # DB 校验
         job_count = (await test_session.execute(text(
@@ -339,7 +347,7 @@ class TestBatch:
 
 
 # ---------------------------------------------------------------------------
-# GET /batch/{job_code} + by-access/{access_code} — 查询
+# GET /batch/{job_code} — 查询（仅自己创建的）
 # ---------------------------------------------------------------------------
 
 class TestBatchQuery:
@@ -378,8 +386,11 @@ class TestBatchQuery:
         assert resp.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_query_by_access_code(self, test_client, operator_headers):
-        """用 access_code 跨设备查询"""
+    async def test_query_other_user_404(
+        self, test_client, operator_headers, test_session
+    ):
+        """operator A 创建的 job，operator B 查 → 404（通过 created_by 隔离）"""
+        # 1. operator A 创建
         with patch(
             "app.routers.operator_subtitle._run_batch",
             AsyncMock(return_value=None),
@@ -387,26 +398,157 @@ class TestBatchQuery:
             create_resp = await test_client.post(
                 "/api/tools/subtitle/batch",
                 headers=operator_headers,
-                json={"items": [{"share_text": "https://v.douyin.com/y/"}]},
+                json={"items": [{"share_text": "https://v.douyin.com/a/"}]},
             )
-        access_code = create_resp.json()["data"]["access_code"]
+        job_code = create_resp.json()["data"]["job_code"]
+
+        # 2. 创建 operator B
+        suffix = uuid.uuid4().hex[:8]
+        user_b = User(
+            username=f"test_operator_b_{suffix}",
+            real_name="运营B",
+            password_hash=_pwd_context.hash("Test@123456"),
+            role="operator",
+            status="enabled",
+            password_changed_at=datetime.now(tz=timezone.utc),
+        )
+        test_session.add(user_b)
+        await test_session.commit()
+        await test_session.refresh(user_b)
+        token_b = create_access_token(
+            user_id=int(user_b.id),
+            username=str(user_b.username),
+            role=str(user_b.role),
+            token_version=int(user_b.token_version),
+        )
+        headers_b = {"Authorization": f"Bearer {token_b}"}
+
+        # 3. operator B 查 A 的 job_code → 404
+        resp = await test_client.get(
+            f"/api/tools/subtitle/batch/{job_code}",
+            headers=headers_b,
+        )
+        assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# GET /batches — 我的批量任务列表（分页 + 绑定 created_by）
+# ---------------------------------------------------------------------------
+
+class TestBatchesList:
+    @pytest.mark.asyncio
+    async def test_list_my_batches(self, test_client, operator_headers, test_session):
+        """列表只返回当前用户创建的任务"""
+        with patch(
+            "app.routers.operator_subtitle._run_batch",
+            AsyncMock(return_value=None),
+        ):
+            await test_client.post(
+                "/api/tools/subtitle/batch",
+                headers=operator_headers,
+                json={"items": [{"share_text": "https://v.douyin.com/list1/"}]},
+            )
+            await test_client.post(
+                "/api/tools/subtitle/batch",
+                headers=operator_headers,
+                json={"items": [{"share_text": "https://v.douyin.com/list2/"}]},
+            )
 
         resp = await test_client.get(
-            f"/api/tools/subtitle/batch/by-access/{access_code}",
+            "/api/tools/subtitle/batches",
             headers=operator_headers,
         )
         assert resp.status_code == 200
         body = resp.json()["data"]
-        assert body["access_code"] == access_code
-        assert len(body["items"]) == 1
+        assert len(body["items"]) == 2
+        assert all(it["job_code"].startswith("sub_") for it in body["items"])
+        # 按 created_at 倒序
+        assert body["items"][0]["created_at"] >= body["items"][1]["created_at"]
+        # pagination 字段
+        assert body["pagination"]["page"] == 1
+        assert body["pagination"]["page_size"] == 20
+        assert body["pagination"]["total"] == 2
 
     @pytest.mark.asyncio
-    async def test_query_by_access_code_not_found(self, test_client, operator_headers):
+    async def test_list_pagination(self, test_client, operator_headers):
+        """分页参数正确传递"""
+        with patch(
+            "app.routers.operator_subtitle._run_batch",
+            AsyncMock(return_value=None),
+        ):
+            for i in range(3):
+                await test_client.post(
+                    "/api/tools/subtitle/batch",
+                    headers=operator_headers,
+                    json={"items": [{"share_text": f"https://v.douyin.com/p{i}/"}]},
+                )
+
         resp = await test_client.get(
-            "/api/tools/subtitle/batch/by-access/NOPE-0000",
+            "/api/tools/subtitle/batches?page=1&page_size=2",
             headers=operator_headers,
         )
-        assert resp.status_code == 404
+        body = resp.json()["data"]
+        assert len(body["items"]) == 2
+        assert body["pagination"]["total"] == 3
+        assert body["pagination"]["total_pages"] == 2
+
+    @pytest.mark.asyncio
+    async def test_list_empty(self, test_client, operator_headers):
+        """无任务 → 空列表"""
+        resp = await test_client.get(
+            "/api/tools/subtitle/batches",
+            headers=operator_headers,
+        )
+        assert resp.status_code == 200
+        body = resp.json()["data"]
+        assert body["items"] == []
+        assert body["pagination"]["total"] == 0
+
+    @pytest.mark.asyncio
+    async def test_list_account_isolation(
+        self, test_client, operator_headers, test_session
+    ):
+        """operator A 创建的任务不出现在 operator B 的列表里"""
+        # A 创建
+        with patch(
+            "app.routers.operator_subtitle._run_batch",
+            AsyncMock(return_value=None),
+        ):
+            await test_client.post(
+                "/api/tools/subtitle/batch",
+                headers=operator_headers,
+                json={"items": [{"share_text": "https://v.douyin.com/iso/"}]},
+            )
+
+        # 创建 operator B
+        suffix = uuid.uuid4().hex[:8]
+        user_b = User(
+            username=f"test_op_iso_{suffix}",
+            real_name="运营隔离",
+            password_hash=_pwd_context.hash("Test@123456"),
+            role="operator",
+            status="enabled",
+            password_changed_at=datetime.now(tz=timezone.utc),
+        )
+        test_session.add(user_b)
+        await test_session.commit()
+        await test_session.refresh(user_b)
+        token_b = create_access_token(
+            user_id=int(user_b.id),
+            username=str(user_b.username),
+            role=str(user_b.role),
+            token_version=int(user_b.token_version),
+        )
+        headers_b = {"Authorization": f"Bearer {token_b}"}
+
+        # B 看自己列表 → 空（看不到 A 的）
+        resp = await test_client.get(
+            "/api/tools/subtitle/batches",
+            headers=headers_b,
+        )
+        body = resp.json()["data"]
+        assert body["items"] == []
+        assert body["pagination"]["total"] == 0
 
 
 # ---------------------------------------------------------------------------
