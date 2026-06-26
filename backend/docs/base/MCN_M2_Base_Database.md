@@ -1037,3 +1037,74 @@ migration 034 UPSERT：
 
 `034_material_library.sql`
 
+---
+
+## 30. subtitle 字幕提取（Sprint 19 — 迁移自旧架构）
+
+批量字幕任务、任务条目、思维导图配置 3 表。迁移自旧架构 `Ai_Toolbox/subtitle-extractor-web/lib/db.ts`（SQLite）→ PostgreSQL。
+产出接入共享 `outputs` 表（不新建产出表）。
+
+### 30.1 subtitle_jobs 批量任务表
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | BIGSERIAL | 是 | 主键 |
+| `job_code` | VARCHAR(32) UNIQUE | 是 | 服务端任务码 `sub_yyyymmdd_xxxxxxxx` |
+| `access_code` | VARCHAR(16) UNIQUE | 是 | 用户查询码 `XXXX-XXXX`（跨设备）|
+| `status` | VARCHAR(16) | 是 | `processing` / `completed` / `failed`（默认 `processing`）|
+| `phase` | VARCHAR(64) | 是 | 执行阶段：`queued` / `running` / `done` |
+| `total` | INT | 是 | 总条数 |
+| `success` | INT | 是 | 成功条数 |
+| `failed` | INT | 是 | 失败条数 |
+| `created_by` | BIGINT FK → users(id) ON DELETE SET NULL | 否 | 创建者 |
+| `created_at` / `updated_at` | TIMESTAMPTZ | 是 | 默认 NOW() |
+
+索引：`idx_subtitle_jobs_created_by`、`idx_subtitle_jobs_status`。
+
+### 30.2 subtitle_items 批量任务条目表
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | BIGSERIAL | 是 | 主键 |
+| `job_id` | BIGINT FK → subtitle_jobs(id) ON DELETE CASCADE | 是 | 所属任务 |
+| `row_number` | INT | 是 | 行号（从 1 开始）|
+| `original_url` | TEXT | 是 | 原始抖音分享文本 |
+| `title` | TEXT | 是 | 视频标题（成功后填充）|
+| `transcript` | TEXT | 是 | 字幕文本（成功后填充）|
+| `status` | VARCHAR(16) | 是 | `pending` / `processing` / `success` / `failed`（默认 `pending`）|
+| `error` | TEXT | 是 | 失败原因（失败时填充）|
+| `created_at` / `updated_at` | TIMESTAMPTZ | 是 | 默认 NOW() |
+
+约束：`UNIQUE (job_id, row_number)`。
+索引：`idx_subtitle_items_job`。
+
+### 30.3 subtitle_configs 思维导图配置表
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | BIGSERIAL | 是 | 主键 |
+| `config_key` | VARCHAR(64) UNIQUE | 是 | 配置键（当前只用 `default`）|
+| `mindmap_prompt` | TEXT | 否 | 思维导图系统提示词（支持 `{{transcript}}` 占位符）|
+| `mindmap_model_id` | BIGINT FK → ai_models(id) ON DELETE SET NULL | 否 | AI 模型 ID |
+| `is_active` | BOOLEAN | 是 | 启用开关（默认 TRUE）|
+| `created_at` / `updated_at` | TIMESTAMPTZ | 是 | 默认 NOW() |
+
+### 30.4 Seed 默认数据
+
+migration 035 INSERT：
+- `config_key='default'`
+- `mindmap_model_id=2`（claude-haiku-4-5-20251001）
+- `is_active=true`
+- `mindmap_prompt` 含 `{{transcript}}` 占位符 + JSON 输出规范（348 字符）
+
+### 30.5 workspace_tools 注册
+
+migration 035 UPDATE：
+- `tool_code='subtitle'`, `tool_name='字幕提取'`
+- `category='内容工作台'`, `status='online'`（直接上线）
+- `sort_order=140`
+
+### 30.6 迁移文件
+
+`035_subtitle.sql`
+
