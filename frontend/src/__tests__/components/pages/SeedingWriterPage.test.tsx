@@ -517,6 +517,11 @@ describe('SeedingWriterPage', () => {
   // Test 14: Step 4 写作流式
   it('generates script via chatStream scene=writing', async () => {
     const user = userEvent.setup();
+    // 补充 analyzeStructureStream mock（进入 Step 4 时自动触发）
+    mockAnalyzeStructureStream.mockImplementation(async (_b: unknown, onChunk: (f: string) => void) => {
+      onChunk('结构分析：开头-主体-结尾');
+      return '结构分析：开头-主体-结尾';
+    });
     mockChatStream.mockImplementation(async (body: unknown, onChunk: (f: string) => void) => {
       const b = body as { scene: string };
       if (b.scene === 'writing') {
