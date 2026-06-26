@@ -967,6 +967,145 @@ migration 033 UPSERT `workspace_tools` 表：
 
 `033_seeding_writer.sql`
 
+---
+
+## 28. kol_references 素材库参考素材（Sprint 18 — material-library）
+
+红人素材库的参考素材表。每位红人可有多条参考素材，按 `type` 字段分 6 类管理。
+软删策略：`deleted_at IS NULL` 视为有效；FK CASCADE（kol 删除时连带素材一并删除）。
+
+### 28.1 字段
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | BIGSERIAL | 是 | 主键 |
+| `kol_id` | BIGINT FK→kols | 是 | ON DELETE CASCADE |
+| `title` | VARCHAR(500) | 是 | 素材标题 |
+| `likes` | INT | 否 | 点赞数 |
+| `source` | VARCHAR(100) | 否 | 来源，默认 '抖音' |
+| `type` | VARCHAR(50) | 是 | 6 类之一（见下） |
+| `content` | TEXT | 是 | 正文内容 |
+| `created_by` | BIGINT FK→users | 否 | 审计用 |
+| `created_at` | TIMESTAMPTZ | 是 | 默认 NOW() |
+| `updated_at` | TIMESTAMPTZ | 是 | 默认 NOW() |
+| `deleted_at` | TIMESTAMPTZ | 否 | 软删 |
+
+`type` 枚举：`红人爆款文案 / 红人喜欢的内容 / 风格参考 / 千川爆款文案 / 千川喜欢的内容 / 千川风格参考`
+
+### 28.2 索引
+
+- `idx_kol_references_kol_type`：`(kol_id, type) WHERE deleted_at IS NULL` — 列表分组查询主索引
+- `idx_kol_references_kol_recent`：`(kol_id, created_at DESC)` — 最新素材排序
+
+### 28.3 迁移文件
+
+`034_material_library.sql`
+
+---
+
+## 29. material_library_configs 素材库 AI 配置（Sprint 18）
+
+存放 soul_generator（从入驻问卷生成人格档案初稿）的系统提示词与模型选择。
+
+### 29.1 字段
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | BIGSERIAL | 是 | 主键 |
+| `config_key` | VARCHAR(64) | 是 | UNIQUE，目前固定 'soul_generator' |
+| `ai_model_id` | BIGINT FK→ai_models | 否 | AI 模型 ID |
+| `system_prompt` | TEXT | 否 | 系统提示词，占位符 `{{kol_name}} {{intake_answers}} {{intake_report}}` |
+| `is_active` | BOOLEAN | 是 | 默认 TRUE |
+| `created_at` | TIMESTAMPTZ | 是 | 默认 NOW() |
+| `updated_at` | TIMESTAMPTZ | 是 | 默认 NOW() |
+
+### 29.2 种子数据
+
+migration 034 INSERT soul_generator 默认配置：
+- `ai_model_id=3`（claude-sonnet-4-6）
+- `is_active=true`
+- `system_prompt` 含 3 个占位符 + 中文撰写要求（745 字符）
+
+### 29.3 workspace_tools 注册
+
+migration 034 UPSERT：
+- `tool_code='material-library'`, `tool_name='素材库'`
+- `category='素材管理'`, `status='dev'`（先以开发中状态上线）
+- `sort_order=130`
+
+### 29.4 迁移文件
+
+`034_material_library.sql`
+
+---
+
+## 30. subtitle 字幕提取（Sprint 19 — 迁移自旧架构）
+
+批量字幕任务、任务条目、思维导图配置 3 表。迁移自旧架构 `Ai_Toolbox/subtitle-extractor-web/lib/db.ts`（SQLite）→ PostgreSQL。
+产出接入共享 `outputs` 表（不新建产出表）。
+
+### 30.1 subtitle_jobs 批量任务表
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | BIGSERIAL | 是 | 主键 |
+| `job_code` | VARCHAR(32) UNIQUE | 是 | 服务端任务码 `sub_yyyymmdd_xxxxxxxx` |
+| `status` | VARCHAR(16) | 是 | `processing` / `completed` / `failed`（默认 `processing`）|
+| `phase` | VARCHAR(64) | 是 | 执行阶段：`queued` / `running` / `done` |
+| `total` | INT | 是 | 总条数 |
+| `success` | INT | 是 | 成功条数 |
+| `failed` | INT | 是 | 失败条数 |
+| `created_by` | BIGINT FK → users(id) ON DELETE SET NULL | 否 | 创建者（任务通过此字段绑定用户身份，无 access_code）|
+| `created_at` / `updated_at` | TIMESTAMPTZ | 是 | 默认 NOW() |
+
+索引：`idx_subtitle_jobs_created_by`、`idx_subtitle_jobs_status`。
+
+### 30.2 subtitle_items 批量任务条目表
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | BIGSERIAL | 是 | 主键 |
+| `job_id` | BIGINT FK → subtitle_jobs(id) ON DELETE CASCADE | 是 | 所属任务 |
+| `row_number` | INT | 是 | 行号（从 1 开始）|
+| `original_url` | TEXT | 是 | 原始抖音分享文本 |
+| `title` | TEXT | 是 | 视频标题（成功后填充）|
+| `transcript` | TEXT | 是 | 字幕文本（成功后填充）|
+| `status` | VARCHAR(16) | 是 | `pending` / `processing` / `success` / `failed`（默认 `pending`）|
+| `error` | TEXT | 是 | 失败原因（失败时填充）|
+| `created_at` / `updated_at` | TIMESTAMPTZ | 是 | 默认 NOW() |
+
+约束：`UNIQUE (job_id, row_number)`。
+索引：`idx_subtitle_items_job`。
+
+### 30.3 subtitle_configs 思维导图配置表
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | BIGSERIAL | 是 | 主键 |
+| `config_key` | VARCHAR(64) UNIQUE | 是 | 配置键（当前只用 `default`）|
+| `mindmap_prompt` | TEXT | 否 | 思维导图系统提示词（支持 `{{transcript}}` 占位符）|
+| `mindmap_model_id` | BIGINT FK → ai_models(id) ON DELETE SET NULL | 否 | AI 模型 ID |
+| `is_active` | BOOLEAN | 是 | 启用开关（默认 TRUE）|
+| `created_at` / `updated_at` | TIMESTAMPTZ | 是 | 默认 NOW() |
+
+### 30.4 Seed 默认数据
+
+migration 035 INSERT：
+- `config_key='default'`
+- `mindmap_model_id=2`（claude-haiku-4-5-20251001）
+- `is_active=true`
+- `mindmap_prompt` 含 `{{transcript}}` 占位符 + JSON 输出规范（348 字符）
+
+### 30.5 workspace_tools 注册
+
+migration 035 UPDATE：
+- `tool_code='subtitle'`, `tool_name='字幕提取'`
+- `category='内容工作台'`, `status='online'`（直接上线）
+- `sort_order=140`
+
+### 30.6 迁移文件
+
+`035_subtitle.sql`
 
 ---
 

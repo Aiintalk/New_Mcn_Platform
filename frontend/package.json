@@ -17,6 +17,7 @@
     "@ant-design/v5-patch-for-react-19": "^1.0.3",
     "@types/react-router-dom": "^5.3.3",
     "antd": "^5.29.3",
+    "jszip": "^3.10.1",
     "pinyin-pro": "^3.28.1",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
