@@ -1,8 +1,8 @@
 # MCN_PM_Agent — 项目记忆与当前状态（M2）
 
-> 最后更新：2026-06-26（**Sprint 19 红人工作台扩展完成**：WorkspacePersona 人物档案 5 分区编辑器 + WorkspaceReferences 素材库 6 类管理 + 5 个工具页拆 Module（千川仿写/种草仿写/人设仿写/直播仿写/直播复盘）+ KolWorkspacePage 接入全部 Module，9 个导航项激活。前端 198/198 测试全部通过（含修复 Sprint 16 预存失败）。上一个：Sprint 18 工作台基础架构）
+> 最后更新：2026-06-26（**Sprint 20 价值观仿写完成**：后端 Migration 038 + ValuesWriterConfig ORM + 管理端 GET/PUT config + 运营端 4 个接口（extract-values/emotion-direction/write/iterate，后三个 SSE 流式）+ 前端 ValuesWriterPage 4 步向导 + ValuesWriterModule 工作台内嵌 + ValuesWriterConfigTab 管理端配置。后端 1017 个测试全部通过，前端 203/203 全部通过。上一个：Sprint 19 人物档案+素材库+工具 Module 改造）
 
-> **🚧 当前进行中**：Sprint 19 完成，代码在 `feature/kol-workspace` 分支（PR #13）。下一个：Sprint 20 价值观仿写。
+> **🚧 当前进行中**：Sprint 20 完成，代码在 `feature/kol-workspace` 分支（PR #13）。下一个：Sprint 21 千川脚本预审。
 
 > **📋 Sprint 17 backlog**（已写需求文档，待开工）：管理端调用日志扩展（用户列 + 功能列）—— `docs/pm/M2_Sprint17_管理端调用日志扩展_需求文档.md`
 
@@ -31,6 +31,19 @@
 ---
 
 ## 二、M2 阶段（当前）
+
+### M2 工作项 — Sprint 20 价值观仿写 ✅ 完成（feature/kol-workspace，PR #13）
+
+| # | 事项 | 结果 |
+|---|------|------|
+| 1 | Migration 038 | `values_writer_configs` 表 + 默认配置种子 |
+| 2 | 后端接口 6 个 | 管理端 GET/PUT config + 运营端 extract-values（非流式）+ emotion-direction/write/iterate（SSE 流式） |
+| 3 | 前端 ValuesWriterPage | 4 步向导（选价值观→情绪方向→生成内容→迭代），同时导出 ValuesWriterModule 供工作台内嵌 |
+| 4 | 工作台接入 | `values-writer` 导航项激活，点击直接进 Step 2（达人已锁定） |
+| 5 | 管理端配置 | ValuesWriterConfigTab（4 Prompt + 模型 + 启用开关） |
+| 6 | 测试 | 后端 1017/1017 通过，前端 203/203 通过 |
+
+---
 
 ### M2 工作项 — Sprint 19 红人工作台扩展 ✅ 完成（feature/kol-workspace，PR #13）
 

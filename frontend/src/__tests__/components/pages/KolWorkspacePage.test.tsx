@@ -217,7 +217,7 @@ describe('KolWorkspacePage', () => {
     expect(mockGetQianchuanProducts).toHaveBeenCalled();
   });
 
-  // Test 4: 禁用 Tab（价值观仿写等 Sprint 20+）点击后 activeTab 不变
+  // Test 4: 禁用 Tab（千川成片预审 Sprint 23）点击后 activeTab 不变
   it('does not change activeTab when disabled nav item is clicked', async () => {
     const user = userEvent.setup();
     renderWorkspacePage();
@@ -225,8 +225,8 @@ describe('KolWorkspacePage', () => {
     await waitFor(() => {
       expect(screen.getByText('对标账号')).toBeInTheDocument();
     });
-    // 点击仍然禁用的价值观仿写（Sprint 20）
-    await user.click(screen.getByTestId('nav-item-values-writer'));
+    // 点击仍然禁用的千川成片预审（Sprint 23）
+    await user.click(screen.getByTestId('nav-item-film-review'));
     // Dashboard 应仍然存在（activeTab 没变）
     await waitFor(() => {
       expect(screen.getByText('对标账号')).toBeInTheDocument();

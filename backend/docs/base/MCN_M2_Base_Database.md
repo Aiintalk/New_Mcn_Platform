@@ -967,3 +967,30 @@ migration 033 UPSERT `workspace_tools` 表：
 
 `033_seeding_writer.sql`
 
+
+---
+
+## 32. values_writer_configs 价值观仿写配置表（Sprint 20）
+
+### 32.1 用途
+
+存储价值观仿写工具的 AI 配置（4 个 Prompt + 模型绑定）。管理员在后台「价值观仿写」ConfigTab 中维护。
+
+### 32.2 字段说明
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | BIGSERIAL | 是 | PK |
+| `config_key` | VARCHAR(64) | 是 | UNIQUE，目前只有 `default` |
+| `extract_values_prompt` | TEXT | 否 | Step 1：从人物档案提炼价值观 |
+| `emotion_direction_prompt` | TEXT | 否 | Step 2：推导情绪方向 |
+| `writing_prompt` | TEXT | 否 | Step 3：生成内容 |
+| `iteration_prompt` | TEXT | 否 | Step 4：迭代优化 |
+| `model_id` | BIGINT FK ai_models | 否 | AI 模型（NULL 时用默认） |
+| `is_active` | BOOLEAN | 是 | 启用开关 |
+| `created_at` | TIMESTAMPTZ | 是 | |
+| `updated_at` | TIMESTAMPTZ | 是 | 触发器自动更新 |
+
+### 32.3 迁移文件
+
+`038_values_writer.sql`

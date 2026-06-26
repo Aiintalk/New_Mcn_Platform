@@ -43,7 +43,8 @@ frontend/
 │   │   ├── personaWriter.ts           #   人设脚本仿写（Sprint 15）
 │   │   ├── seedingWriter.ts           #   种草内容仿写（Sprint 16）：22 个函数（16 走 request.ts + 4 SSE 流式 + 1 multipart + 1 Blob 下载例外）
 │   │   ├── qianchuanProducts.ts       #   千川产品库 CRUD（Sprint 18）
-│   │   └── kolWorkspace.ts            #   红人工作台 API（dashboard/benchmarks/active-products/persona-details，Sprint 18）
+│   │   ├── kolWorkspace.ts            #   红人工作台 API（dashboard/benchmarks/active-products/persona-details，Sprint 18）
+│   │   └── valuesWriter.ts            #   价值观仿写（Sprint 20）：getConfig/updateConfig/extractValues/emotionDirectionStream/writeStream/iterateStream
 │   ├── layouts/                       # 布局组件
 │   │   ├── AdminLayout.tsx            #   管理端布局（左侧菜单 + 内容区）
 │   │   ├── OperatorLayout.tsx         #   运营端布局（左侧菜单 + 内容区）
@@ -74,6 +75,7 @@ frontend/
 │   │   │   （另有 QianchuanWriterConfigTab.tsx — 千川文案写作配置 Tab，Sprint 14 新增）
 │   │   │   （另有 PersonaWriterConfigTab.tsx — 人设脚本仿写配置 Tab，Sprint 15 新增）
 │   │   │   （另有 SeedingWriterConfigTab.tsx — 种草内容仿写配置 Tab，Sprint 16 新增：6 个 Prompt + 轻量/重型模型 + 启用开关）
+│   │   │   （另有 ValuesWriterConfigTab.tsx — 价值观仿写配置 Tab，Sprint 20 新增：4 个 Prompt + 模型 + 启用开关）
 │   │   ├── operator/                  #   运营端（21 个页面 + workspace/ 子目录）
 │   │   │   ├── HomePage.tsx           #     首页（统计卡片 + 趋势图）
 │   │   │   ├── OperatorIntakePage.tsx #     入驻问卷列表
@@ -91,13 +93,14 @@ frontend/
 │   │   │   ├── LivestreamWriterPage.tsx #   直播脚本仿写
 │   │   │   ├── LivestreamReviewPage.tsx #   直播间脚本复盘
 │   │   │   ├── PersonaReviewPage.tsx  #     人设脚本复盘
-│   │   │   ├── KolWorkspacePage.tsx   #     红人工作台 Shell（Sprint 18-19）路由 /kol-workspace/:kol_id，9 个激活导航项
+│   │   │   ├── KolWorkspacePage.tsx   #     红人工作台 Shell（Sprint 18-20）路由 /kol-workspace/:kol_id，10 个激活导航项
 │   │   │   └── workspace/             #     工作台子模块（Sprint 18-19）
 │   │   │       ├── WorkspaceDashboard.tsx      #  工作台首页（对标账号 + 在售商品）
 │   │   │       ├── WorkspacePersona.tsx        #  人物档案 5 分区 inline 编辑器（Sprint 19）
 │   │   │       ├── WorkspaceReferences.tsx     #  素材库 6 类管理（Sprint 19）
 │   │   │       └── QianchuanProductsModule.tsx #  千川产品库 CRUD
 │   │   │   （QianchuanWriterPage/SeedingWriterPage/PersonaWriterPage/LivestreamWriterPage/LivestreamReviewPage 均已拆出 XxxModule 组件供工作台内嵌，Sprint 19）
+│   │   │   （另有 ValuesWriterPage.tsx — 价值观仿写，Sprint 20 新增：4 步向导=选价值观+情绪方向+生成内容+迭代优化，同时导出 ValuesWriterModule 供工作台内嵌）
 │   │   │   （另有 QianchuanWriterPage.tsx — 千川文案写作，Sprint 14 新增）
 │   │   │   （另有 PersonaWriterPage.tsx — 人设脚本仿写，Sprint 15 重写 placeholder 上线）
 │   │   │   （另有 SeedingWriterPage.tsx — 种草内容仿写，Sprint 16 新增：4 步向导=选达人+产品信息+对标验证+种草仿写）

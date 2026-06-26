@@ -1807,3 +1807,108 @@ Request Body：
 
 写 OperationLog（action=`admin_update_seeding_writer_config`）。
 
+
+---
+
+## 25. values-writer（Sprint 20）
+
+> 路由前缀：`/api/operator/values-writer`（运营端）+ `/api/admin/values-writer`（管理端）
+> 所有接口需 JWT 鉴权。运营端需 operator/admin 角色。
+
+### 25.1 接口总览
+
+| 方向 | 接口数 |
+|------|--------|
+| 运营端 | 4 |
+| 管理端 | 2 |
+| 小计 | 6 |
+
+### 25.2 管理端接口
+
+#### GET `/api/admin/values-writer/config`
+
+读取 `config_key='default'` 配置。
+
+Response `data`：
+```json
+{
+  "id": 1,
+  "config_key": "default",
+  "extract_values_prompt": "...",
+  "emotion_direction_prompt": "...",
+  "writing_prompt": "...",
+  "iteration_prompt": "...",
+  "model_id": null,
+  "is_active": true,
+  "updated_at": "2026-06-26T00:00:00Z"
+}
+```
+
+#### PUT `/api/admin/values-writer/config`
+
+Request Body（所有字段可选，未传字段不变）：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `extract_values_prompt` | string\|null | 价值观提炼 Prompt |
+| `emotion_direction_prompt` | string\|null | 情绪方向 Prompt |
+| `writing_prompt` | string\|null | 内容生成 Prompt |
+| `iteration_prompt` | string\|null | 迭代优化 Prompt |
+| `model_id` | int\|null | AI 模型 ID |
+| `is_active` | bool | 启用开关 |
+
+写 OperationLog（action=`admin_update_values_writer_config`）。
+
+### 25.3 运营端接口
+
+#### POST `/api/operator/values-writer/extract-values`
+
+从 kol 的人物档案提炼价值观清单（非流式，等待完成）。
+
+Request Body：
+```json
+{ "kol_id": 1, "extra_context": "可选补充说明" }
+```
+
+Response `data`：
+```json
+{ "values": ["真实", "治愈", "共鸣", "在地化"] }
+```
+
+#### POST stream `/api/operator/values-writer/emotion-direction`
+
+根据选中价值观推导情绪方向（SSE 流式）。
+
+Request Body：
+```json
+{ "kol_id": 1, "selected_values": ["真实", "治愈"], "tone": "轻松温暖" }
+```
+
+Response：`Content-Type: text/event-stream`，格式：`data: {"delta": "..."}`
+
+#### POST stream `/api/operator/values-writer/write`
+
+生成价值观内容（SSE 流式）。
+
+Request Body：
+```json
+{
+  "kol_id": 1,
+  "selected_values": ["真实"],
+  "emotion_direction": "...",
+  "product_context": "本期推广番茄精华"
+}
+```
+
+Response：`Content-Type: text/event-stream`
+
+#### POST stream `/api/operator/values-writer/iterate`
+
+根据用户指令迭代优化（SSE 流式）。
+
+Request Body：
+```json
+{ "kol_id": 1, "content": "现有内容...", "instruction": "开头更有冲击力" }
+```
+
+Response：`Content-Type: text/event-stream`
