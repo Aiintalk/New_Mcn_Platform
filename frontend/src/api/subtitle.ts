@@ -62,12 +62,13 @@ export interface SubtitleItem {
 export interface SubtitleJob {
   id: number;
   job_code: string;
-  access_code: string;
   status: 'processing' | 'completed' | 'failed';
   phase: string;
   total: number;
   success: number;
   failed: number;
+  created_by: number | null;
+  created_by_username?: string;
   created_at: string | null;
   updated_at: string | null;
   items?: SubtitleItem[];
@@ -75,8 +76,19 @@ export interface SubtitleJob {
 
 export interface BatchCreateResponse {
   job_code: string;
-  access_code: string;
   total: number;
+}
+
+export interface PaginationData {
+  page: number;
+  page_size: number;
+  total: number;
+  total_pages: number;
+}
+
+export interface BatchListResponse {
+  items: SubtitleJob[];
+  pagination: PaginationData;
 }
 
 // ---------------------------------------------------------------------------
@@ -95,13 +107,16 @@ export const generateMindmap = (transcript: string) =>
 export const createBatch = (items: SubtitleBatchItem[]) =>
   post<BatchCreateResponse>('/api/tools/subtitle/batch', { items });
 
-/** 按 job_code 查询批量任务（含 items 进度） */
+/** 按 job_code 查询自己创建的批量任务（含 items 进度，仅自己创建的） */
 export const getBatchByJobCode = (jobCode: string) =>
   get<SubtitleJob>(`/api/tools/subtitle/batch/${jobCode}`);
 
-/** 按 access_code 跨设备查询批量任务 */
-export const getBatchByAccessCode = (accessCode: string) =>
-  get<SubtitleJob>(`/api/tools/subtitle/batch/by-access/${accessCode}`);
+/** 我的批量任务列表（分页，按 created_at 倒序） */
+export const listMyBatches = (page = 1, pageSize = 20) =>
+  get<BatchListResponse>('/api/tools/subtitle/batches', {
+    page,
+    page_size: pageSize,
+  });
 
 // ---------------------------------------------------------------------------
 // Save to output center

@@ -8,6 +8,7 @@ import {
   generateMindmap,
   createBatch,
   getBatchByJobCode,
+  listMyBatches,
   saveOutput,
 } from '../../api/subtitle';
 import type {
@@ -55,7 +56,7 @@ export default function SubtitleExtractorPage() {
   const [batchInput, setBatchInput] = useState('');
   const [creatingBatch, setCreatingBatch] = useState(false);
   const [batchJob, setBatchJob] = useState<SubtitleJob | null>(null);
-  const [accessCode, setAccessCode] = useState('');
+  const [batchList, setBatchList] = useState<SubtitleJob[]>([]);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // 清理轮询
@@ -222,6 +223,15 @@ export default function SubtitleExtractorPage() {
       .map((s) => s.trim())
       .filter((s) => s.length > 0);
 
+  const loadBatchList = async () => {
+    try {
+      const resp = await listMyBatches(1, 20);
+      setBatchList(resp.items);
+    } catch {
+      // 静默失败，不影响主流程
+    }
+  };
+
   const doCreateBatch = async () => {
     const items = parseBatchItems();
     if (items.length === 0) {
@@ -232,9 +242,9 @@ export default function SubtitleExtractorPage() {
     setBatchJob(null);
     try {
       const data = await createBatch(items.map((share_text) => ({ share_text })));
-      message.success(`批量任务已创建（${data.total} 条），access_code: ${data.access_code}`);
-      setAccessCode(data.access_code);
-      // 立刻拉一次 + 启动轮询
+      message.success(`批量任务已创建（${data.total} 条），任务码：${data.job_code}`);
+      // 刷新列表 + 立刻拉一次详情 + 启动轮询
+      await loadBatchList();
       await pollBatch(data.job_code);
       startPolling(data.job_code);
     } catch (err: unknown) {
@@ -254,6 +264,8 @@ export default function SubtitleExtractorPage() {
           clearInterval(pollRef.current);
           pollRef.current = null;
         }
+        // 任务完成后再刷一次列表统计
+        await loadBatchList();
       }
     } catch {
       // 静默失败，下次轮询继续
@@ -267,24 +279,11 @@ export default function SubtitleExtractorPage() {
     }, 5000);
   };
 
-  // 按 access_code 查询（跨设备）
-  const doQueryByAccess = async () => {
-    const code = accessCode.trim();
-    if (!code) {
-      message.warning('请输入 access_code');
-      return;
-    }
-    try {
-      const { getBatchByAccessCode } = await import('../../api/subtitle');
-      const job = await getBatchByAccessCode(code);
-      setBatchJob(job);
-      if (job.status === 'processing') {
-        startPolling(job.job_code);
-      }
-      message.success('查询成功');
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : '查询失败';
-      message.error(msg);
+  // 选中列表中的某个任务查看详情
+  const selectJob = (job: SubtitleJob) => {
+    setBatchJob(job);
+    if (job.status === 'processing') {
+      startPolling(job.job_code);
     }
   };
 
@@ -302,6 +301,9 @@ export default function SubtitleExtractorPage() {
 
       <Tabs
         defaultActiveKey="single"
+        onChange={(key) => {
+          if (key === 'batch') loadBatchList();
+        }}
         items={[
           {
             key: 'single',
@@ -410,7 +412,7 @@ export default function SubtitleExtractorPage() {
               <Space direction="vertical" size="middle" style={{ width: '100%' }}>
                 <Paragraph type="secondary">
                   每行一条抖音分享文本，提交后后台批量执行（5-30 分钟/条）。
-                  提交后会返回 <Text code>access_code</Text>，可跨设备继续查询进度。
+                  任务与你的账号绑定，下方「我的批量任务」可随时查看进度。
                 </Paragraph>
 
                 <TextArea
@@ -436,18 +438,45 @@ export default function SubtitleExtractorPage() {
 
                 <Divider style={{ margin: '8px 0' }} />
 
+                {/* 我的批量任务列表 */}
                 <Paragraph type="secondary" style={{ marginBottom: 4 }}>
-                  用 access_code 跨设备查询：
+                  我的批量任务（点击查看详情）
                 </Paragraph>
-                <Space>
-                  <Input
-                    value={accessCode}
-                    onChange={(e) => setAccessCode(e.target.value)}
-                    placeholder="XXXX-XXXX"
-                    style={{ width: 200 }}
+                {batchList.length === 0 ? (
+                  <Text type="secondary">还没有批量任务</Text>
+                ) : (
+                  <List
+                    size="small"
+                    bordered
+                    dataSource={batchList}
+                    renderItem={(job) => (
+                      <List.Item
+                        actions={[
+                          <Button
+                            size="small"
+                            type="link"
+                            onClick={() => selectJob(job)}
+                          >
+                            查看详情
+                          </Button>,
+                        ]}
+                      >
+                        <Space>
+                          <Tag color={job.status === 'completed' ? 'success' : job.status === 'failed' ? 'error' : 'processing'}>
+                            {JOB_STATUS_LABELS[job.status] ?? job.status}
+                          </Tag>
+                          <Text code>{job.job_code}</Text>
+                          <Text type="secondary">
+                            {job.success}/{job.total} 成功 · {job.failed} 失败
+                          </Text>
+                          <Text type="secondary" style={{ fontSize: 11 }}>
+                            {job.created_at?.replace('T', ' ').slice(0, 19) ?? ''}
+                          </Text>
+                        </Space>
+                      </List.Item>
+                    )}
                   />
-                  <Button onClick={doQueryByAccess}>查询</Button>
-                </Space>
+                )}
 
                 {batchJob && (
                   <Card
@@ -463,9 +492,6 @@ export default function SubtitleExtractorPage() {
                   >
                     <Paragraph style={{ marginBottom: 8 }}>
                       <Text code>{batchJob.job_code}</Text>
-                      <Text type="secondary" style={{ marginLeft: 8 }}>
-                        access_code: <Text code>{batchJob.access_code}</Text>
-                      </Text>
                     </Paragraph>
                     <Progress percent={batchProgress} status={batchJob.status === 'failed' ? 'exception' : 'active'} />
                     <Paragraph type="secondary" style={{ marginTop: 8 }}>
