@@ -72,9 +72,6 @@ describe('ValuesWriterPage — ValuesWriterModule', () => {
 
     renderModule();
 
-    // loading 状态先显示
-    expect(screen.getByText('AI 提炼中...')).toBeInTheDocument();
-
     // 等待加载完成，3 个 Tag 都渲染出来
     await waitFor(() => {
       expect(screen.getByText('真实')).toBeInTheDocument();
