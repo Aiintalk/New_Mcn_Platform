@@ -12,7 +12,6 @@ BEGIN;
 CREATE TABLE IF NOT EXISTS subtitle_jobs (
   id           BIGSERIAL PRIMARY KEY,
   job_code     VARCHAR(32) NOT NULL UNIQUE,    -- 服务端生成（如 sub_20260625_a1b2c3d4）
-  access_code  VARCHAR(16) NOT NULL UNIQUE,    -- 用户友好查询码（如 ABCD-1234）
   status       VARCHAR(16) NOT NULL DEFAULT 'processing',  -- processing / completed / failed
   phase        VARCHAR(64) NOT NULL DEFAULT '',            -- 当前阶段描述（用于前端展示）
   total        INT NOT NULL DEFAULT 0,

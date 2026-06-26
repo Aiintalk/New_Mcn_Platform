@@ -7,15 +7,15 @@ subtitle-extractor-web。公共服务走 adapter：tikhub / oss / asr / yunwu。
 接口清单：
   POST /extract            — 单条字幕提取（share_text 或 file_url → ASR → 字幕）
   POST /batch              — 批量字幕任务（多 share_text → 后台执行）
-  GET  /batch/{job_code}   — 查询批量任务进度（含 items）
-  GET  /batch/by-access/{access_code} — 用户用 access_code 跨设备查询
+  GET  /batches            — 我的批量任务列表（分页，绑定 created_by）
+  GET  /batch/{job_code}   — 查询批量任务进度（仅自己的，含 items）
   POST /mindmap            — 字幕 → AI 思维导图（JSON）
   POST /save-output        — 保存字幕到产出中心（写共享 outputs 表）
-  GET  /outputs            — 我的字幕产出列表（账号隔离 + 分页）
 """
 import asyncio
 import json
 import logging
+import math
 import random
 import re
 import string
@@ -275,14 +275,6 @@ def _gen_job_code() -> str:
     return f"sub_{today}_{suffix}"
 
 
-def _gen_access_code() -> str:
-    """生成 XXXX-XXXX 格式查询码（8 位字母数字）。"""
-    chars = string.ascii_uppercase + string.digits
-    part = "".join(random.choices(chars, k=4))
-    part2 = "".join(random.choices(chars, k=4))
-    return f"{part}-{part2}"
-
-
 class BatchItemIn(BaseModel):
     share_text: str
 
@@ -295,12 +287,12 @@ def _job_to_dict(job: SubtitleJob, items: list[SubtitleItem] | None = None) -> d
     data = {
         "id": job.id,
         "job_code": job.job_code,
-        "access_code": job.access_code,
         "status": job.status,
         "phase": job.phase,
         "total": job.total,
         "success": job.success,
         "failed": job.failed,
+        "created_by": job.created_by,
         "created_at": job.created_at.isoformat() if job.created_at else None,
         "updated_at": job.updated_at.isoformat() if job.updated_at else None,
     }
@@ -335,7 +327,7 @@ async def create_batch(
             detail={"code": "INVALID_INPUT", "message": "items 不能为空"},
         )
 
-    # 生成唯一 job_code + access_code（少量重试）
+    # 生成唯一 job_code（少量重试）
     for _ in range(5):
         job_code = _gen_job_code()
         exists = (
@@ -346,19 +338,8 @@ async def create_batch(
     else:
         raise HTTPException(status_code=500, detail="job_code 生成失败，请重试")
 
-    for _ in range(5):
-        access_code = _gen_access_code()
-        exists = (
-            await db.execute(select(SubtitleJob.id).where(SubtitleJob.access_code == access_code))
-        ).scalar_one_or_none()
-        if not exists:
-            break
-    else:
-        raise HTTPException(status_code=500, detail="access_code 生成失败，请重试")
-
     job = SubtitleJob(
         job_code=job_code,
-        access_code=access_code,
         status="processing",
         phase="queued",
         total=len(body.items),
@@ -392,7 +373,6 @@ async def create_batch(
 
     return success_response(data={
         "job_code": job_code,
-        "access_code": access_code,
         "total": len(body.items),
     })
 
@@ -467,7 +447,40 @@ async def _run_batch(job_id: int, user_id: int) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 4. GET /batch/{job_code} — 查询批量任务进度（含 items）
+# 4. GET /batches — 我的批量任务列表（分页，绑定 created_by）
+# ---------------------------------------------------------------------------
+
+@router.get("/batches")
+async def list_my_batches(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_operator),
+):
+    """当前用户的批量任务列表（按 created_at 倒序，不含 items，轻量）。"""
+    base_q = select(SubtitleJob).where(SubtitleJob.created_by == current_user.id)
+    total = len((await db.execute(base_q)).scalars().all())
+    rows = (
+        await db.execute(
+            base_q.order_by(SubtitleJob.created_at.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+    ).scalars().all()
+
+    return success_response(data={
+        "items": [_job_to_dict(j) for j in rows],
+        "pagination": {
+            "page": page,
+            "page_size": page_size,
+            "total": total,
+            "total_pages": math.ceil(total / page_size) if page_size else 1,
+        },
+    })
+
+
+# ---------------------------------------------------------------------------
+# 5. GET /batch/{job_code} — 查询自己的批量任务详情（含 items）
 # ---------------------------------------------------------------------------
 
 @router.get("/batch/{job_code}")
@@ -476,43 +489,22 @@ async def get_batch(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_operator),
 ):
-    """按 job_code 查询批量任务详情（含 items 进度）。"""
+    """按 job_code 查询自己的批量任务详情（含 items 进度）。
+
+    通过 created_by 绑定，仅能查到自己创建的任务；他人 job_code → 404。
+    """
     job = (
-        await db.execute(select(SubtitleJob).where(SubtitleJob.job_code == job_code))
-    ).scalar_one_or_none()
-    if job is None:
-        raise HTTPException(
-            status_code=404,
-            detail={"code": "NOT_FOUND", "message": "任务不存在"},
-        )
-    items = (
         await db.execute(
-            select(SubtitleItem)
-            .where(SubtitleItem.job_id == job.id)
-            .order_by(SubtitleItem.row_number)
+            select(SubtitleJob).where(
+                SubtitleJob.job_code == job_code,
+                SubtitleJob.created_by == current_user.id,
+            )
         )
-    ).scalars().all()
-    return success_response(data=_job_to_dict(job, list(items)))
-
-
-# ---------------------------------------------------------------------------
-# 5. GET /batch/by-access/{access_code} — 用户用 access_code 跨设备查询
-# ---------------------------------------------------------------------------
-
-@router.get("/batch/by-access/{access_code}")
-async def get_batch_by_access(
-    access_code: str,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operator),
-):
-    """用户用 access_code 跨设备查询批量任务（便于多端切换）。"""
-    job = (
-        await db.execute(select(SubtitleJob).where(SubtitleJob.access_code == access_code))
     ).scalar_one_or_none()
     if job is None:
         raise HTTPException(
             status_code=404,
-            detail={"code": "NOT_FOUND", "message": "任务不存在"},
+            detail={"code": "NOT_FOUND", "message": "任务不存在或无权限访问"},
         )
     items = (
         await db.execute(

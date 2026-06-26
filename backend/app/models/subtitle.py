@@ -19,7 +19,6 @@ class SubtitleJob(Base):
 
     id          = Column(BigInteger, primary_key=True, autoincrement=True)
     job_code    = Column(String(32), nullable=False, unique=True)
-    access_code = Column(String(16), nullable=False, unique=True)
     status      = Column(String(16), nullable=False, default="processing")  # processing/completed/failed
     phase       = Column(String(64), nullable=False, default="")
     total       = Column(Integer, nullable=False, default=0)
