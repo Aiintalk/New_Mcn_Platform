@@ -77,6 +77,7 @@ _SESSION_LOCAL_PATCH_TARGETS = [
     "app.routers.operator_workspace.AsyncSessionLocal",
     "app.routers.admin_values_writer.AsyncSessionLocal",
     "app.routers.operator_values_writer.AsyncSessionLocal",
+    "app.routers.operator_script_review.AsyncSessionLocal",
 ]
 
 

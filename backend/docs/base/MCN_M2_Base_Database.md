@@ -994,3 +994,28 @@ migration 033 UPSERT `workspace_tools` 表：
 ### 32.3 迁移文件
 
 `038_values_writer.sql`
+
+---
+
+## 33. qianchuan_script_review_configs 千川脚本预审配置表（Sprint 21）
+
+### 33.1 用途
+
+存储千川脚本预审工具的 AI 配置（2 套 Prompt：千川直销模式 + 价值观模式）。
+
+### 33.2 字段说明
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | BIGSERIAL | 是 | PK |
+| `config_key` | VARCHAR(64) | 是 | UNIQUE，目前只有 `default` |
+| `direct_prompt` | TEXT | 否 | 千川直销模式 Prompt（检查产品名/价格/卖点替换） |
+| `value_prompt` | TEXT | 否 | 价值观内容模式 Prompt（评估情绪强度/信息差） |
+| `ai_model_id` | BIGINT FK ai_models | 否 | AI 模型（NULL 时用默认） |
+| `is_active` | BOOLEAN | 是 | 启用开关 |
+| `created_at` | TIMESTAMPTZ | 是 | |
+| `updated_at` | TIMESTAMPTZ | 是 | 触发器自动更新 |
+
+### 33.3 迁移文件
+
+`039_qianchuan_script_review.sql`

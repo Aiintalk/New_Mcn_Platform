@@ -64,6 +64,7 @@ from app.routers import admin_tiktok_review
 from app.routers import operator_qianchuan_products
 from app.routers import operator_workspace
 from app.routers import admin_values_writer, operator_values_writer
+from app.routers import admin_script_review, operator_script_review
 
 
 @asynccontextmanager
@@ -180,3 +181,5 @@ app.include_router(operator_qianchuan_products.router, prefix="/api")
 app.include_router(operator_workspace.router, prefix="/api")
 app.include_router(admin_values_writer.router, prefix="/api")
 app.include_router(operator_values_writer.router, prefix="/api")
+app.include_router(admin_script_review.router, prefix="/api")
+app.include_router(operator_script_review.router, prefix="/api")

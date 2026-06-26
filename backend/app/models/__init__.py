@@ -39,6 +39,7 @@ from app.models.qianchuan_product import QianchuanProduct
 from app.models.kol_benchmark import KolBenchmark
 from app.models.kol_active_product import KolActiveProduct
 from app.models.values_writer import ValuesWriterConfig
+from app.models.qianchuan_script_review import QianchuanScriptReviewConfig
 
 __all__ = [
     "User",
@@ -83,4 +84,5 @@ __all__ = [
     "KolBenchmark",
     "KolActiveProduct",
     "ValuesWriterConfig",
+    "QianchuanScriptReviewConfig",
 ]
