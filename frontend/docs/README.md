@@ -74,6 +74,7 @@ frontend/
 │   │   │   （另有 PersonaWriterConfigTab.tsx — 人设脚本仿写配置 Tab，Sprint 15 新增）
 │   │   │   （另有 SeedingWriterConfigTab.tsx — 种草内容仿写配置 Tab，Sprint 16 新增：6 个 Prompt + 轻量/重型模型 + 启用开关）
 │   │   │   （另有 MaterialLibraryConfigTab.tsx — 素材库配置 Tab，Sprint 18 新增：soul_generator 系统提示词 + 模型选择 + 启用开关）
+│   │   │   （另有 SubtitleConfigTab.tsx — 字幕提取配置 Tab，Sprint 19 新增：思维导图 mindmap_prompt + 模型选择 + 启用开关）
 │   │   ├── operator/                  #   运营端（18 个页面）
 │   │   │   ├── HomePage.tsx           #     首页（统计卡片 + 趋势图）
 │   │   │   ├── OperatorIntakePage.tsx #     入驻问卷列表
@@ -95,6 +96,7 @@ frontend/
 │   │   │   （另有 PersonaWriterPage.tsx — 人设脚本仿写，Sprint 15 重写 placeholder 上线）
 │   │   │   （另有 SeedingWriterPage.tsx — 种草内容仿写，Sprint 16 新增：4 步向导=选达人+产品信息+对标验证+种草仿写）
 │   │   │   （另有 MaterialLibraryPage.tsx — 素材库，Sprint 18 新增（迁移自旧架构）：左右分栏=红人列表+4 Tab（人格档案/内容规划/参考素材/入驻信息），支持 AI 从入驻问卷生成 soul.md 初稿）
+│   │   │   （另有 SubtitleExtractorPage.tsx — 字幕提取，Sprint 19 新增（迁移自旧架构）：3 Tab（单条提取/思维导图/批量提取），抖音链接→ASR→字幕+AI 思维导图，支持 SRT/Excel/Zip 导出 + 保存到产出中心）
 │   │   ├── auth/                      #   登录/改密码
 │   │   │   ├── LoginPage.tsx
 │   │   │   └── ChangePasswordPage.tsx
