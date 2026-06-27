@@ -232,4 +232,4 @@ BugFix：      BugFix_{序号}_{描述}.md
 | persona-writer | 人设脚本仿写 | operator_persona_writer.py / admin_persona_writer.py | Sprint 15 |
 | seeding-writer | 种草内容仿写 | operator_seeding_writer.py / admin_seeding_writer.py | Sprint 16 |
 | material-library | 素材库（红人素材中枢） | operator_material_library.py / admin_material_library.py | Sprint 18（迁移） |
-| subtitle | 字幕提取（单条/批量+思维导图） | operator_subtitle.py / admin_subtitle.py | Sprint 19（迁移） |
+| subtitle | 字幕提取（单条异步+批量+思维导图+统一历史+软删除） | operator_subtitle.py / admin_subtitle.py | Sprint 19（迁移）；Sprint 21（异步任务化+软删除） |

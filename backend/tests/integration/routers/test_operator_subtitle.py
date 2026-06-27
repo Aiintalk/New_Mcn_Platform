@@ -88,23 +88,20 @@ class TestAuth:
 # ---------------------------------------------------------------------------
 
 class TestExtract:
+    """POST /extract 测试。
+
+    extract 改异步后，HTTP 响应只返回 {job_code, status}，
+    实际的解析+ASR 在 _run_single_extract 后台任务里跑（见 TestRunSingleExtract）。
+    """
+
     @pytest.mark.asyncio
     async def test_extract_success_via_share_text(
         self, test_client, operator_headers, test_session
     ):
-        """抖音分享文本 → tikhub 解析 → ASR → 字幕"""
+        """share_text 提交 → 立即返回 job_code（mock _run_single_extract 不实际跑）。"""
         with patch(
-            "app.routers.operator_subtitle.tikhub_adapter.fetch_video_by_share_url",
-            AsyncMock(return_value={
-                "aweme_id": "7012345",
-                "title": "测试视频",
-                "digg_count": 50000,
-                "play_url": "https://example.com/play.mp4",
-                "audio_url": "https://example.com/audio.mp3",
-            }),
-        ), patch(
-            "app.routers.operator_subtitle.asr_adapter.transcribe",
-            AsyncMock(return_value="这是字幕文本"),
+            "app.routers.operator_subtitle._run_single_extract",
+            AsyncMock(return_value=None),
         ):
             resp = await test_client.post(
                 "/api/tools/subtitle/extract",
@@ -115,24 +112,43 @@ class TestExtract:
         assert resp.status_code == 200
         body = resp.json()
         assert body["success"] is True
-        assert body["data"]["text"] == "这是字幕文本"
-        assert body["data"]["title"] == "测试视频"
-        assert body["data"]["audio_url"] == "https://example.com/audio.mp3"
+        assert body["data"]["status"] == "processing"
+        job_code = body["data"]["job_code"]
+        assert job_code.startswith("sub_")
 
-        # OperationLog 应写入
-        log_count = (await test_session.execute(text(
-            "SELECT COUNT(*) FROM operation_logs WHERE action = 'subtitle_extract'"
-        ))).scalar()
-        assert log_count == 1
+        # DB 校验：subtitle_jobs (kind='single', total=1) + 1 个 subtitle_items
+        job_row = (await test_session.execute(text(
+            "SELECT sj.kind, sj.status, sj.total, si.original_url "
+            "FROM subtitle_jobs sj "
+            "LEFT JOIN subtitle_items si ON si.job_id = sj.id "
+            "WHERE sj.job_code = :jc"
+        ), {"jc": job_code})).fetchone()
+        assert job_row is not None
+        assert job_row.kind == "single"
+        assert job_row.status == "processing"
+        assert job_row.total == 1
+
+        item_count = (await test_session.execute(text(
+            "SELECT COUNT(*) FROM subtitle_items si "
+            "JOIN subtitle_jobs sj ON sj.id = si.job_id WHERE sj.job_code = :jc"
+        ), {"jc": job_code})).scalar()
+        assert item_count == 1
+
+        # OperationLog 应写入（按 job_code 精确匹配，避免被其他测试的日志污染）
+        log_exists = (await test_session.execute(text(
+            "SELECT EXISTS(SELECT 1 FROM operation_logs "
+            "WHERE action = 'subtitle_extract' AND detail::json->>'job_code' = :jc)"
+        ), {"jc": job_code})).scalar()
+        assert log_exists
 
     @pytest.mark.asyncio
     async def test_extract_success_via_file_url(
         self, test_client, operator_headers, test_session
     ):
-        """file_url（前端已上传到 OSS）→ 直接 ASR → 字幕（不走 tikhub）"""
+        """file_url 提交 → 立即返回 job_code，original_url 带 file:// 前缀。"""
         with patch(
-            "app.routers.operator_subtitle.asr_adapter.transcribe",
-            AsyncMock(return_value="文件字幕"),
+            "app.routers.operator_subtitle._run_single_extract",
+            AsyncMock(return_value=None),
         ):
             resp = await test_client.post(
                 "/api/tools/subtitle/extract",
@@ -143,8 +159,15 @@ class TestExtract:
         assert resp.status_code == 200
         body = resp.json()
         assert body["success"] is True
-        assert body["data"]["text"] == "文件字幕"
-        assert body["data"]["audio_url"] == "https://oss.example.com/audio/uploaded.mp3"
+        assert body["data"]["status"] == "processing"
+
+        # 校验 original_url 用 file:// 前缀（后台任务按此分流走 file_url 分支）
+        original_url = (await test_session.execute(text(
+            "SELECT si.original_url FROM subtitle_items si "
+            "JOIN subtitle_jobs sj ON sj.id = si.job_id "
+            "WHERE sj.job_code = :jc"
+        ), {"jc": body["data"]["job_code"]})).scalar()
+        assert original_url == "file://https://oss.example.com/audio/uploaded.mp3"
 
     @pytest.mark.asyncio
     async def test_extract_empty_input(self, test_client, operator_headers):
@@ -156,42 +179,194 @@ class TestExtract:
         )
         assert resp.status_code == 400
 
+
+class TestRunSingleExtract:
+    """_run_single_extract 后台任务测试（直接调函数，绕过 HTTP 层）。
+
+    覆盖：成功路径（视频元信息存 meta_json）+ tikhub 失败 + ASR 失败 + file_url 分支。
+    """
+
     @pytest.mark.asyncio
-    async def test_extract_tikhub_failure(self, test_client, operator_headers):
-        """tikhub 解析失败 → 502"""
+    async def test_run_single_extract_success_via_share_text(
+        self, test_client, operator_headers, test_session
+    ):
+        """share_text 模式：tikhub + ASR 都成功 → job.status=completed, item.meta_json 有视频元信息。"""
+        with patch(
+            "app.routers.operator_subtitle._run_single_extract",
+            AsyncMock(return_value=None),
+        ):
+            # 1. HTTP 提交创建 job（mock 后台任务不实际跑）
+            resp = await test_client.post(
+                "/api/tools/subtitle/extract",
+                headers=operator_headers,
+                json={"share_text": "https://v.douyin.com/xxx/"},
+            )
+        job_code = resp.json()["data"]["job_code"]
+        job_id = (await test_session.execute(text(
+            "SELECT id FROM subtitle_jobs WHERE job_code = :jc"
+        ), {"jc": job_code})).scalar()
+        user_id = (await test_session.execute(text(
+            "SELECT created_by FROM subtitle_jobs WHERE id = :jid"
+        ), {"jid": job_id})).scalar()
+
+        # 2. 真实跑 _run_single_extract（mock tikhub + asr）
+        from app.routers.operator_subtitle import _run_single_extract
         with patch(
             "app.routers.operator_subtitle.tikhub_adapter.fetch_video_by_share_url",
-            AsyncMock(side_effect=RuntimeError("tikhub error")),
+            AsyncMock(return_value={
+                "aweme_id": "7012345",
+                "title": "测试视频",
+                "digg_count": 50000,
+                "play_url": "https://example.com/play.mp4",
+                "audio_url": "https://example.com/audio.mp3",
+                "cover_url": "https://example.com/cover.jpg",
+                "nickname": "测试作者",
+            }),
+        ), patch(
+            "app.routers.operator_subtitle.asr_adapter.transcribe",
+            AsyncMock(return_value="这是字幕文本"),
+        ):
+            await _run_single_extract(job_id, user_id)
+
+        # 3. 校验最终状态
+        row = (await test_session.execute(text(
+            "SELECT sj.status, sj.success, sj.failed, si.title, si.transcript, si.meta_json, si.status AS item_status "
+            "FROM subtitle_jobs sj JOIN subtitle_items si ON si.job_id = sj.id "
+            "WHERE sj.id = :jid"
+        ), {"jid": job_id})).fetchone()
+        assert row.status == "completed"
+        assert row.success == 1
+        assert row.failed == 0
+        assert row.item_status == "success"
+        assert row.title == "测试视频"
+        assert row.transcript == "这是字幕文本"
+        # meta_json 含完整视频元信息
+        import json as _json
+        meta = _json.loads(row.meta_json)
+        assert meta["play_url"] == "https://example.com/play.mp4"
+        assert meta["audio_url"] == "https://example.com/audio.mp3"
+        assert meta["cover_url"] == "https://example.com/cover.jpg"
+        assert meta["nickname"] == "测试作者"
+        assert meta["digg_count"] == 50000
+        assert meta["aweme_id"] == "7012345"
+
+    @pytest.mark.asyncio
+    async def test_run_single_extract_success_via_file_url(
+        self, test_client, operator_headers, test_session
+    ):
+        """file_url 模式：跳过 tikhub 直接 ASR，meta_json 为 NULL。"""
+        with patch(
+            "app.routers.operator_subtitle._run_single_extract",
+            AsyncMock(return_value=None),
+        ):
+            resp = await test_client.post(
+                "/api/tools/subtitle/extract",
+                headers=operator_headers,
+                json={"file_url": "https://oss.example.com/audio/uploaded.mp3"},
+            )
+        job_code = resp.json()["data"]["job_code"]
+        job_id = (await test_session.execute(text(
+            "SELECT id FROM subtitle_jobs WHERE job_code = :jc"
+        ), {"jc": job_code})).scalar()
+        user_id = (await test_session.execute(text(
+            "SELECT created_by FROM subtitle_jobs WHERE id = :jid"
+        ), {"jid": job_id})).scalar()
+
+        from app.routers.operator_subtitle import _run_single_extract
+        with patch(
+            "app.routers.operator_subtitle.asr_adapter.transcribe",
+            AsyncMock(return_value="文件字幕"),
+        ):
+            await _run_single_extract(job_id, user_id)
+
+        row = (await test_session.execute(text(
+            "SELECT sj.status, si.transcript, si.meta_json FROM subtitle_jobs sj "
+            "JOIN subtitle_items si ON si.job_id = sj.id WHERE sj.id = :jid"
+        ), {"jid": job_id})).fetchone()
+        assert row.status == "completed"
+        assert row.transcript == "文件字幕"
+        assert row.meta_json is None  # file_url 模式不存视频元信息
+
+    @pytest.mark.asyncio
+    async def test_run_single_extract_tikhub_failure(
+        self, test_client, operator_headers, test_session
+    ):
+        """tikhub 抛错 → job.status=failed, item.error 有错信息。"""
+        with patch(
+            "app.routers.operator_subtitle._run_single_extract",
+            AsyncMock(return_value=None),
         ):
             resp = await test_client.post(
                 "/api/tools/subtitle/extract",
                 headers=operator_headers,
                 json={"share_text": "https://v.douyin.com/xxx/"},
             )
-        assert resp.status_code == 502
+        job_code = resp.json()["data"]["job_code"]
+        job_id = (await test_session.execute(text(
+            "SELECT id FROM subtitle_jobs WHERE job_code = :jc"
+        ), {"jc": job_code})).scalar()
+        user_id = (await test_session.execute(text(
+            "SELECT created_by FROM subtitle_jobs WHERE id = :jid"
+        ), {"jid": job_id})).scalar()
+
+        from app.routers.operator_subtitle import _run_single_extract
+        with patch(
+            "app.routers.operator_subtitle.tikhub_adapter.fetch_video_by_share_url",
+            AsyncMock(side_effect=RuntimeError("tikhub error")),
+        ):
+            await _run_single_extract(job_id, user_id)
+
+        row = (await test_session.execute(text(
+            "SELECT sj.status, sj.failed, si.status AS item_status, si.error "
+            "FROM subtitle_jobs sj JOIN subtitle_items si ON si.job_id = sj.id "
+            "WHERE sj.id = :jid"
+        ), {"jid": job_id})).fetchone()
+        assert row.status == "failed"
+        assert row.failed == 1
+        assert row.item_status == "failed"
+        assert "tikhub error" in row.error
 
     @pytest.mark.asyncio
-    async def test_extract_asr_failure(self, test_client, operator_headers):
-        """ASR 失败 → 502"""
+    async def test_run_single_extract_asr_failure(
+        self, test_client, operator_headers, test_session
+    ):
+        """tikhub 成功但 ASR 抛错 → job.status=failed, item.error 含 ASR 错。"""
+        with patch(
+            "app.routers.operator_subtitle._run_single_extract",
+            AsyncMock(return_value=None),
+        ):
+            resp = await test_client.post(
+                "/api/tools/subtitle/extract",
+                headers=operator_headers,
+                json={"share_text": "https://v.douyin.com/xxx/"},
+            )
+        job_code = resp.json()["data"]["job_code"]
+        job_id = (await test_session.execute(text(
+            "SELECT id FROM subtitle_jobs WHERE job_code = :jc"
+        ), {"jc": job_code})).scalar()
+        user_id = (await test_session.execute(text(
+            "SELECT created_by FROM subtitle_jobs WHERE id = :jid"
+        ), {"jid": job_id})).scalar()
+
+        from app.routers.operator_subtitle import _run_single_extract
         with patch(
             "app.routers.operator_subtitle.tikhub_adapter.fetch_video_by_share_url",
             AsyncMock(return_value={
-                "aweme_id": "1",
-                "title": "T",
-                "digg_count": 0,
-                "play_url": "p",
-                "audio_url": "https://example.com/a.mp3",
+                "aweme_id": "1", "title": "T", "digg_count": 0,
+                "play_url": "p", "audio_url": "https://example.com/a.mp3",
             }),
         ), patch(
             "app.routers.operator_subtitle.asr_adapter.transcribe",
             AsyncMock(side_effect=RuntimeError("ASR timeout")),
         ):
-            resp = await test_client.post(
-                "/api/tools/subtitle/extract",
-                headers=operator_headers,
-                json={"share_text": "https://v.douyin.com/xxx/"},
-            )
-        assert resp.status_code == 502
+            await _run_single_extract(job_id, user_id)
+
+        row = (await test_session.execute(text(
+            "SELECT sj.status, si.error FROM subtitle_jobs sj "
+            "JOIN subtitle_items si ON si.job_id = sj.id WHERE sj.id = :jid"
+        ), {"jid": job_id})).fetchone()
+        assert row.status == "failed"
+        assert "ASR timeout" in row.error
 
 
 # ---------------------------------------------------------------------------
@@ -329,11 +504,13 @@ class TestBatch:
         ), {"jc": data["job_code"]})).scalar()
         assert item_count == 2
 
-        # OperationLog 写入
-        log_count = (await test_session.execute(text(
-            "SELECT COUNT(*) FROM operation_logs WHERE action = 'subtitle_batch_create'"
-        ))).scalar()
-        assert log_count == 1
+        # OperationLog 写入（EXISTS + job_code 匹配，避免其他测试用例污染计数）
+        log_exists = (await test_session.execute(text(
+            "SELECT EXISTS(SELECT 1 FROM operation_logs "
+            "WHERE action = 'subtitle_batch_create' "
+            "AND detail::json->>'job_code' = :jc)"
+        ), {"jc": data["job_code"]})).scalar()
+        assert log_exists is True
 
     @pytest.mark.asyncio
     async def test_batch_create_empty(self, test_client, operator_headers):

@@ -1,6 +1,6 @@
 # MCN_PM_Agent — 项目记忆与当前状态（M2）
 
-> 最后更新：2026-06-25（**Sprint 18 素材库迁移完成（分支 migrate/material-library，待 PR）**：迁移自旧架构 `Ai_Toolbox/material-library-web/`。后端 migration 034 + 2 张新表（kol_references + material_library_configs）+ 9 个 API（7 运营 + 2 管理）+ 22 个后端测试通过 + 6/6 convention_guard；前端 MaterialLibraryPage（左右分栏 4 Tab：人格档案/内容规划/参考素材/入驻信息）+ MaterialLibraryConfigTab + 18 个前端测试通过（vitest 全量 198/198）。关键决策：人格档案/内容规划复用 kols.persona + kols.content_plan（**不新建 profile 表**，避免字段重复）。契约文档同步：Base_API §24 + Base_Database §28-29 + 前后端 README + 根 README。带旧数据迁移脚本 `migrate_material_library.py`（dry-run 验证 OK）。上一个：Sprint 16 种草内容仿写迁移完成）
+> 最后更新：2026-06-27（**Sprint 21 字幕异步任务化 + 统一历史 + 软删除**完成，分支 `feature/subtitle-async-history`，独立 PR）：基于 Sprint 19 字幕提取（main，PR #14 已合并）的迭代。POST /extract 改异步（kind='single' + 后台 `_run_single_extract`）+ 新增 DELETE /batch/{job_code} 软删除 + 前端 HistoryList 组件统一展示单条+批量历史（含复制/重生成思维导图/删除）。migration 044（subtitle_jobs.kind/deleted_at）+ 045（subtitle_items.meta_json）。后端 30+11 测试全过，前端 5+6 测试全过。**待用户浏览器验证 8 项**。上一个：Sprint 19 字幕提取迁移完成（main，PR #14））
 
 
 > **📋 Sprint 17 backlog**（已写需求文档，待开工）：管理端调用日志扩展（用户列 + 功能列）—— `docs/pm/M2_Sprint17_管理端调用日志扩展_需求文档.md`，方案 A 最小可用 ~75 分钟，5 个决策点待 review。同期排障发现 TikHub Cloudflare 网关间歇 502（约 40% 故障率，**非代码 bug**），后续如频繁影响可加 adapter 自动重试（独立任务，未开工）
@@ -32,7 +32,35 @@
 
 ## 二、M2 阶段（当前）
 
-### M2 工作项 — Sprint 19 字幕提取（subtitle-extractor）迁移 ✅ 完成（分支 `feature/oss-adapter` 同分支内推进，待 PR）
+### M2 工作项 — Sprint 21 字幕提取异步任务化 + 统一历史 + 软删除 ✅ 完成（分支 `feature/subtitle-async-history`，独立 PR）
+
+**背景**：用户反馈"解析过程中切换页面回来后看不到历史记录"，且单条 ASR 解析需 1-3 分钟同步阻塞前端不合理。基于 Sprint 19 字幕提取（main，PR #14 已合并）做异步化迭代。
+
+**实施记录**：
+
+| # | 事项 | 结果 |
+|---|------|------|
+| 1 | Migration 044 + 045 | `subtitle_jobs.kind`（single/batch）+ `deleted_at`（软删除）+ `(kind, deleted_at)` 索引；`subtitle_items.meta_json`（单条任务的视频元信息 JSON） |
+| 2 | POST /extract 异步任务化 | 改为创建 `SubtitleJob(kind='single', total=1)` + 后台 `asyncio.create_task(_run_single_extract())`，立即返回 `{job_code, status:'processing'}`；前端拿 job_code 轮询 |
+| 3 | 新增 DELETE /batch/{job_code} | 软删除（设置 `deleted_at = now()`），写 OperationLog（action=`subtitle_delete`） |
+| 4 | GET /batches 改语义 | 单条+批量统一历史列表（过滤 `deleted_at IS NULL`），原"我的批量任务"语义被替换 |
+| 5 | 前端 HistoryList 组件 | `pages/operator/subtitle/HistoryList.tsx`（新建）：自包含，展开详情/复制/重新生成思维导图/删除/自动轮询 processing 任务 |
+| 6 | 前端 API 重命名 | `listMyBatches` → `listHistory`（保留别名），新增 `deleteHistory`；SubtitleExtractorPage 单条区改轮询模式（创建 job → 每 3s 轮询 → 完成显示） |
+| 7 | _item_to_dict 扁平化 | meta_json 里的 play_url/cover_url/nickname/digg_count/aweme_id 扁平到 API 响应顶层 |
+| 8 | 测试 | 后端 `test_operator_subtitle.py` 30/30 ✅ + `test_admin_subtitle.py` 11/11 ✅；前端 `SubtitleExtractorPage.test.tsx` 5/5 ✅ + `HistoryList.test.tsx` 6/6 ✅ |
+| 9 | 文档 | 契约 Base_API §25 + Base_Database §30 + 前后端 README + 需求文档 + 前后端任务单 + 测试报告 + 前后端开发验收 均已落地 |
+
+**踩坑记录**：
+1. **OperationLog COUNT 全量套件污染**：测试 `WHERE action = 'subtitle_xxx'` 在全量 suite 跑时其他用例污染计数，改用 `EXISTS + detail::json->>'job_code' = :jc` 精确匹配
+2. **批量 replace_all 漏 `result?.text` 可选链版本**：`replace_all('result.text' → 'result.transcript')` 漏掉 5 处 `result?.text`，单独再做一次 `replace_all('result?.text' → 'result?.transcript')`
+3. **fake timers + userEvent 异步轮询测试**：必须 `vi.useFakeTimers({ shouldAdvanceTime: true })` + `userEvent.setup({ advanceTimers: vi.advanceTimersByTime })`，否则 setInterval 不触发
+4. **Windows watchfiles 不触发 uvicorn reload**：改完代码后必须手动重启 uvicorn（kill 父+子+multiprocessing 孙三个进程），不能依赖 --reload 自动加载
+
+**不在本次范围**：思维导图持久化（仍只缓存前端 state）、批量任务的"重新生成思维导图"（仅单条支持）、WebSocket 推送（仍轮询）、历史记录搜索/筛选、批量任务的批量删除。
+
+---
+
+### M2 工作项 — Sprint 19 字幕提取（subtitle-extractor）迁移 ✅ 完成（main，PR #14 已合并）
 
 **背景**：旧架构 `Ai_Toolbox/subtitle-extractor-web/` 全量迁移。Sprint 3 起即有 `tool_transcribe.py`（云雾 Whisper，Sprint 3 债务），本次新建 `operator_subtitle.py` + `admin_subtitle.py`，与 tool_transcribe.py 不冲突。ASR adapter 已在 Sprint 4+ 就绪可调用。
 

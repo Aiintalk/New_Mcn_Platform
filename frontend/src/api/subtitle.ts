@@ -1,18 +1,28 @@
-import { get, post, put } from './request';
+import { get, post, put, del } from './request';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export interface ExtractResult {
-  text: string;
-  title: string;
-  audio_url: string;
+/** POST /extract 响应（异步任务化后只返回 job_code） */
+export interface ExtractResponse {
+  job_code: string;
+  status: 'processing';
 }
 
 export interface ExtractRequest {
   share_text?: string;
   file_url?: string;
+}
+
+/** 单条任务完成后从 item 里扁平出来的视频元信息 */
+export interface VideoMeta {
+  play_url?: string;
+  audio_url?: string;
+  cover_url?: string | null;
+  nickname?: string;
+  digg_count?: number;
+  aweme_id?: string;
 }
 
 export interface MindmapBranch {
@@ -49,7 +59,7 @@ export interface SubtitleBatchItem {
   share_text: string;
 }
 
-export interface SubtitleItem {
+export interface SubtitleItem extends VideoMeta {
   id: number;
   row_number: number;
   original_url: string;
@@ -62,6 +72,8 @@ export interface SubtitleItem {
 export interface SubtitleJob {
   id: number;
   job_code: string;
+  /** single（单条 extract）| batch（批量任务） */
+  kind: 'single' | 'batch';
   status: 'processing' | 'completed' | 'failed';
   phase: string;
   total: number;
@@ -95,9 +107,9 @@ export interface BatchListResponse {
 // Operator API
 // ---------------------------------------------------------------------------
 
-/** 单条字幕提取：share_text（抖音链接）或 file_url（已上传 OSS）→ ASR → 字幕 */
+/** 单条字幕提取（异步）：share_text/file_url → 创建 job → 返回 job_code → 前端轮询 */
 export const extractSubtitle = (data: ExtractRequest) =>
-  post<ExtractResult>('/api/tools/subtitle/extract', data);
+  post<ExtractResponse>('/api/tools/subtitle/extract', data);
 
 /** 字幕 → AI 思维导图（rootTitle + summary + branches） */
 export const generateMindmap = (transcript: string) =>
@@ -107,16 +119,23 @@ export const generateMindmap = (transcript: string) =>
 export const createBatch = (items: SubtitleBatchItem[]) =>
   post<BatchCreateResponse>('/api/tools/subtitle/batch', { items });
 
-/** 按 job_code 查询自己创建的批量任务（含 items 进度，仅自己创建的） */
+/** 按 job_code 查询任务详情（含 items / transcript / 视频元信息） */
 export const getBatchByJobCode = (jobCode: string) =>
   get<SubtitleJob>(`/api/tools/subtitle/batch/${jobCode}`);
 
-/** 我的批量任务列表（分页，按 created_at 倒序） */
-export const listMyBatches = (page = 1, pageSize = 20) =>
+/** 历史记录列表（单条 + 批量统一展示，按 created_at 倒序，过滤软删除） */
+export const listHistory = (page = 1, pageSize = 20) =>
   get<BatchListResponse>('/api/tools/subtitle/batches', {
     page,
     page_size: pageSize,
   });
+
+/** 兼容旧调用方（已改为 listHistory，行为一致） */
+export const listMyBatches = listHistory;
+
+/** 软删除一条历史记录（设置 deleted_at） */
+export const deleteHistory = (jobCode: string) =>
+  del<{ job_code: string; deleted: boolean }>(`/api/tools/subtitle/batch/${jobCode}`);
 
 // ---------------------------------------------------------------------------
 // Save to output center

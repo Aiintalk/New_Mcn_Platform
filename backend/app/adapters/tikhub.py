@@ -329,7 +329,10 @@ async def fetch_video_by_share_url(share_url: str, db: AsyncSession) -> dict:
     参数: share_url（抖音分享链接，含短链和分享文本）
 
     Returns:
-        {"aweme_id": str, "title": str, "digg_count": int, "play_url": str}
+        {
+            "aweme_id": str, "title": str, "digg_count": int, "play_url": str,
+            "cover_url": str, "nickname": str,
+        }
     """
     cred_id, api_key, base_url = await _get_key_and_url(db)
     try:
@@ -360,19 +363,36 @@ async def fetch_video_by_share_url(share_url: str, db: AsyncSession) -> dict:
         desc = aweme.get("desc", "")
         digg_count = (aweme.get("statistics") or {}).get("digg_count", 0)
 
-        # play_url: 尝试多种路径
-        play_url = ""
+        # play_url: video.play_addr.url_list[0]（视频流，给前端"下载视频"按钮 + seeding-writer 下载素材）
         video = aweme.get("video") or {}
         play_addr = video.get("play_addr") or {}
         url_list = play_addr.get("url_list") or []
-        if url_list:
-            play_url = url_list[0]
+        play_url = url_list[0] if url_list else ""
+
+        # audio_url: 只用 music.play_url（音频流，体积小，ASR 快 5-10x）。
+        # 不再回退 video.play_addr —— 视频流做 ASR 需先解提音轨，慢且易失败，
+        # ASR 失败时直接报错暴露问题，比"看起来成功但慢"更好排查。
+        music = aweme.get("music") or {}
+        music_play_url = (music.get("play_url") or {}).get("url_list") or []
+        audio_url = music_play_url[0] if music_play_url else ""
+
+        # cover_url: video.cover.url_list[0]
+        cover = video.get("cover") or {}
+        cover_url_list = cover.get("url_list") or []
+        cover_url = cover_url_list[0] if cover_url_list else ""
+
+        # nickname: author.nickname
+        author = aweme.get("author") or {}
+        nickname = author.get("nickname", "")
 
         return {
             "aweme_id": aweme_id,
             "title": desc,
             "digg_count": digg_count,
             "play_url": play_url,
+            "audio_url": audio_url,
+            "cover_url": cover_url,
+            "nickname": nickname,
         }
     except Exception as e:
         await report_failure(cred_id, db)

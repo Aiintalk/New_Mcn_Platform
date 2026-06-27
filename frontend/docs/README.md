@@ -42,7 +42,8 @@ frontend/
 │   │   ├── qianchuanWriter.ts         #   千川文案写作（Sprint 14）
 │   │   ├── personaWriter.ts           #   人设脚本仿写（Sprint 15）
 │   │   ├── seedingWriter.ts           #   种草内容仿写（Sprint 16）：22 个函数（16 走 request.ts + 4 SSE 流式 + 1 multipart + 1 Blob 下载例外）
-│   │   └── materialLibrary.ts         #   素材库（Sprint 18 迁移）：10 个函数（7 运营端 + 3 管理端），全部走 request.ts
+│   │   ├── materialLibrary.ts         #   素材库（Sprint 18 迁移）：10 个函数（7 运营端 + 3 管理端），全部走 request.ts
+│   │   └── subtitle.ts                #   字幕提取（Sprint 19 迁移；Sprint 21 异步任务化：extract 返回 job_code，前端轮询；listHistory 统一历史 + deleteHistory 软删除）
 │   ├── layouts/                       # 布局组件
 │   │   ├── AdminLayout.tsx            #   管理端布局（左侧菜单 + 内容区）
 │   │   ├── OperatorLayout.tsx         #   运营端布局（左侧菜单 + 内容区）

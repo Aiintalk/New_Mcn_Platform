@@ -445,8 +445,15 @@ async def test_fetch_video_by_share_url_success(mock_resolve, mock_failure, mock
                     "video": {
                         "play_addr": {
                             "url_list": ["https://example.com/play.mp4"]
+                        },
+                        "cover": {
+                            "url_list": ["https://example.com/cover.jpg"]
                         }
                     },
+                    "music": {
+                        "play_url": {"url_list": ["https://example.com/audio.mp3"]}
+                    },
+                    "author": {"nickname": "测试作者"},
                 }
             }
         }
@@ -459,6 +466,55 @@ async def test_fetch_video_by_share_url_success(mock_resolve, mock_failure, mock
     assert result["title"] == "测试视频"
     assert result["digg_count"] == 250000
     assert result["play_url"] == "https://example.com/play.mp4"
+    assert result["audio_url"] == "https://example.com/audio.mp3"  # 优先 music.play_url
+    assert result["cover_url"] == "https://example.com/cover.jpg"
+    assert result["nickname"] == "测试作者"
+
+
+@pytest.mark.asyncio
+@patch("app.adapters.tikhub._get_key_and_url")
+@patch("app.adapters.tikhub.report_success", new_callable=AsyncMock)
+@patch("app.adapters.tikhub.report_failure", new_callable=AsyncMock)
+@patch("app.adapters.tikhub._resolve_short_url", new_callable=AsyncMock)
+async def test_fetch_video_by_share_url_audio_empty_when_no_music(
+    mock_resolve, mock_failure, mock_success, mock_get_key
+):
+    """music.play_url 缺失时，audio_url 应为空字符串（不再回退到 video.play_addr）。
+
+    ASR 只接受音频流；视频流做 ASR 需先解提音轨，慢且易失败，故保持空让上层报错。
+    play_url 仍然返回（前端"下载视频"按钮、seeding-writer 下载素材仍可用）。
+    """
+    mock_get_key.return_value = (1, "test_key", "https://api.tikhub.io")
+    mock_resolve.return_value = "https://www.douyin.com/video/7234"
+    mock_db = AsyncMock()
+
+    with patch("httpx.AsyncClient") as MockClient:
+        client_instance = AsyncMock()
+        MockClient.return_value.__aenter__.return_value = client_instance
+
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.raise_for_status = MagicMock()
+        # 故意不带 music 字段
+        resp.json.return_value = {
+            "data": {
+                "aweme_detail": {
+                    "aweme_id": "7234",
+                    "desc": "无音频流的视频",
+                    "statistics": {"digg_count": 100},
+                    "video": {
+                        "play_addr": {"url_list": ["https://example.com/play.mp4"]},
+                    },
+                }
+            }
+        }
+        client_instance.get.return_value = resp
+
+        from app.adapters.tikhub import fetch_video_by_share_url
+        result = await fetch_video_by_share_url("https://v.douyin.com/xxx/", mock_db)
+
+    assert result["audio_url"] == ""  # 不再回退到视频流
+    assert result["play_url"] == "https://example.com/play.mp4"  # 视频流仍返回
 
 
 @pytest.mark.asyncio

@@ -1044,38 +1044,43 @@ migration 034 UPSERT：
 批量字幕任务、任务条目、思维导图配置 3 表。迁移自旧架构 `Ai_Toolbox/subtitle-extractor-web/lib/db.ts`（SQLite）→ PostgreSQL。
 产出接入共享 `outputs` 表（不新建产出表）。
 
-### 30.1 subtitle_jobs 批量任务表
+### 30.1 subtitle_jobs 任务表（单条 + 批量统一）
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `id` | BIGSERIAL | 是 | 主键 |
 | `job_code` | VARCHAR(32) UNIQUE | 是 | 服务端任务码 `sub_yyyymmdd_xxxxxxxx` |
+| `kind` | VARCHAR(16) | 是 | `single`（单条 extract，Sprint 21 起异步化）/ `batch`（批量任务，默认）|
 | `status` | VARCHAR(16) | 是 | `processing` / `completed` / `failed`（默认 `processing`）|
 | `phase` | VARCHAR(64) | 是 | 执行阶段：`queued` / `running` / `done` |
-| `total` | INT | 是 | 总条数 |
+| `total` | INT | 是 | 总条数（单条恒为 1）|
 | `success` | INT | 是 | 成功条数 |
 | `failed` | INT | 是 | 失败条数 |
 | `created_by` | BIGINT FK → users(id) ON DELETE SET NULL | 否 | 创建者（任务通过此字段绑定用户身份，无 access_code）|
 | `created_at` / `updated_at` | TIMESTAMPTZ | 是 | 默认 NOW() |
+| `deleted_at` | TIMESTAMPTZ | 否 | 软删除时间戳（Sprint 21 新增，`NULL` 表示未删除）|
 
-索引：`idx_subtitle_jobs_created_by`、`idx_subtitle_jobs_status`。
+索引：`idx_subtitle_jobs_created_by`、`idx_subtitle_jobs_status`、`idx_subtitle_jobs_kind_deleted`（`(kind, deleted_at)` Sprint 21 新增，用于历史记录列表过滤）。
 
-### 30.2 subtitle_items 批量任务条目表
+### 30.2 subtitle_items 任务条目表
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `id` | BIGSERIAL | 是 | 主键 |
 | `job_id` | BIGINT FK → subtitle_jobs(id) ON DELETE CASCADE | 是 | 所属任务 |
 | `row_number` | INT | 是 | 行号（从 1 开始）|
-| `original_url` | TEXT | 是 | 原始抖音分享文本 |
+| `original_url` | TEXT | 是 | 原始抖音分享文本（file_url 模式为 `file://...`）|
 | `title` | TEXT | 是 | 视频标题（成功后填充）|
 | `transcript` | TEXT | 是 | 字幕文本（成功后填充）|
 | `status` | VARCHAR(16) | 是 | `pending` / `processing` / `success` / `failed`（默认 `pending`）|
 | `error` | TEXT | 是 | 失败原因（失败时填充）|
+| `meta_json` | TEXT | 否 | 单条 extract 完成后的视频元信息 JSON（`play_url`/`audio_url`/`cover_url`/`nickname`/`digg_count`/`aweme_id`）；批量任务为 NULL（Sprint 21 新增）|
 | `created_at` / `updated_at` | TIMESTAMPTZ | 是 | 默认 NOW() |
 
 约束：`UNIQUE (job_id, row_number)`。
 索引：`idx_subtitle_items_job`。
+
+> **API 输出说明**：`meta_json` 在 API 响应里会被扁平化到 item 顶层（`item.play_url`、`item.cover_url` 等），客户端无需自行 JSON.parse。批量任务的 item 这些字段为空值。
 
 ### 30.3 subtitle_configs 思维导图配置表
 
