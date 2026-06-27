@@ -2222,3 +2222,170 @@ Request Body：
 ```
 
 Response：`Content-Type: text/event-stream`
+
+---
+
+## 27. qianchuan-script-review 千川脚本预审（Sprint 21）
+
+### 27.1 说明
+
+对千川脚本进行 AI 预审，支持「千川直销模式」和「价值观模式」两种类型，返回结构化审核结论（rating / must_fix / suggestions / passed）。
+
+### 27.2 管理端接口
+
+#### GET `/api/admin/qianchuan-script-review/config`
+
+读取 `config_key='default'` 配置。鉴权：admin 角色。
+
+Response `data`：
+```json
+{
+  "id": 1,
+  "config_key": "default",
+  "direct_prompt": "...",
+  "value_prompt": "...",
+  "ai_model_id": null,
+  "is_active": true,
+  "updated_at": "2026-06-27T00:00:00Z"
+}
+```
+
+#### PUT `/api/admin/qianchuan-script-review/config`
+
+更新 default 配置（PATCH 语义）。鉴权：admin 角色。写 OperationLog（action=`admin_update_script_review_config`）。
+
+Request Body（所有字段可选）：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `direct_prompt` | string\|null | 千川直销模式 Prompt（含 `{original_script}`/`{adapted_script}`/`{product_info}` 占位符） |
+| `value_prompt` | string\|null | 价值观模式 Prompt（含 `{original_script}`/`{adapted_script}` 占位符） |
+| `ai_model_id` | int\|null | AI 模型 ID（null 时默认 claude-sonnet-4-6） |
+| `is_active` | bool | 启用开关 |
+
+### 27.3 运营端接口
+
+#### POST `/api/operator/qianchuan-script-review/review`
+
+非流式脚本预审，等待 AI 返回完整 JSON 结论。鉴权：operator/admin 角色。
+
+Request Body：
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `script_type` | `"direct"\|"value"` | 是 | 预审模式 |
+| `original_script` | string | 是 | 原版脚本 |
+| `adapted_script` | string | 是 | 仿写脚本 |
+| `product` | object\|null | 否 | 产品信息（direct 模式使用），key-value 字典 |
+
+Response `data`：
+```json
+{
+  "rating": "pass",
+  "must_fix": [{ "type": "价格替换", "quote": "原文引用", "fix": "修改建议" }],
+  "suggestions": ["可选优化建议"],
+  "passed": ["通过项说明"]
+}
+```
+
+`rating` 取值：`pass`（可上线）/ `minor`（小改可上线）/ `fail`（需大改）。
+
+---
+
+## 28. retrospective 复盘（Sprint 22）
+
+### 28.1 说明
+
+红人工作台复盘模块。支持多维度材料录入（直播数据/素材数据/评价文字/直播脚本/素材脚本），AI 流式生成复盘报告，支持保存/历史管理/导出 Word。
+
+接口前缀：`/api/operator/workspace/{kol_id}/retrospective`（运营端）、`/api/admin/retrospective`（管理端）。
+
+### 28.2 管理端接口
+
+#### GET `/api/admin/retrospective/config`
+
+读取复盘 AI 配置（config_key='default'）。鉴权：admin 角色。
+
+Response `data`：
+```json
+{
+  "id": 1,
+  "config_key": "default",
+  "system_prompt": null,
+  "ai_model_id": null,
+  "is_active": true,
+  "updated_at": null
+}
+```
+
+#### PUT `/api/admin/retrospective/config`
+
+更新复盘 AI 配置。鉴权：admin 角色。写 OperationLog（action=`admin_update_retrospective_config`）。
+
+Request Body（所有字段可选）：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `system_prompt` | string\|null | AI System Prompt（null 时用内置默认） |
+| `ai_model_id` | int\|null | AI 模型 ID（null 时默认 claude-sonnet-4-6） |
+| `is_active` | bool | 启用开关 |
+
+### 28.3 运营端接口
+
+#### GET `/api/operator/workspace/{kol_id}/retrospective`
+
+分页查询该红人的复盘列表（仅当前用户创建的）。鉴权：operator/admin。
+
+Query：`page`（默认1）、`page_size`（10/20/50，默认10）。
+
+Response `data`：
+```json
+{
+  "total": 5,
+  "page": 1,
+  "page_size": 10,
+  "items": [{ "id": 1, "title": "6月复盘", "status": "done", "updated_at": "..." }]
+}
+```
+
+#### POST `/api/operator/workspace/{kol_id}/retrospective`
+
+新建或更新复盘记录（upsert by id）。鉴权：operator/admin。写 OperationLog（action=`upsert_retrospective_session`）。
+
+Request Body：
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | int\|null | 否 | 有则更新，无则新建 |
+| `title` | string | 是 | 复盘标题 |
+| `live_data` | string\|null | 否 | 直播数据（文本） |
+| `material_data` | string\|null | 否 | 素材数据（文本） |
+| `review_text` | string\|null | 否 | 评价文字 |
+| `live_script` | string\|null | 否 | 直播脚本 |
+| `material_scripts` | array\|null | 否 | 素材脚本列表（`[{name, text}]`） |
+
+Response `data`：完整 RetrospectiveSession 对象。
+
+#### DELETE `/api/operator/workspace/{kol_id}/retrospective/{id}`
+
+物理删除复盘记录。写 OperationLog（action=`delete_retrospective_session`）。
+
+Response `data`：`{ "id": 1 }`
+
+#### POST `/api/operator/workspace/{kol_id}/retrospective/parse-files`
+
+解析上传文件为文本（multipart/form-data）。支持 PDF/DOCX/TXT/XLSX/PPTX/MD 格式。
+
+Response `data`：`{ "text": "解析出的文本..." }`
+
+#### POST stream `/api/operator/workspace/{kol_id}/retrospective/{id}/analyze`
+
+流式生成复盘报告（SSE）。生成完成后自动保存 `result`，更新 `status='done'`，写 OperationLog（action=`retrospective_analyze`）。
+
+Response：`Content-Type: text/event-stream`，格式：`data: {"delta": "..."}\n\ndata: [DONE]\n\n`
+
+#### GET `/api/operator/workspace/{kol_id}/retrospective/{id}/export-word`
+
+导出复盘报告为 Word 文件。
+
+Response：`application/vnd.openxmlformats-officedocument.wordprocessingml.document`

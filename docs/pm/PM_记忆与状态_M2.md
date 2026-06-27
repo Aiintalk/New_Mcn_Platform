@@ -1,8 +1,8 @@
 # MCN_PM_Agent — 项目记忆与当前状态（M2）
 
-> 最后更新：2026-06-26（**合并 main 进 feature/kol-workspace**：main 已合并 Sprint 18 素材库（material-library）+ Sprint 19 字幕提取（subtitle）。feature 分支原 Sprint 18-20（红人工作台基础架构/扩展 + 价值观仿写）保留。Migration 号段：main 034_material_library + 035_subtitle；feature 原 034-038 重命名为 039-043 避免冲突。Sprint 编号两侧有重叠（feature 与 main 各自有 Sprint 18/19），按时间顺序保留双方记录。最新功能：Sprint 20 价值观仿写完成）
+> 最后更新：2026-06-27（**Sprint 21 + Sprint 22 完成**：千川脚本预审（qianchuan-script-review）+ 复盘（retrospective）均已 commit 到 `feature/kol-workspace`。契约文档、测试报告、PM 记忆同步更新。分支待合并 PR。）
 
-> **🚧 当前进行中**：Sprint 20 完成，代码在 `feature/kol-workspace` 分支（PR #13）。下一个：Sprint 21 千川脚本预审。
+> **🚧 当前状态**：Sprint 21 + Sprint 22 代码 + 文档全部完成，`feature/kol-workspace` 分支等待合并（PR #13 待更新）。
 
 > **📋 Sprint 17 backlog**（已写需求文档，待开工）：管理端调用日志扩展（用户列 + 功能列）—— `docs/pm/M2_Sprint17_管理端调用日志扩展_需求文档.md`
 
@@ -33,6 +33,60 @@
 ## 二、M2 阶段（当前）
 
 > **Sprint 编号说明**：main 与 feature/kol-workspace 两分支并行开发期间各自用了 Sprint 18/19 编号，内容不同（main = 素材库/字幕；feature = 红人工作台）。合并后按"保留双方记录、时间序"原则记录如下，最新在前。
+
+### M2 工作项 — Sprint 22 复盘（retrospective）🔄 进行中 → ✅ 代码完成（feature/kol-workspace）
+
+**核心定位**：红人工作台复盘子模块。支持多维材料录入（直播数据/素材数据/评价文字/直播脚本/素材脚本），AI 流式生成复盘报告，支持历史管理和 Word 导出。不设 workspace_tools 注册（属 KolWorkspace 内嵌模块，非独立工作台工具）。
+
+| # | 事项 | 结果 |
+|---|------|------|
+| 1 | Migration 045 | `retrospective_sessions` + `retrospective_configs` 两张表 |
+| 2 | ORM 模型 2 个 | `RetrospectiveSession`、`RetrospectiveConfig` |
+| 3 | 后端接口 9 个 | admin GET/PUT config（2）+ operator list/create/delete/parse-files/analyze（SSE）/export-word（7） |
+| 4 | conftest.py 更新 | `operator_retrospective.AsyncSessionLocal` 加入 patch 列表 |
+| 5 | 前端 | `types/retrospective.ts` + `api/retrospective.ts` + `WorkspaceRetrospective.tsx`（三视图）+ `RetrospectiveConfigTab.tsx` |
+| 6 | 工作台接入 | `KolWorkspacePage.tsx` 加 `retrospective` 导航项 + `WorkspaceConfigPage` 注册 ConfigTab |
+| 7 | 后端集成测试 | 13 / 13 通过 |
+| 8 | 前端组件测试 | 6 / 6 通过 |
+| 9 | 契约文档 | `Base_API §28` + `Base_Database §34-35` 已更新 |
+| 10 | 测试报告 | `backend/docs/tests/M2_Sprint22_测试报告_复盘_v1.md` |
+
+**关键设计点**：
+- **三视图模式**：列表视图（历史）→ 编辑视图（录入材料 + 分析）→ 详情视图（查看报告）
+- **材料多维输入**：直播数据/素材数据/评价文字 支持文件解析（parse-files 接口），直播脚本/素材脚本支持粘贴
+- **analyze 自动保存**：SSE 流完成后后台 AsyncSessionLocal 写 result + status='done'，前端无需手动保存
+- **物理删除**：复盘记录允许物理删除（业务决策，非软删）
+
+**不在范围**：
+- 多用户共享复盘（当前按 created_by 隔离）
+- 复盘历史版本管理
+- 复盘模板功能
+
+---
+
+### M2 工作项 — Sprint 21 千川脚本预审（qianchuan-script-review）✅ 完成（feature/kol-workspace）
+
+**核心定位**：工作台独立工具页，对千川脚本进行 AI 预审。支持「千川直销模式」（检查产品名/价格/卖点替换）和「价值观模式」（评估情绪强度/信息差）两种预审类型，返回结构化结论（rating/must_fix/suggestions/passed）。
+
+| # | 事项 | 结果 |
+|---|------|------|
+| 1 | Migration 044 | `qianchuan_script_review_configs` 表 + 默认配置种子 |
+| 2 | 后端接口 3 个 | admin GET/PUT config（2）+ operator POST review（1，非流式） |
+| 3 | conftest.py 更新 | `operator_script_review.AsyncSessionLocal` 加入 patch 列表 |
+| 4 | 前端 | `types/scriptReview.ts` + `api/scriptReview.ts` + `QianchuanScriptReviewPage.tsx`（双栏布局）+ `ScriptReviewConfigTab.tsx` |
+| 5 | 路由注册 | `App.tsx` 加 `/workspace/qianchuan-script-review` lazy 路由 |
+| 6 | 后端集成测试 | 8 / 8 通过 |
+| 7 | 前端组件测试 | 7 / 7 通过 |
+| 8 | 契约文档 | `Base_API §27` + `Base_Database §33`（已存在）已更新 |
+| 9 | 测试报告 | `backend/docs/tests/M2_Sprint21_测试报告_qianchuan-script-review_v1.md` |
+
+**关键设计点**：
+- **非流式预审**：AI 返回完整 JSON，前端等待结果（不走 SSE），适合短脚本快速判定
+- **两 Prompt 合一配置**：`direct_prompt` + `value_prompt` 同存一条 `config_key='default'` 配置行
+- **JSON 容错解析**：AI 返回 markdown fence 包裹 JSON 时自动提取，解析失败返回 error_response
+- **rating 三档**：`pass`（可上线）/ `minor`（小改可上线）/ `fail`（需大改）
+
+---
 
 ### M2 工作项 — Sprint 20 价值观仿写 ✅ 完成（feature/kol-workspace，PR #13）
 
