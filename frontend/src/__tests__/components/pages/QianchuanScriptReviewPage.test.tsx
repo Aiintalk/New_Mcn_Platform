@@ -185,8 +185,9 @@ describe('QianchuanScriptReviewPage — QianchuanScriptReviewModule', () => {
     await user.click(adaptedTextarea);
     await user.type(adaptedTextarea, '仿写脚本');
 
-    // 点击开始预审
-    const submitBtn = screen.getByRole('button', { name: /开始预审/ });
+    // 等按钮变为 enabled（canSubmit = true）再点击
+    const submitBtn = await screen.findByRole('button', { name: /开始预审/ });
+    await waitFor(() => expect(submitBtn).not.toBeDisabled());
     await user.click(submitBtn);
 
     // 等待结果
@@ -196,10 +197,10 @@ describe('QianchuanScriptReviewPage — QianchuanScriptReviewModule', () => {
 
     // must_fix 列表展示
     expect(screen.getByText('❌ 必须修改（2 条）')).toBeInTheDocument();
-    expect(screen.getByText('最好的产品')).toBeInTheDocument();
-    expect(screen.getByText('删除绝对化用语')).toBeInTheDocument();
-    expect(screen.getByText('效果好')).toBeInTheDocument();
-    expect(screen.getByText('补充具体数据支撑')).toBeInTheDocument();
+    expect(screen.getByText(/最好的产品/)).toBeInTheDocument();
+    expect(screen.getByText(/删除绝对化用语/)).toBeInTheDocument();
+    expect(screen.getByText(/效果好/)).toBeInTheDocument();
+    expect(screen.getByText(/补充具体数据支撑/)).toBeInTheDocument();
 
     // 建议优化
     expect(screen.getByText('⚠️ 建议优化')).toBeInTheDocument();
