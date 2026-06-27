@@ -69,6 +69,7 @@ from app.routers import operator_qianchuan_products
 from app.routers import operator_workspace
 from app.routers import admin_values_writer, operator_values_writer
 from app.routers import admin_script_review, operator_script_review
+from app.routers import admin_retrospective, operator_retrospective
 
 
 @asynccontextmanager
@@ -191,3 +192,5 @@ app.include_router(admin_values_writer.router, prefix="/api")
 app.include_router(operator_values_writer.router, prefix="/api")
 app.include_router(admin_script_review.router, prefix="/api")
 app.include_router(operator_script_review.router, prefix="/api")
+app.include_router(admin_retrospective.router, prefix="/api")
+app.include_router(operator_retrospective.router, prefix="/api")
