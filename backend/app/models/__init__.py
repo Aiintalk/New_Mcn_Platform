@@ -42,6 +42,7 @@ from app.models.kol_benchmark import KolBenchmark
 from app.models.kol_active_product import KolActiveProduct
 from app.models.values_writer import ValuesWriterConfig
 from app.models.qianchuan_script_review import QianchuanScriptReviewConfig
+from app.models.retrospective import RetrospectiveConfig, RetrospectiveSession
 
 __all__ = [
     "User",
@@ -92,4 +93,6 @@ __all__ = [
     "KolActiveProduct",
     "ValuesWriterConfig",
     "QianchuanScriptReviewConfig",
+    "RetrospectiveConfig",
+    "RetrospectiveSession",
 ]
