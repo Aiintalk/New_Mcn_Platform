@@ -114,7 +114,7 @@ export default function App() {
               <Route path="/workspace/livestream-review" element={<LivestreamReviewPage />} />
               <Route path="/workspace/qianchuan-writer" element={<QianchuanWriterPage />} />
               <Route path="/workspace/material-library" element={<MaterialLibraryPage />} />
-              <Route path="/workspace/subtitle-extractor" element={<SubtitleExtractorPage />} />
+              <Route path="/workspace/subtitle" element={<SubtitleExtractorPage />} />
               <Route path="/workspace/persona-review" element={<PersonaReviewPage />} />
               <Route path="/workspace/kol-intake" element={<OperatorIntakePage />} />
               <Route path="/workspace/kol-intake/chat" element={<OperatorIntakeChatPage />} />

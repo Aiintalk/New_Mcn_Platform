@@ -4,11 +4,12 @@ app/routers/operator_subtitle.py
 运营端接口（JWT 鉴权，operator / admin 角色）— Sprint 19 字幕提取迁移自旧架构
 subtitle-extractor-web。公共服务走 adapter：tikhub / oss / asr / yunwu。
 
-接口清单：
-  POST /extract            — 单条字幕提取（share_text 或 file_url → ASR → 字幕）
+接口清单（Sprint 21 起单条 extract 异步化，单条+批量统一走 SubtitleJob 表）：
+  POST /extract            — 单条字幕提取（异步：创建 job → 后台跑 → 返回 job_code）
   POST /batch              — 批量字幕任务（多 share_text → 后台执行）
-  GET  /batches            — 我的批量任务列表（分页，绑定 created_by）
-  GET  /batch/{job_code}   — 查询批量任务进度（仅自己的，含 items）
+  GET  /batches            — 历史记录列表（单条+批量混排，过滤软删除，分页，绑定 created_by）
+  GET  /batch/{job_code}   — 查询任务详情（含 items / transcript / 视频元信息）
+  DELETE /batch/{job_code} — 软删除一条历史记录
   POST /mindmap            — 字幕 → AI 思维导图（JSON）
   POST /save-output        — 保存字幕到产出中心（写共享 outputs 表）
 """
@@ -123,8 +124,83 @@ async def _resolve_mindmap_model_id(config: SubtitleConfig, db: AsyncSession) ->
     return row[0] if row else DEFAULT_MINDMAP_MODEL
 
 
+def _gen_job_code() -> str:
+    """生成 sub_yyyymmdd_xxxxxxxx 格式任务码（单条 + 批量共用）。"""
+    today = datetime.now(tz=timezone.utc).strftime("%Y%m%d")
+    suffix = "".join(random.choices(string.ascii_lowercase + string.digits, k=8))
+    return f"sub_{today}_{suffix}"
+
+
+async def _claim_unique_job_code(db: AsyncSession) -> str:
+    """生成未占用的 job_code（少量重试）。"""
+    for _ in range(5):
+        job_code = _gen_job_code()
+        exists = (
+            await db.execute(select(SubtitleJob.id).where(SubtitleJob.job_code == job_code))
+        ).scalar_one_or_none()
+        if not exists:
+            return job_code
+    raise HTTPException(status_code=500, detail="job_code 生成失败，请重试")
+
+
+def _parse_item_meta(item: SubtitleItem) -> dict:
+    """解析 SubtitleItem.meta_json → dict（视频元信息）。
+
+    批量任务 / 未完成的单条任务返回空 dict（前端容错）。
+    """
+    if not item.meta_json:
+        return {}
+    try:
+        return json.loads(item.meta_json)
+    except (json.JSONDecodeError, TypeError):
+        return {}
+
+
+def _item_to_dict(item: SubtitleItem) -> dict:
+    """SubtitleItem 序列化。单条任务会带 video_meta（play_url/cover_url 等）。"""
+    data = {
+        "id": item.id,
+        "row_number": item.row_number,
+        "original_url": item.original_url,
+        "title": item.title,
+        "transcript": item.transcript,
+        "status": item.status,
+        "error": item.error,
+    }
+    meta = _parse_item_meta(item)
+    if meta:
+        # 把视频元信息扁平展开到 item 顶层（方便前端直接用）
+        data["play_url"] = meta.get("play_url", "")
+        data["audio_url"] = meta.get("audio_url", "")
+        data["cover_url"] = meta.get("cover_url")
+        data["nickname"] = meta.get("nickname", "")
+        data["digg_count"] = meta.get("digg_count", 0)
+        data["aweme_id"] = meta.get("aweme_id", "")
+    return data
+
+
+def _job_to_dict(job: SubtitleJob, items: list[SubtitleItem] | None = None) -> dict:
+    """SubtitleJob 序列化。kind='single' 时 items 长度为 1，含视频元信息。"""
+    data = {
+        "id": job.id,
+        "job_code": job.job_code,
+        "kind": job.kind,
+        "status": job.status,
+        "phase": job.phase,
+        "total": job.total,
+        "success": job.success,
+        "failed": job.failed,
+        "created_by": job.created_by,
+        "created_at": job.created_at.isoformat() if job.created_at else None,
+        "updated_at": job.updated_at.isoformat() if job.updated_at else None,
+    }
+    if items is not None:
+        data["items"] = [_item_to_dict(it) for it in items]
+    return data
+
+
 # ---------------------------------------------------------------------------
-# 1. POST /extract — 单条字幕提取
+# 1. POST /extract — 单条字幕提取（异步任务化）
 # ---------------------------------------------------------------------------
 
 class ExtractRequest(BaseModel):
@@ -139,7 +215,11 @@ async def extract(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_operator),
 ):
-    """单条字幕提取：share_text → tikhub → audio_url → asr → 字幕；或 file_url → asr。"""
+    """单条字幕提取（异步任务化）：share_text/file_url → 创建 SubtitleJob(kind='single')
+    → 后台 _run_single_extract → 立即返回 job_code → 前端轮询 GET /batch/{job_code}。
+
+    异步化的目的：解析+ASR 需要 1-3 分钟，前端切页面/刷新后能通过 job_code 恢复进度。
+    """
     share_text = (body.share_text or "").strip()
     file_url = (body.file_url or "").strip()
 
@@ -149,46 +229,128 @@ async def extract(
             detail={"code": "INVALID_INPUT", "message": "share_text 或 file_url 至少提供一个"},
         )
 
-    title = ""
-    if share_text:
-        # 走 tikhub 解析视频，拿 audio_url
-        try:
-            result = await tikhub_adapter.fetch_video_by_share_url(share_text, db)
-        except RuntimeError as e:
-            raise HTTPException(
-                status_code=502,
-                detail={"code": "EXTERNAL_SERVICE_ERROR", "message": f"视频解析失败：{e}"},
-            )
-        audio_url = result.get("audio_url") or result.get("play_url") or ""
-        title = result.get("title") or ""
-        if not audio_url:
-            raise HTTPException(
-                status_code=502,
-                detail={"code": "EXTERNAL_SERVICE_ERROR", "message": "解析未返回 audio_url"},
-            )
-    else:
-        audio_url = file_url
+    job_code = await _claim_unique_job_code(db)
 
-    # ASR 转写
-    try:
-        text = await asr_adapter.transcribe(audio_url, db, user_id=current_user.id)
-    except RuntimeError as e:
-        raise HTTPException(
-            status_code=502,
-            detail={"code": "EXTERNAL_SERVICE_ERROR", "message": f"ASR 失败：{e}"},
-        )
+    # original_url 存 share_text 或 "file://{file_url}" 前缀，后台任务按前缀分流
+    original_url = share_text if share_text else f"file://{file_url}"
+    job = SubtitleJob(
+        job_code=job_code,
+        kind="single",
+        status="processing",
+        phase="queued",
+        total=1,
+        success=0,
+        failed=0,
+        created_by=current_user.id,
+    )
+    db.add(job)
+    await db.flush()
+
+    db.add(SubtitleItem(
+        job_id=job.id,
+        row_number=1,
+        original_url=original_url,
+        title="",
+        transcript="",
+        status="pending",
+        error="",
+    ))
 
     db.add(_make_operation_log(
         current_user, request, action="subtitle_extract",
-        detail={"share_text": share_text[:200], "audio_url": audio_url[:200], "chars": len(text)},
+        target_type="subtitle_job", target_id=job.id,
+        detail={"job_code": job_code, "share_text": share_text[:200]},
     ))
     await db.commit()
 
+    # 后台执行（脱离请求生命周期）
+    asyncio.create_task(_run_single_extract(job.id, int(current_user.id)))
+
     return success_response(data={
-        "text": text,
-        "title": title,
-        "audio_url": audio_url,
+        "job_code": job_code,
+        "status": "processing",
     })
+
+
+async def _run_single_extract(job_id: int, user_id: int) -> None:
+    """单条 extract 后台执行：tikhub 解析 + ASR 转写，更新 item + job 状态。
+
+    使用 AsyncSessionLocal 独立 session。视频元信息存 item.meta_json，
+    transcript 存 item.transcript，前端通过 GET /batch/{job_code} 拉取。
+    """
+    try:
+        async with AsyncSessionLocal() as db:
+            job = (
+                await db.execute(
+                    select(SubtitleJob).where(SubtitleJob.id == job_id).with_for_update()
+                )
+            ).scalar_one_or_none()
+            if job is None:
+                logger.error("subtitle _run_single_extract: job %s not found", job_id)
+                return
+            job.phase = "running"
+            await db.commit()
+
+            item = (
+                await db.execute(
+                    select(SubtitleItem)
+                    .where(SubtitleItem.job_id == job_id)
+                    .order_by(SubtitleItem.row_number)
+                    .limit(1)
+                )
+            ).scalar_one()
+
+            item.status = "processing"
+            item.error = ""
+            await db.commit()
+
+            original_url = item.original_url or ""
+
+            try:
+                if original_url.startswith("file://"):
+                    # file_url 模式：直接 ASR（不走 tikhub）
+                    audio_url = original_url[7:]
+                    title = ""
+                    video_meta = {}
+                else:
+                    # share_text 模式：tikhub 解析
+                    result = await tikhub_adapter.fetch_video_by_share_url(original_url, db)
+                    audio_url = result.get("audio_url") or ""
+                    title = result.get("title") or ""
+                    video_meta = {
+                        "play_url": result.get("play_url") or "",
+                        "audio_url": audio_url,
+                        "cover_url": result.get("cover_url"),
+                        "nickname": result.get("nickname") or "",
+                        "digg_count": result.get("digg_count") or 0,
+                        "aweme_id": result.get("aweme_id") or "",
+                    }
+                    if not audio_url:
+                        raise RuntimeError("解析未返回 audio_url")
+
+                # ASR 转写
+                text = await asr_adapter.transcribe(audio_url, db, user_id=user_id)
+
+                item.title = title
+                item.transcript = text
+                item.meta_json = json.dumps(video_meta, ensure_ascii=False) if video_meta else None
+                item.status = "success"
+
+                job.status = "completed"
+                job.phase = "done"
+                job.success = 1
+                job.failed = 0
+                await db.commit()
+            except Exception as e:
+                item.status = "failed"
+                item.error = str(e)[:500]
+                job.status = "failed"
+                job.phase = "failed"
+                job.failed = 1
+                job.success = 0
+                await db.commit()
+    except Exception:
+        logger.exception("subtitle _run_single_extract job_id=%s failed", job_id)
 
 
 # ---------------------------------------------------------------------------
@@ -268,49 +430,12 @@ async def generate_mindmap(
 # 3. POST /batch — 批量字幕任务
 # ---------------------------------------------------------------------------
 
-def _gen_job_code() -> str:
-    """生成 sub_yyyymmdd_xxxx 格式任务码。"""
-    today = datetime.now(tz=timezone.utc).strftime("%Y%m%d")
-    suffix = "".join(random.choices(string.ascii_lowercase + string.digits, k=8))
-    return f"sub_{today}_{suffix}"
-
-
 class BatchItemIn(BaseModel):
     share_text: str
 
 
 class BatchRequest(BaseModel):
     items: list[BatchItemIn]
-
-
-def _job_to_dict(job: SubtitleJob, items: list[SubtitleItem] | None = None) -> dict:
-    data = {
-        "id": job.id,
-        "job_code": job.job_code,
-        "status": job.status,
-        "phase": job.phase,
-        "total": job.total,
-        "success": job.success,
-        "failed": job.failed,
-        "created_by": job.created_by,
-        "created_at": job.created_at.isoformat() if job.created_at else None,
-        "updated_at": job.updated_at.isoformat() if job.updated_at else None,
-    }
-    if items is not None:
-        data["items"] = [_item_to_dict(it) for it in items]
-    return data
-
-
-def _item_to_dict(item: SubtitleItem) -> dict:
-    return {
-        "id": item.id,
-        "row_number": item.row_number,
-        "original_url": item.original_url,
-        "title": item.title,
-        "transcript": item.transcript,
-        "status": item.status,
-        "error": item.error,
-    }
 
 
 @router.post("/batch")
@@ -320,26 +445,18 @@ async def create_batch(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_operator),
 ):
-    """创建批量字幕任务：N 条 share_text → subtitle_jobs + N subtitle_items + 后台 _run_batch。"""
+    """创建批量字幕任务：N 条 share_text → subtitle_jobs(kind='batch') + N subtitle_items + 后台 _run_batch。"""
     if not body.items:
         raise HTTPException(
             status_code=400,
             detail={"code": "INVALID_INPUT", "message": "items 不能为空"},
         )
 
-    # 生成唯一 job_code（少量重试）
-    for _ in range(5):
-        job_code = _gen_job_code()
-        exists = (
-            await db.execute(select(SubtitleJob.id).where(SubtitleJob.job_code == job_code))
-        ).scalar_one_or_none()
-        if not exists:
-            break
-    else:
-        raise HTTPException(status_code=500, detail="job_code 生成失败，请重试")
+    job_code = await _claim_unique_job_code(db)
 
     job = SubtitleJob(
         job_code=job_code,
+        kind="batch",
         status="processing",
         phase="queued",
         total=len(body.items),
@@ -384,7 +501,6 @@ async def _run_batch(job_id: int, user_id: int) -> None:
     """
     try:
         async with AsyncSessionLocal() as db:
-            # 锁定 job
             job = (
                 await db.execute(
                     select(SubtitleJob).where(SubtitleJob.id == job_id).with_for_update()
@@ -417,7 +533,7 @@ async def _run_batch(job_id: int, user_id: int) -> None:
                     result = await tikhub_adapter.fetch_video_by_share_url(
                         item.original_url, db
                     )
-                    audio_url = result.get("audio_url") or result.get("play_url") or ""
+                    audio_url = result.get("audio_url") or ""
                     title = result.get("title") or ""
                     if not audio_url:
                         raise RuntimeError("解析未返回 audio_url")
@@ -447,7 +563,7 @@ async def _run_batch(job_id: int, user_id: int) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 4. GET /batches — 我的批量任务列表（分页，绑定 created_by）
+# 4. GET /batches — 历史记录列表（单条+批量混排，过滤软删除，分页）
 # ---------------------------------------------------------------------------
 
 @router.get("/batches")
@@ -457,9 +573,21 @@ async def list_my_batches(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_operator),
 ):
-    """当前用户的批量任务列表（按 created_at 倒序，不含 items，轻量）。"""
-    base_q = select(SubtitleJob).where(SubtitleJob.created_by == current_user.id)
-    total = len((await db.execute(base_q)).scalars().all())
+    """当前用户的历史记录列表（单条 + 批量统一展示，按 created_at 倒序，过滤软删除）。
+
+    轻量返回：不含 items，只含 job 概要（kind/status/total/success/failed 等）。
+    前端展开某条时单独调 GET /batch/{job_code} 拿 items 详情。
+    """
+    base_q = select(SubtitleJob).where(
+        SubtitleJob.created_by == current_user.id,
+        SubtitleJob.deleted_at.is_(None),
+    )
+    total = (
+        await db.execute(
+            select(func.count()).select_from(base_q.subquery())
+        )
+    ).scalar_one()
+
     rows = (
         await db.execute(
             base_q.order_by(SubtitleJob.created_at.desc())
@@ -480,7 +608,7 @@ async def list_my_batches(
 
 
 # ---------------------------------------------------------------------------
-# 5. GET /batch/{job_code} — 查询自己的批量任务详情（含 items）
+# 5. GET /batch/{job_code} — 查询任务详情（含 items / transcript / 视频元信息）
 # ---------------------------------------------------------------------------
 
 @router.get("/batch/{job_code}")
@@ -489,15 +617,17 @@ async def get_batch(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_operator),
 ):
-    """按 job_code 查询自己的批量任务详情（含 items 进度）。
+    """按 job_code 查询任务详情（含 items，单条任务 items[0] 含视频元信息）。
 
     通过 created_by 绑定，仅能查到自己创建的任务；他人 job_code → 404。
+    软删除的任务也返回 404（前端用户感知是"已删除"）。
     """
     job = (
         await db.execute(
             select(SubtitleJob).where(
                 SubtitleJob.job_code == job_code,
                 SubtitleJob.created_by == current_user.id,
+                SubtitleJob.deleted_at.is_(None),
             )
         )
     ).scalar_one_or_none()
@@ -517,7 +647,49 @@ async def get_batch(
 
 
 # ---------------------------------------------------------------------------
-# 6. POST /save-output — 保存字幕到产出中心（写共享 outputs 表）
+# 6. DELETE /batch/{job_code} — 软删除历史记录
+# ---------------------------------------------------------------------------
+
+@router.delete("/batch/{job_code}")
+async def delete_batch(
+    job_code: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_operator),
+):
+    """软删除一条历史记录（设置 deleted_at，不实际从数据库删除）。
+
+    仅任务创建者可删除自己的记录；他人或已删除的 → 404。
+    """
+    job = (
+        await db.execute(
+            select(SubtitleJob).where(
+                SubtitleJob.job_code == job_code,
+                SubtitleJob.created_by == current_user.id,
+                SubtitleJob.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if job is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "NOT_FOUND", "message": "任务不存在或无权限访问"},
+        )
+
+    job.deleted_at = datetime.now(tz=timezone.utc)
+
+    db.add(_make_operation_log(
+        current_user, request, action="subtitle_delete",
+        target_type="subtitle_job", target_id=job.id,
+        detail={"job_code": job_code, "kind": job.kind},
+    ))
+    await db.commit()
+
+    return success_response(data={"job_code": job_code, "deleted": True})
+
+
+# ---------------------------------------------------------------------------
+# 7. POST /save-output — 保存字幕到产出中心（写共享 outputs 表）
 # ---------------------------------------------------------------------------
 
 class SaveOutputRequest(BaseModel):

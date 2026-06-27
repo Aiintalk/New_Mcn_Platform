@@ -1946,23 +1946,25 @@ Request Body：
 - AI 配置（思维导图 Prompt + 模型）存于新表 `subtitle_configs`（§30）。
 - 产出接入共享 `outputs` 表（tool_code='subtitle'），无需新表。
 
-### 25.2 运营端接口（7 个）
+### 25.2 运营端接口（8 个）
 
 基础路径：`/api/tools/subtitle`（operator / admin 鉴权，需已改密）
 
 | # | 方法 | 路径 | 用途 | 信封 | OperationLog |
 |---|------|------|------|------|-------------|
-| 1 | POST | `/extract` | 单条：share_text 或 file_url → ASR → 字幕 | 标准 | 是 |
+| 1 | POST | `/extract` | 单条：share_text 或 file_url → 异步任务 → 返回 job_code（前端轮询）| 标准 | 是 |
 | 2 | POST | `/batch` | 批量：多 share_text → 创建 job + 后台执行 | 标准 | 是 |
-| 3 | GET | `/batch/{job_code}` | 查询自己创建的批量任务（含 items 进度，绑定 created_by）| 标准 | 否 |
-| 4 | GET | `/batches` | 我的批量任务列表（分页，绑定 created_by）| 标准 | 否 |
-| 5 | POST | `/mindmap` | 字幕 → AI 思维导图（JSON）| 标准 | 是 |
-| 6 | POST | `/save-output` | 保存字幕到产出中心（写共享 outputs 表）| 标准 | 是 |
-| 7 | GET | `/outputs`（**复用全局 `/api/outputs?tool_code=subtitle`**）| 我的字幕产出列表 | 标准 | 否 |
+| 3 | GET | `/batch/{job_code}` | 查询任务详情（含 items，绑定 created_by；含软删除过滤）| 标准 | 否 |
+| 4 | GET | `/batches` | 历史记录列表（单条 + 批量统一，分页，绑定 created_by，过滤软删除）| 标准 | 否 |
+| 5 | DELETE | `/batch/{job_code}` | 软删除一条历史记录（设置 deleted_at）| 标准 | 是 |
+| 6 | POST | `/mindmap` | 字幕 → AI 思维导图（JSON）| 标准 | 是 |
+| 7 | POST | `/save-output` | 保存字幕到产出中心（写共享 outputs 表）| 标准 | 是 |
+| 8 | GET | `/outputs`（**复用全局 `/api/outputs?tool_code=subtitle`**）| 我的字幕产出列表 | 标准 | 否 |
 
 > 任务通过 `created_by` 绑定用户身份（JWT 鉴权），无需额外查询码。
+> **Sprint 21 起**：`/extract` 改为异步任务模式（`kind='single'`），返回 `job_code` 后前端轮询 `/batch/{job_code}` 获取结果。单条 + 批量统一在 `/batches` 展示。
 
-#### POST /extract
+#### POST /extract（异步任务化 — Sprint 21）
 Request Body（二选一）：
 ```json
 { "share_text": "7.69 复制打开抖音... https://v.douyin.com/xxx/" }
@@ -1971,16 +1973,25 @@ Request Body（二选一）：
 ```json
 { "file_url": "https://oss.example.com/audio/uploaded.mp3" }
 ```
-流程：share_text → tikhub_adapter.fetch_video_by_share_url() → audio_url → asr_adapter.transcribe() → 字幕。
-file_url 模式跳过 tikhub，直接进 ASR。
+流程（异步）：
+1. 生成 job_code → INSERT subtitle_jobs（kind='single', total=1, status='processing'）+ 1 subtitle_item
+2. `asyncio.create_task(_run_single_extract(job_id, user_id))` 后台执行
+3. 立即返回 job_code
+
+**`_run_single_extract` 后台执行**：
+- share_text 模式：tikhub.fetch_video_by_share_url() → audio_url + 视频元信息（play_url/cover_url/nickname/digg_count/aweme_id）→ asr.transcribe() → 字幕
+- file_url 模式：跳过 tikhub，直接 ASR；视频元信息字段全部为空
+- 完成后：将视频元信息以 JSON 形式存入 `subtitle_items.meta_json`，item.status='success' / 'failed'，job.status='completed' / 'failed'
+
 Response.data：
 ```json
 {
-  "text": "字幕全文",
-  "title": "视频标题（file_url 模式为空）",
-  "audio_url": "https://..."
+  "job_code": "sub_single_xxxxxxxx",
+  "status": "processing"
 }
 ```
+前端拿到 job_code 后轮询 `GET /batch/{job_code}`，直到 `status === 'completed'` 取 `items[0]`（已扁平化 meta_json 字段到顶层）。
+
 错误码：400（输入为空）/ 502（tikhub 或 ASR 失败，`EXTERNAL_SERVICE_ERROR`）。
 写 OperationLog（action=`subtitle_extract`）。
 ASR 调用日志由 `asr_adapter` 自动写 `asr_call_logs`（router 不重复）。
@@ -2005,31 +2016,50 @@ Response.data：
 4. tikhub / asr 异常捕获写入 item.error；ASR 调用日志由 adapter 自动写。
 
 #### GET /batch/{job_code}
-查询条件：`job_code == :job_code AND created_by == current_user.id`（仅能查到自己创建的任务，他人 job_code → 404）。
-Response.data：`SubtitleJob`（含 items 数组）
+查询条件：`job_code == :job_code AND created_by == current_user.id AND deleted_at IS NULL`（仅能查到自己创建且未软删除的任务；他人 job_code → 404，软删除 → 404）。
+Response.data：`SubtitleJob`（含 items 数组，单条任务 item 含扁平化的视频元信息）
 ```json
 {
-  "id": 12, "job_code": "sub_...", "status": "processing", "phase": "running",
+  "id": 12, "job_code": "sub_...", "kind": "single|batch",
+  "status": "processing", "phase": "running",
   "total": 2, "success": 1, "failed": 0, "created_by": 7,
   "created_at": "...", "updated_at": "...",
   "items": [{
     "id": 23, "row_number": 1, "original_url": "https://v.douyin.com/aaa/",
     "title": "视频标题", "transcript": "字幕文本（success 时非空）",
-    "status": "success", "error": ""
+    "status": "success", "error": "",
+    "play_url": "https://...（单条 success 时从 meta_json 扁平化）",
+    "audio_url": "https://...",
+    "cover_url": "https://p3-sign.douyinpic.com/...jpg",
+    "nickname": "作者昵称",
+    "digg_count": 12345,
+    "aweme_id": "7xxxxxxxxxxxxxx"
   }]
 }
 ```
-错误码：404（任务不存在或无权限访问）。
+错误码：404（任务不存在 / 无权限访问 / 已软删除）。
+
+#### DELETE /batch/{job_code}（软删除 — Sprint 21）
+软删除一条历史记录（设置 `deleted_at = now()`）。后续 GET /batches 和 GET /batch/{job_code} 均过滤该记录。
+仅能删除自己创建的任务（`created_by == current_user.id`），他人 job_code → 404。
+Response.data：
+```json
+{ "job_code": "sub_...", "deleted": true }
+```
+错误码：404（任务不存在 / 无权限 / 已删除）。
+写 OperationLog（action=`subtitle_delete`，target_type=`subtitle_job`）。
 
 #### GET /batches
-查询当前用户的批量任务列表（分页，按 created_at 倒序，不含 items）。
+查询当前用户的历史记录列表（单条 + 批量统一展示，分页，按 created_at 倒序，过滤软删除 `deleted_at IS NULL`，不含 items）。
 Query 参数：`page`（默认 1）、`page_size`（默认 20，1-50）。
 Response.data：
 ```json
 {
   "items": [{
-    "id": 12, "job_code": "sub_...", "status": "completed", "phase": "done",
+    "id": 12, "job_code": "sub_...", "kind": "single|batch",
+    "status": "completed", "phase": "done",
     "total": 5, "success": 4, "failed": 1, "created_by": 7,
+    "created_by_username": "alice（可选，管理端列表用）",
     "created_at": "...", "updated_at": "..."
   }],
   "pagination": { "page": 1, "page_size": 20, "total": 3, "total_pages": 1 }
