@@ -19,6 +19,7 @@ import MaterialLibraryConfigTab from './MaterialLibraryConfigTab';
 import SubtitleConfigTab from './SubtitleConfigTab';
 import ValuesWriterConfigTab from './ValuesWriterConfigTab';
 import ScriptReviewConfigTab from './ScriptReviewConfigTab';
+import RetrospectiveConfigTab from './RetrospectiveConfigTab';
 import type { WorkspaceTool } from '../../types/workspace';
 export default function WorkspaceConfigPage() {
   const [tools, setTools] = useState<WorkspaceTool[]>([]);
@@ -109,6 +110,7 @@ export default function WorkspaceConfigPage() {
           { key: 'subtitle', label: '字幕提取', children: <SubtitleConfigTab /> },
           { key: 'values-writer', label: '价值观仿写', children: <ValuesWriterConfigTab /> },
           { key: 'script-review', label: '千川脚本预审', children: <ScriptReviewConfigTab /> },
+          { key: 'retrospective', label: '复盘', children: <RetrospectiveConfigTab /> },
         ]}
       />
     </>
