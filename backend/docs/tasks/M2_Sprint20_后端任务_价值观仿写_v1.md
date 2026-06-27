@@ -9,7 +9,7 @@
 
 | # | 内容 | 文件 |
 |---|------|------|
-| 1 | Migration 038 | `backend/migrations/038_values_writer.sql` |
+| 1 | Migration 043 | `backend/migrations/043_values_writer.sql` |
 | 2 | ORM 模型 | `backend/app/models/values_writer.py` |
 | 3 | 管理端配置接口 | `backend/app/routers/admin_values_writer.py` |
 | 4 | 运营端业务接口 | `backend/app/routers/operator_values_writer.py` |
@@ -19,7 +19,7 @@
 
 ---
 
-## 二、数据库设计（Migration 038）
+## 二、数据库设计（Migration 043）
 
 ### 表：`values_writer_configs`
 

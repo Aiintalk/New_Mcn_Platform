@@ -1,6 +1,6 @@
 # MCN_PM_Agent — 项目记忆与当前状态（M2）
 
-> 最后更新：2026-06-26（**Sprint 20 价值观仿写完成**：后端 Migration 038 + ValuesWriterConfig ORM + 管理端 GET/PUT config + 运营端 4 个接口（extract-values/emotion-direction/write/iterate，后三个 SSE 流式）+ 前端 ValuesWriterPage 4 步向导 + ValuesWriterModule 工作台内嵌 + ValuesWriterConfigTab 管理端配置。后端 1017 个测试全部通过，前端 203/203 全部通过。上一个：Sprint 19 人物档案+素材库+工具 Module 改造）
+> 最后更新：2026-06-26（**合并 main 进 feature/kol-workspace**：main 已合并 Sprint 18 素材库（material-library）+ Sprint 19 字幕提取（subtitle）。feature 分支原 Sprint 18-20（红人工作台基础架构/扩展 + 价值观仿写）保留。Migration 号段：main 034_material_library + 035_subtitle；feature 原 034-038 重命名为 039-043 避免冲突。Sprint 编号两侧有重叠（feature 与 main 各自有 Sprint 18/19），按时间顺序保留双方记录。最新功能：Sprint 20 价值观仿写完成）
 
 > **🚧 当前进行中**：Sprint 20 完成，代码在 `feature/kol-workspace` 分支（PR #13）。下一个：Sprint 21 千川脚本预审。
 
@@ -32,11 +32,13 @@
 
 ## 二、M2 阶段（当前）
 
+> **Sprint 编号说明**：main 与 feature/kol-workspace 两分支并行开发期间各自用了 Sprint 18/19 编号，内容不同（main = 素材库/字幕；feature = 红人工作台）。合并后按"保留双方记录、时间序"原则记录如下，最新在前。
+
 ### M2 工作项 — Sprint 20 价值观仿写 ✅ 完成（feature/kol-workspace，PR #13）
 
 | # | 事项 | 结果 |
 |---|------|------|
-| 1 | Migration 038 | `values_writer_configs` 表 + 默认配置种子 |
+| 1 | Migration 043（原 038） | `values_writer_configs` 表 + 默认配置种子 |
 | 2 | 后端接口 6 个 | 管理端 GET/PUT config + 运营端 extract-values（非流式）+ emotion-direction/write/iterate（SSE 流式） |
 | 3 | 前端 ValuesWriterPage | 4 步向导（选价值观→情绪方向→生成内容→迭代），同时导出 ValuesWriterModule 供工作台内嵌 |
 | 4 | 工作台接入 | `values-writer` 导航项激活，点击直接进 Step 2（达人已锁定） |
@@ -45,7 +47,7 @@
 
 ---
 
-### M2 工作项 — Sprint 19 红人工作台扩展 ✅ 完成（feature/kol-workspace，PR #13）
+### M2 工作项 — Sprint 19 红人工作台扩展（feature 分支）✅ 完成（feature/kol-workspace，PR #13）
 
 **背景**：Sprint 18 建立了工作台框架，Sprint 19 补全达人相关的内容模块，并让工具以 Module 方式内嵌进工作台。
 
@@ -59,13 +61,49 @@
 
 ---
 
-### M2 工作项 — Sprint 18 红人工作台基础架构 ✅ 完成（feature/kol-workspace，PR #13）
+### M2 工作项 — Sprint 19 字幕提取（subtitle-extractor）迁移（main 分支）✅ 完成
+
+**背景**：旧架构 `Ai_Toolbox/subtitle-extractor-web/` 全量迁移。Sprint 3 起即有 `tool_transcribe.py`（云雾 Whisper，Sprint 3 债务），本次新建 `operator_subtitle.py` + `admin_subtitle.py`，与 tool_transcribe.py 不冲突。ASR adapter 已在 Sprint 4+ 就绪可调用。
+
+**实施记录**（8 步全部完成）：
+
+| 步骤 | 状态 | 产物 |
+|------|------|------|
+| Step 1 分支 + 数据库 | ✅ | migration 035（3 表 + seed + workspace_tools subtitle online/140）+ 3 ORM（SubtitleJob/Item/Config）|
+| Step 2 单条字幕提取 | ✅ | POST /extract（share_text/file_url 路径）+ 5 tests + 前端 Tab 1 |
+| Step 3 思维导图 + admin 配置 | ✅ | POST /mindmap（yunwu + JSON 解析含 markdown fence 清理）+ 6 tests + admin 2 端点 + 8 tests + SubtitleConfigTab + WorkspaceConfigPage 注册 |
+| Step 4 批量字幕提取 | ✅ | POST /batch + _run_batch（AsyncSessionLocal 后台任务）+ GET /batch/{job_code}（含 items 进度）+ 前端批量 Tab + conftest `_SESSION_LOCAL_PATCH_TARGETS` 加 `app.routers.operator_subtitle.AsyncSessionLocal`（红线 #7）|
+| Step 5 导出 + 产出接入 | ✅ | POST /save-output（写共享 outputs 表 tool_code='subtitle'）+ 4 tests + 前端 SRT/Excel/Zip 导出按钮（xlsx + jszip）+ 保存到产出中心按钮 |
+| Step 6 workspace_tools online + 文档 | ✅ | workspace_tools.subtitle online/140（migration 035 内 UPDATE）+ Base_API §25 + Base_Database §30 + 前后端 README + M2_Sprint19 需求文档 |
+| Step 7 全量回归 + PR | 🔄 待 PR | 测试 25+8 全过，待 commit + push + PR |
+| Step 8 移除 access_code 改用 created_by | ✅ | 旧架构无用户系统的产物（`access_code` 8 位跨设备查询码）改为 JWT + `created_by` 绑定；migration 035 删字段、3 个端点重做（删 by-access、加 /batches 运营端、加 /admin/subtitle/batches 管理端）、operator 25→28 tests + admin 8→11 tests、前端批量 Tab 用「我的批量任务」列表替代 access_code 输入框 |
+
+**关键技术决策**：
+1. **批量后台执行**：`asyncio.create_task(_run_batch())`，用 AsyncSessionLocal 独立 session 脱离请求生命周期；conftest patch 列表已加。
+2. **思维导图**：默认模型 `claude-haiku-4-5-20251001`（mindmap_model_id 配置缺失或失效时回退）；yunwu_adapter.chat() 非流式调用。
+3. **JSON 解析容错**：`re.sub(r"^```(?:json)?\s*\n?", "", raw, flags=re.MULTILINE)` 清理 markdown fence 后再 json.loads。
+4. **产出接入复用全局路由**：`POST /save-output` 写共享 outputs 表，列表/详情/删除走全局 `/api/outputs?tool_code=subtitle`，不重复。
+5. **批量任务身份绑定改用 created_by**（Step 8 决策，覆盖原 access_code 方案）：新架构 JWT 已足够；任务通过 `subtitle_jobs.created_by` 绑定用户身份，`GET /batch/{job_code}` 加 `created_by == current_user.id` 过滤，`GET /batches` 列表只看自己；管理员通过 `GET /admin/subtitle/batches` 跨用户查询。原 access_code 字段、`_gen_access_code` helper、`GET /batch/by-access` 端点、前端「跨设备查询」输入框全部删除。
+
+**测试统计**（Step 8 后）：
+- `test_operator_subtitle.py` 28/28 ✅（TestAuth 4 + TestExtract 5 + TestMindmap 6 + TestBatch 2 + TestBatchQuery 3 + TestBatchesList 4 + TestSaveOutput 4）
+- `test_admin_subtitle.py` 11/11 ✅（TestAuth 4 + TestGetConfigs 1 + TestUpdateConfigs 3 + TestAdminBatches 3）
+
+**不在本次范围**：
+- tool_transcribe.py 改造（Sprint 3 债务，继续云雾 Whisper）
+- 批量任务多进程（Celery/RQ）
+- 字幕翻译 / 字幕时间轴对齐（旧架构也没做）
+- access_code 跨设备查询模式（Step 8 已废弃，新架构 JWT + created_by 替代）
+
+---
+
+### M2 工作项 — Sprint 18 红人工作台基础架构（feature 分支）✅ 完成（feature/kol-workspace，PR #13）
 
 **背景**：huimin-studio 全量迁移需求确认，以达人为中心建立「红人工作台」，本 Sprint 建立数据层 + Shell + 首页 Dashboard + 千川产品库 Module。
 
 | # | 事项 | 结果 | 归属 |
 |---|------|------|------|
-| 1 | Migration 034-037 | kols+5列 + qianchuan_products + kol_benchmarks + kol_active_products | 本地 DB |
+| 1 | Migration 039-042（原 034-037） | kols+5列 + qianchuan_products + kol_benchmarks + kol_active_products | 本地 DB |
 | 2 | ORM 模型 3 个 + kol.py 扩展 | QianchuanProduct / KolBenchmark / KolActiveProduct | 后端 |
 | 3 | 后端接口 13 个 | 千川产品库(4) + 工作台首页(1) + 对标账号(4) + 在售商品(2) + 人物档案(2) | 后端 |
 | 4 | 前端工作台框架 | KolWorkspacePage Shell + WorkspaceDashboard + QianchuanProductsModule | 前端 |
@@ -73,6 +111,12 @@
 | 6 | 测试 | 后端 32 个集成测试全通过（1006/1006）；前端 18 个单元测试全通过 | 测试 |
 
 **待办**：PR 创建 + CI 通过 + 人工验收（访问 http://localhost:5175，从红人列表进入工作台验证）
+
+---
+
+### M2 工作项 — Sprint 18 素材库迁移（main 分支）✅ 完成
+
+迁移自旧架构 `Ai_Toolbox/material-library-web/`。后端 migration 034 + 2 张新表（kol_references + material_library_configs）+ 9 个 API（7 运营 + 2 管理）+ 22 个后端测试通过 + 6/6 convention_guard；前端 MaterialLibraryPage（左右分栏 4 Tab：人格档案/内容规划/参考素材/入驻信息）+ MaterialLibraryConfigTab + 18 个前端测试通过。关键决策：人格档案/内容规划复用 kols.persona + kols.content_plan（**不新建 profile 表**）。契约文档同步：Base_API §24 + Base_Database §28-29 + 前后端 README + 根 README。
 
 ---
 
@@ -354,6 +398,32 @@
 - **admin/kols 完整 API 章节契约**：M1_Base_API 缺整章（历史债务），独立任务
 - **运营添加红人权限**：当前仅 admin；运营走 kol-intake 问卷流程。若需运营直接添加，独立任务
 - **DB 唯一索引测试库验证**：测试库 metadata.create_all 不跑 migration，索引兜底未自动化覆盖；生产已应用，后续加 e2e 或 migration 验证脚本
+
+---
+
+### M2 工作项 — Sprint 18 素材库（material-library）迁移 ✅ 完成（分支 `migrate/material-library`，待 PR）
+
+**核心定位**：迁移自旧架构 `Ai_Toolbox/material-library-web/`。红人素材中枢 —— 管理每位红人的人格档案（soul.md）+ 内容规划（content-plan.md）+ 6 类参考素材（红人爆款/红人喜欢/风格参考/千川爆款/千川喜欢/千川风格），支持 AI 从入驻问卷数据生成 soul.md 初稿。
+
+**关键决策**：人格档案、内容规划**复用 kols.persona + kols.content_plan**（kols 表已有 Text 字段），**不新建 profile 表**（避免字段重复、保持单一事实源）。
+
+| 端 | 状态 | 备注 |
+|----|------|------|
+| Migration 034 | ✅ 完成 | 2 张新表（kol_references + material_library_configs）+ 4 个索引 + soul_generator 种子配置（默认 ai_model_id=3 claude-sonnet-4-6）+ workspace_tools 注册（tool_code='material-library', status='dev'） |
+| ORM 模型 | ✅ 完成 | `KolReference` + `MaterialLibraryConfig`（新建 `app/models/material_library.py`），注册到 `__init__.py` |
+| 后端运营 API | ✅ 完成 | `app/routers/operator_material_library.py`（7 接口）：kols 列表/详情、profile 更新、references CRUD、intake 查询、generate-soul（yunwu adapter，占位符 `{{kol_name}} {{intake_answers}} {{intake_report}}`） |
+| 后端管理 API | ✅ 完成 | `app/routers/admin_material_library.py`（2 接口）：GET / PUT /configs |
+| 旧数据迁移脚本 | ✅ 完成 | `scripts/migrate_material_library.py`：扫描旧 personas 目录 → soul.md / content-plan.md → UPDATE kols（仅填 NULL，--overwrite 覆盖）；编码容错（GBK/UTF-8）；dry-run 验证 OK |
+| 后端测试 | ✅ 完成 | 22 个测试通过（test_operator_material_library 14 + test_admin_material_library 8）；convention_guard 6/6 |
+| 前端 API | ✅ 完成 | `api/materialLibrary.ts`（10 函数 = 7 运营 + 3 管理，全部走 request.ts） |
+| 前端运营页 | ✅ 完成 | `pages/operator/MaterialLibraryPage.tsx`（左右分栏：280px 红人列表 + 4 Tab） |
+| 前端管理 Tab | ✅ 完成 | `pages/admin/MaterialLibraryConfigTab.tsx`（soul_generator Prompt + 模型 + 启用开关） |
+| 路由/Tab 注册 | ✅ 完成 | App.tsx 加 `/workspace/material-library`；WorkspaceConfigPage 加 'material-library' Tab |
+| 前端测试 | ✅ 完成 | 18 个测试通过（MaterialLibraryPage 12 + MaterialLibraryConfigTab 6）；vitest 全量 198/198 |
+| 契约文档 | ✅ 完成 | Base_API §24（7+2 接口）+ Base_Database §28-29（2 张表）+ 前后端 README + 根 README |
+| TypeScript | ✅ 通过 | `tsc --noEmit` clean |
+
+**踩坑**：① AntD Tabs 测试切换需用 `getByRole('tab', { name })`，`getByText` 在 tab label + tab content 同时存在时会匹配多个元素；② AntD Popconfirm / Modal.confirm 默认 OK 按钮文本是 **英文 "OK"**（无 ConfigProvider + zhCN 时）；③ AntD v5 `Modal.confirm()` 静态方法在测试环境无法挂载到 DOM（设计限制），需测直调分支绕过。
 
 ---
 

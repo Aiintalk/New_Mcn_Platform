@@ -1807,15 +1807,325 @@ Request Body：
 
 写 OperationLog（action=`admin_update_seeding_writer_config`）。
 
+---
+
+## 24. material-library 素材库（Sprint 18 — 迁移自旧架构）
+
+红人素材中枢：管理每位红人的人格档案（soul.md）、内容规划（content-plan.md）、参考素材（6 类），
+并支持 AI 从入驻问卷数据生成 soul.md 初稿。
+基础路径：`/api/tools/material-library`（运营端）与 `/api/admin/material-library`（管理端）。
+迁移自旧架构 `Ai_Toolbox/material-library-web/`。
+
+### 24.1 数据存储说明
+
+- 人格档案、内容规划**复用 `kols.persona` 与 `kols.content_plan` 字段**（不新建 profile 表）。
+- 参考素材存于新表 `kol_references`（详见 `MCN_M2_Base_Database.md` §28）。
+- AI 配置存于新表 `material_library_configs`（详见 §29）。
+
+### 24.2 运营端接口（7 个）
+
+基础路径：`/api/tools/material-library`（operator / admin 鉴权，需已改密）
+
+| # | 方法 | 路径 | 用途 | 信封 | OperationLog |
+|---|------|------|------|------|-------------|
+| 1 | GET | `/kols?search=` | 红人列表（搜索+聚合）| 标准 | 否 |
+| 2 | GET | `/kols/{kol_id}` | 红人详情（persona + plan + references 按类型分组）| 标准 | 否 |
+| 3 | PUT | `/kols/{kol_id}/profile` | 更新 persona 和/或 content_plan | 标准 | 是 |
+| 4 | POST | `/kols/{kol_id}/references` | 新增参考素材 | 标准 | 是 |
+| 5 | DELETE | `/kols/{kol_id}/references/{ref_id}` | 软删参考素材 | 标准 | 是 |
+| 6 | GET | `/kols/{kol_id}/intake` | 红人最新入驻问卷数据 | 标准 | 否 |
+| 7 | POST | `/kols/{kol_id}/generate-soul` | AI 生成 soul.md 初稿（不自动保存）| 标准 | 否 |
+
+#### GET /kols?search=
+Response.data：`KolListItem[]`
+```json
+[{
+  "id": 3, "name": "孙静", "account_name": "sunjing", "category": "美妆",
+  "follower_count": 1200000,
+  "has_persona": true, "has_content_plan": false,
+  "reference_count": 3, "has_intake": true,
+  "updated_at": "2026-06-20T10:00:00+08:00"
+}]
+```
+
+#### GET /kols/{kol_id}
+Response.data：`KolDetail`
+```json
+{
+  "id": 3, "name": "孙静", "account_name": "sunjing",
+  "category": "美妆", "follower_count": 1200000,
+  "persona": "我是孙静...",
+  "content_plan": "",
+  "references": {
+    "红人爆款文案": [{ "id": 10, "title": "...", "likes": 50000, "source": "抖音", "content": "...", "created_at": "..." }],
+    "风格参考": [],
+    "红人喜欢的内容": [],
+    "千川爆款文案": [],
+    "千川喜欢的内容": [],
+    "千川风格参考": []
+  }
+}
+```
+
+#### PUT /kols/{kol_id}/profile
+Request Body（两个字段都可选，至少传一个）：
+```json
+{ "persona": "新的人格档案文本", "content_plan": "新的内容规划文本" }
+```
+Response.data：`{ "success": true }`
+写 OperationLog（action=`update_kol_profile`，target_type=`kols`，target_id=kol_id）。
+
+#### POST /kols/{kol_id}/references
+Request Body：
+```json
+{
+  "type": "红人爆款文案",
+  "title": "夏季护肤心得",
+  "likes": 50000,
+  "source": "抖音",
+  "content": "正文..."
+}
+```
+`type` 必须是 6 类之一：`红人爆款文案 / 红人喜欢的内容 / 风格参考 / 千川爆款文案 / 千川喜欢的内容 / 千川风格参考`
+Response.data：`{ "id": 456 }`
+写 OperationLog（action=`create_kol_reference`）。
+
+#### DELETE /kols/{kol_id}/references/{ref_id}
+软删（`deleted_at = NOW()`）。Response.data：`{ "success": true }`
+写 OperationLog（action=`delete_kol_reference`）。
+
+#### GET /kols/{kol_id}/intake
+查询 kol 最新入驻问卷数据（先查 KolIntakeSubmission，再查 KolIntakeOperatorSession）。
+Response.data：`IntakeData | null`
+```json
+{
+  "source": "submission",
+  "messages": [{ "role": "user", "content": "..." }, ...],
+  "ai_report": "AI 分析报告全文",
+  "report_status": "completed",
+  "created_at": "..."
+}
+```
+
+#### POST /kols/{kol_id}/generate-soul
+读取 `material_library_configs` 中 `soul_generator` 配置，渲染占位符（`{{kol_name}} {{intake_answers}} {{intake_report}}`），
+调用 yunwu_adapter.chat() 生成初稿。**不自动保存**，仅返回文本供前端预览编辑。
+Response.data：`{ "soul_md": "AI 生成的人格档案初稿..." }`
+
+### 24.3 管理端接口（2 个）
+
+基础路径：`/api/admin/material-library`（admin 鉴权）
+
+| # | 方法 | 路径 | 用途 | OperationLog |
+|---|------|------|------|-------------|
+| 1 | GET | `/configs` | 获取 soul_generator 配置 | 否 |
+| 2 | PUT | `/configs` | 更新配置 | 是 |
+
+#### PUT /configs
+Request Body：
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `ai_model_id` | int \| null | AI 模型 ID |
+| `system_prompt` | string \| null | soul_generator 系统提示词 |
+| `is_active` | bool | 启用开关 |
+
+写 OperationLog（action=`admin_update_material_library_config`）。
 
 ---
 
-## 25. values-writer（Sprint 20）
+## 25. subtitle 字幕提取（Sprint 19 — 迁移自旧架构）
+
+抖音视频字幕提取（单条 / 批量）+ AI 思维导图 + 多格式导出。
+基础路径：`/api/tools/subtitle`（运营端）与 `/api/admin/subtitle`（管理端）。
+迁移自旧架构 `Ai_Toolbox/subtitle-extractor-web/`。
+公共服务走 adapter：tikhub（视频解析）/ asr（阿里云 ASR）/ yunwu（思维导图）。
+
+### 25.1 数据存储说明
+
+- 批量任务存于新表 `subtitle_jobs` + `subtitle_items`（详见 `MCN_M2_Base_Database.md` §30）。
+- AI 配置（思维导图 Prompt + 模型）存于新表 `subtitle_configs`（§30）。
+- 产出接入共享 `outputs` 表（tool_code='subtitle'），无需新表。
+
+### 25.2 运营端接口（7 个）
+
+基础路径：`/api/tools/subtitle`（operator / admin 鉴权，需已改密）
+
+| # | 方法 | 路径 | 用途 | 信封 | OperationLog |
+|---|------|------|------|------|-------------|
+| 1 | POST | `/extract` | 单条：share_text 或 file_url → ASR → 字幕 | 标准 | 是 |
+| 2 | POST | `/batch` | 批量：多 share_text → 创建 job + 后台执行 | 标准 | 是 |
+| 3 | GET | `/batch/{job_code}` | 查询自己创建的批量任务（含 items 进度，绑定 created_by）| 标准 | 否 |
+| 4 | GET | `/batches` | 我的批量任务列表（分页，绑定 created_by）| 标准 | 否 |
+| 5 | POST | `/mindmap` | 字幕 → AI 思维导图（JSON）| 标准 | 是 |
+| 6 | POST | `/save-output` | 保存字幕到产出中心（写共享 outputs 表）| 标准 | 是 |
+| 7 | GET | `/outputs`（**复用全局 `/api/outputs?tool_code=subtitle`**）| 我的字幕产出列表 | 标准 | 否 |
+
+> 任务通过 `created_by` 绑定用户身份（JWT 鉴权），无需额外查询码。
+
+#### POST /extract
+Request Body（二选一）：
+```json
+{ "share_text": "7.69 复制打开抖音... https://v.douyin.com/xxx/" }
+```
+或
+```json
+{ "file_url": "https://oss.example.com/audio/uploaded.mp3" }
+```
+流程：share_text → tikhub_adapter.fetch_video_by_share_url() → audio_url → asr_adapter.transcribe() → 字幕。
+file_url 模式跳过 tikhub，直接进 ASR。
+Response.data：
+```json
+{
+  "text": "字幕全文",
+  "title": "视频标题（file_url 模式为空）",
+  "audio_url": "https://..."
+}
+```
+错误码：400（输入为空）/ 502（tikhub 或 ASR 失败，`EXTERNAL_SERVICE_ERROR`）。
+写 OperationLog（action=`subtitle_extract`）。
+ASR 调用日志由 `asr_adapter` 自动写 `asr_call_logs`（router 不重复）。
+
+#### POST /batch
+Request Body：
+```json
+{ "items": [{ "share_text": "https://v.douyin.com/aaa/" }, { "share_text": "https://v.douyin.com/bbb/" }] }
+```
+流程：生成 job_code → INSERT subtitle_jobs（created_by=current_user.id）+ N subtitle_items → `asyncio.create_task(_run_batch(job_id, user_id))`。
+Response.data：
+```json
+{ "job_code": "sub_20260625_xxxxxxxx", "total": 2 }
+```
+错误码：400（items 为空）。
+写 OperationLog（action=`subtitle_batch_create`，target_type=`subtitle_job`）。
+
+**`_run_batch(job_id, user_id)` 后台执行（使用 AsyncSessionLocal，脱离请求生命周期）**：
+1. 锁定 job，phase='running'
+2. 遍历 subtitle_items：item.status='processing' → tikhub.fetch + asr.transcribe → status='success' / 'failed'（含 error）
+3. 聚合统计：job.status='completed' / 'failed'，job.success/failed 计数
+4. tikhub / asr 异常捕获写入 item.error；ASR 调用日志由 adapter 自动写。
+
+#### GET /batch/{job_code}
+查询条件：`job_code == :job_code AND created_by == current_user.id`（仅能查到自己创建的任务，他人 job_code → 404）。
+Response.data：`SubtitleJob`（含 items 数组）
+```json
+{
+  "id": 12, "job_code": "sub_...", "status": "processing", "phase": "running",
+  "total": 2, "success": 1, "failed": 0, "created_by": 7,
+  "created_at": "...", "updated_at": "...",
+  "items": [{
+    "id": 23, "row_number": 1, "original_url": "https://v.douyin.com/aaa/",
+    "title": "视频标题", "transcript": "字幕文本（success 时非空）",
+    "status": "success", "error": ""
+  }]
+}
+```
+错误码：404（任务不存在或无权限访问）。
+
+#### GET /batches
+查询当前用户的批量任务列表（分页，按 created_at 倒序，不含 items）。
+Query 参数：`page`（默认 1）、`page_size`（默认 20，1-50）。
+Response.data：
+```json
+{
+  "items": [{
+    "id": 12, "job_code": "sub_...", "status": "completed", "phase": "done",
+    "total": 5, "success": 4, "failed": 1, "created_by": 7,
+    "created_at": "...", "updated_at": "..."
+  }],
+  "pagination": { "page": 1, "page_size": 20, "total": 3, "total_pages": 1 }
+}
+```
+
+#### POST /mindmap
+Request Body：
+```json
+{ "transcript": "字幕全文" }
+```
+流程：读 `subtitle_configs` default 配置 → 渲染 `{{transcript}}` 占位符 → yunwu_adapter.chat() → 清理 markdown fence → JSON 解析。
+Response.data：
+```json
+{
+  "rootTitle": "核心主题",
+  "summary": "一句话总结",
+  "branches": [{ "title": "分支 1", "children": ["要点 1", "要点 2"] }]
+}
+```
+错误码：400（transcript 为空）/ 502（AI 调用失败或 JSON 解析失败）/ 503（无激活配置）。
+写 OperationLog（action=`subtitle_mindmap`）。
+AI 调用日志由 `yunwu_adapter` 自动写 `ai_call_logs`（router 不重复）。
+默认模型：`claude-haiku-4-5-20251001`（配置缺失或失效时回退）。
+
+#### POST /save-output
+Request Body：
+```json
+{
+  "title": "字幕标题（可空，缺省为'未命名字幕'）",
+  "transcript": "字幕全文",
+  "mindmap": { "rootTitle": "...", "summary": "...", "branches": [...] }
+}
+```
+写入共享 `outputs` 表（tool_code='subtitle'，content=transcript，content_json.mindmap 可选）。
+Response.data：
+```json
+{ "id": 456, "title": "...", "tool_code": "subtitle", "word_count": 1234, "created_at": "..." }
+```
+错误码：400（transcript 为空）。
+写 OperationLog（action=`subtitle_save_output`，target_type=`output`）。
+
+### 25.3 管理端接口（3 个）
+
+基础路径：`/api/admin/subtitle`（admin 鉴权）
+
+| # | 方法 | 路径 | 用途 | OperationLog |
+|---|------|------|------|-------------|
+| 1 | GET | `/configs` | 获取思维导图 Prompt + 模型配置 | 否 |
+| 2 | PUT | `/configs` | 更新配置 | 是 |
+| 3 | GET | `/batches` | 全部批量任务列表（跨用户，支持 user_id 过滤）| 否 |
+
+#### GET /configs
+Response.data：`SubtitleConfig[]`
+```json
+[{
+  "id": 1, "config_key": "default",
+  "mindmap_prompt": "你是思维导图生成器。输入：{{transcript}}",
+  "mindmap_model_id": 2, "is_active": true, "updated_at": "..."
+}]
+```
+
+#### PUT /configs
+Request Body（所有字段可选）：
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `mindmap_model_id` | int \| null | 思维导图 AI 模型 ID（绑 ai_models.id）|
+| `mindmap_prompt` | string \| null | 思维导图系统提示词（支持 `{{transcript}}` 占位符）|
+| `is_active` | bool | 启用开关 |
+
+写 OperationLog（action=`admin_subtitle_config_update`，target_type=`subtitle_config`）。
+
+#### GET /batches
+查询全部批量任务（跨用户，可选 user_id 过滤），按 created_at 倒序。响应含 `created_by_username`（前端展示创建人）。
+Query 参数：`page`（默认 1）、`page_size`（默认 20，1-50）、`user_id`（可选，>0 时按用户过滤）。
+Response.data：
+```json
+{
+  "items": [{
+    "id": 12, "job_code": "sub_...", "status": "completed", "phase": "done",
+    "total": 5, "success": 4, "failed": 1, "created_by": 7, "created_by_username": "operatorA",
+    "created_at": "...", "updated_at": "..."
+  }],
+  "pagination": { "page": 1, "page_size": 20, "total": 3, "total_pages": 1 }
+}
+```
+
+---
+
+## 26. values-writer（Sprint 20）
 
 > 路由前缀：`/api/operator/values-writer`（运营端）+ `/api/admin/values-writer`（管理端）
 > 所有接口需 JWT 鉴权。运营端需 operator/admin 角色。
+> § 编号说明：原 feature 分支为 §25，与 main 的 §25 subtitle 冲突，合并后改为 §26。
 
-### 25.1 接口总览
+### 26.1 接口总览
 
 | 方向 | 接口数 |
 |------|--------|
@@ -1823,7 +2133,7 @@ Request Body：
 | 管理端 | 2 |
 | 小计 | 6 |
 
-### 25.2 管理端接口
+### 26.2 管理端接口
 
 #### GET `/api/admin/values-writer/config`
 
@@ -1859,7 +2169,7 @@ Request Body（所有字段可选，未传字段不变）：
 
 写 OperationLog（action=`admin_update_values_writer_config`）。
 
-### 25.3 运营端接口
+### 26.3 运营端接口
 
 #### POST `/api/operator/values-writer/extract-values`
 
