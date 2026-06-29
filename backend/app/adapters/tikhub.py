@@ -276,11 +276,10 @@ async def resolve_sec_user_id(input_str: str, db: AsyncSession) -> dict:
                 raw = response.json()
                 await _report_success(cred_id, db)
 
-            # 兼容两种返回结构：data.data.user_info 或 data.user
             inner_data = (raw.get("data") or {})
             status_code = inner_data.get("status_code", 0)
             if status_code not in (0, None):
-                raise RuntimeError(f"抖音服务暂时不可用（status_code={status_code}），请稍后重试")
+                raise RuntimeError(f"找不到该账号（uid={stripped}），请改用抖音号或主页链接")
 
             user_info = (
                 inner_data.get("data", {}).get("user_info")
@@ -291,13 +290,42 @@ async def resolve_sec_user_id(input_str: str, db: AsyncSession) -> dict:
             )
             sec_uid = user_info.get("sec_uid") or user_info.get("sec_user_id")
             if not sec_uid:
-                raise RuntimeError(f"无法从 uid={stripped} 获取 sec_user_id，请改用抖音主页链接")
+                raise RuntimeError(f"找不到该账号（uid={stripped}），请改用抖音号或主页链接")
 
-            # 获取完整资料（nickname / avatar）
             profile = await get_user_profile(sec_uid, db)
             return {
                 "sec_user_id": sec_uid,
                 "nickname": user_info.get("nickname") or profile.get("nickname") or "",
+            }
+
+        elif re.fullmatch(r"[\w.]+", stripped) and not stripped.startswith("MS4"):
+            # 抖音号（unique_id）：字母/数字/下划线/点，非 sec_user_id 格式
+            async with httpx.AsyncClient(timeout=30) as client:
+                response = await client.get(
+                    f"{base_url}/api/v1/douyin/web/handler_user_profile_v2",
+                    params={"unique_id": stripped},
+                    headers={"Authorization": f"Bearer {api_key}"},
+                )
+                response.raise_for_status()
+                raw = response.json()
+                await _report_success(cred_id, db)
+
+            inner = (raw.get("data") or {})
+            status_code = inner.get("status_code", 0)
+            user_info = inner.get("user_info") or {}
+
+            if status_code != 0 or not user_info.get("sec_uid"):
+                raise RuntimeError(f"找不到该账号「{stripped}」，请确认抖音号是否正确")
+
+            sec_uid = user_info["sec_uid"]
+            nickname = user_info.get("nickname") or ""
+            avatar_urls = (user_info.get("avatar_thumb") or {}).get("url_list") or []
+            avatar_url = avatar_urls[0] if avatar_urls else None
+
+            return {
+                "sec_user_id": sec_uid,
+                "nickname": nickname,
+                "_avatar_url": avatar_url,
             }
 
         else:

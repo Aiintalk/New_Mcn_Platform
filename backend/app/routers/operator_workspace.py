@@ -157,15 +157,29 @@ async def validate_benchmark_account(
 
     try:
         resolved = await tikhub_adapter.resolve_sec_user_id(body.account_input, db)
-        profile = await tikhub_adapter.get_user_profile(resolved["sec_user_id"], db)
+
+        # 抖音号路径（handler_user_profile_v2）已含 avatar_url，其他路径补查
+        avatar_url = resolved.pop("_avatar_url", None)
+        follower_count = None
+        if not avatar_url:
+            profile = await tikhub_adapter.get_user_profile(resolved["sec_user_id"], db)
+            avatar_url = profile.get("avatar_url")
+            follower_count = profile.get("follower_count")
+
+    except RuntimeError as e:
+        msg = str(e)
+        # 统一把 TikHub 内部异常前缀去掉，只保留用户友好的部分
+        if "TikHub resolve_sec_user_id failed:" in msg:
+            msg = msg.split("TikHub resolve_sec_user_id failed:")[-1].strip()
+        return error_response("TIKHUB_ERROR", msg)
     except Exception as e:
-        return error_response("TIKHUB_ERROR", f"账号查找失败：{str(e)[:120]}")
+        return error_response("TIKHUB_ERROR", f"账号查找失败，请稍后重试（{str(e)[:80]}）")
 
     return success_response(data={
         "sec_user_id": resolved["sec_user_id"],
-        "nickname": resolved["nickname"] or profile.get("nickname") or "",
-        "avatar_url": profile.get("avatar_url"),
-        "follower_count": profile.get("follower_count"),
+        "nickname": resolved["nickname"] or "",
+        "avatar_url": avatar_url,
+        "follower_count": follower_count,
     })
 
 

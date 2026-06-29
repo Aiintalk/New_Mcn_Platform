@@ -477,9 +477,9 @@ export default function WorkspaceDashboard({ kolId, onKolLoaded }: WorkspaceDash
               label={bmEditing ? '账号名' : '抖音账号'}
               name="account_input"
               rules={[{ required: true, message: '请输入账号信息' }]}
-              extra={!bmEditing ? '支持抖音主页链接、分享短链或数字 UID（如 7634905327011499316）' : undefined}
+              extra={!bmEditing ? '支持抖音号（如 douyin）、主页链接或分享短链' : undefined}
             >
-              <Input placeholder={bmEditing ? '账号名' : '抖音主页链接 / 分享短链 / 数字 UID'} />
+              <Input placeholder={bmEditing ? '账号名' : '输入抖音号（如 douyin）、主页链接或分享短链'} />
             </Form.Item>
             <Form.Item label="类型" name="account_type">
               <Radio.Group>
