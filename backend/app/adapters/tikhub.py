@@ -2,7 +2,7 @@
 app/adapters/tikhub.py
 
 TikHub 服务适配器：
-- 使用 Key 池选取 Credential（provider="tikhub"）
+- 从 tikhub_credentials 表选取可用 Key
 - 实现多个 Douyin API 接口（用户资料、粉丝、视频列表等）
 - 原始响应完整存入 kols.tikhub_raw JSONB 后再提取结构化字段
 """
@@ -12,18 +12,41 @@ from datetime import datetime, timedelta, timezone
 from urllib.parse import urlsplit, urlunsplit
 
 import httpx
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.credential_selector import pick_credential, report_failure, report_success
+from app.models.tikhub_credential import TikHubCredential
 
 
 async def _get_key_and_url(db: AsyncSession) -> tuple[int, str, str]:
-    """返回 (credential_id, api_key, base_url)"""
-    credential = await pick_credential(provider="tikhub", db=db)
-    config = credential.config or {}
-    base_url = config.get("base_url", "https://api.tikhub.io")
-    api_key = credential.secret_enc  # Sprint 3: secret_enc 存储明文 API Key
-    return credential.id, api_key, base_url
+    """从 tikhub_credentials 表随机选取一个 active Key，返回 (id, api_key, base_url)。"""
+    result = await db.execute(
+        select(TikHubCredential)
+        .where(TikHubCredential.status == "active")
+        .order_by(func.random())
+        .limit(1)
+    )
+    credential = result.scalar_one_or_none()
+    if not credential:
+        raise RuntimeError("No available credential for provider=tikhub")
+    return credential.id, credential.api_key, credential.base_url
+
+
+async def _report_success(cred_id: int, db: AsyncSession) -> None:
+    """调用成功，不阻塞主流程。"""
+    try:
+        await db.execute(
+            text("UPDATE tikhub_credentials SET updated_at = NOW() WHERE id = :id"),
+            {"id": cred_id},
+        )
+        await db.commit()
+    except Exception:
+        pass
+
+
+async def _report_failure(cred_id: int, db: AsyncSession) -> None:
+    """调用失败，暂时不做冷却（tikhub_credentials 无 fail_count 字段）。"""
+    pass
 
 
 # ---------------------------------------------------------------------------
@@ -49,7 +72,7 @@ async def get_user_profile(sec_user_id: str, db: AsyncSession) -> dict:
             )
             response.raise_for_status()
             raw = response.json()
-            await report_success(cred_id, db)
+            await _report_success(cred_id, db)
 
             user_data = (raw.get("data") or {}).get("user") or {}
             # 优先级：avatar_thumb > avatar_medium > avatar_larger
@@ -74,7 +97,7 @@ async def get_user_profile(sec_user_id: str, db: AsyncSession) -> dict:
                 "signature": user_data.get("signature"),
             }
     except Exception as e:
-        await report_failure(cred_id, db)
+        await _report_failure(cred_id, db)
         raise RuntimeError(f"TikHub get_user_profile failed: {e}") from e
 
 
@@ -96,7 +119,7 @@ async def get_user_fans_info(user_id: int, db: AsyncSession) -> dict:
             )
             response.raise_for_status()
             raw = response.json()
-            await report_success(cred_id, db)
+            await _report_success(cred_id, db)
 
             fans_data = raw.get("data") or {}
             return {
@@ -113,7 +136,7 @@ async def get_user_fans_info(user_id: int, db: AsyncSession) -> dict:
                 ),
             }
     except Exception as e:
-        await report_failure(cred_id, db)
+        await _report_failure(cred_id, db)
         raise RuntimeError(f"TikHub get_user_fans_info failed: {e}") from e
 
 
@@ -140,12 +163,12 @@ async def get_live_room_products(
             )
             response.raise_for_status()
             raw = response.json()
-            await report_success(cred_id, db)
+            await _report_success(cred_id, db)
 
             promotions = raw.get("data", {}).get("promotions", [])
             return {"raw": raw, "promotions": promotions}
     except Exception as e:
-        await report_failure(cred_id, db)
+        await _report_failure(cred_id, db)
         raise RuntimeError(f"TikHub get_live_room_products failed: {e}") from e
 
 
@@ -212,7 +235,7 @@ async def resolve_sec_user_id(input_str: str, db: AsyncSession) -> dict:
     解析用户输入的抖音号或分享链接，返回 sec_user_id 和 nickname。
 
     支持的输入格式：
-    - 抖音号（纯字母数字，如 xiao_hong_123）
+    - 数字 uid（纯数字，如 7634905327011499316）
     - 主页链接（https://www.douyin.com/user/MS4wLj...）
     - 分享短链接（https://v.douyin.com/xxx/）
     - 分享文本（"长按复制此条消息... https://v.douyin.com/xxx/"）
@@ -222,6 +245,7 @@ async def resolve_sec_user_id(input_str: str, db: AsyncSession) -> dict:
     cred_id, api_key, base_url = await _get_key_and_url(db)
     try:
         url_match = _extract_douyin_url(input_str)
+        stripped = input_str.strip()
 
         if url_match:
             # 链接：先解析短链接，再用 get_sec_user_id 端点提取
@@ -234,16 +258,53 @@ async def resolve_sec_user_id(input_str: str, db: AsyncSession) -> dict:
                 )
                 response.raise_for_status()
                 data = response.json()
-                await report_success(cred_id, db)
+                await _report_success(cred_id, db)
             # TikHub get_sec_user_id 返回 data 为纯字符串（sec_user_id）
             sec_uid = data.get("data")
             if not sec_uid or not isinstance(sec_uid, str):
                 raise RuntimeError("无法从链接中解析 sec_user_id")
-        else:
-            # 纯抖音号：用 unique_id 查询用户资料
-            sec_uid = input_str.strip()
 
-        # 复用已有的 get_user_profile 获取 nickname（使用 app/v3 端点，支持 sec_user_id）
+        elif re.fullmatch(r"\d{10,20}", stripped):
+            # 纯数字 uid（10-20位）：通过 TikHub fetch_user_profile_by_uid 获取用户资料
+            async with httpx.AsyncClient(timeout=30) as client:
+                response = await client.get(
+                    f"{base_url}/api/v1/douyin/web/fetch_user_profile_by_uid",
+                    params={"uid": stripped},
+                    headers={"Authorization": f"Bearer {api_key}"},
+                )
+                response.raise_for_status()
+                raw = response.json()
+                await _report_success(cred_id, db)
+
+            # 兼容两种返回结构：data.data.user_info 或 data.user
+            inner_data = (raw.get("data") or {})
+            status_code = inner_data.get("status_code", 0)
+            if status_code not in (0, None):
+                raise RuntimeError(f"抖音服务暂时不可用（status_code={status_code}），请稍后重试")
+
+            user_info = (
+                inner_data.get("data", {}).get("user_info")
+                or inner_data.get("data", {}).get("user")
+                or inner_data.get("user_info")
+                or inner_data.get("user")
+                or {}
+            )
+            sec_uid = user_info.get("sec_uid") or user_info.get("sec_user_id")
+            if not sec_uid:
+                raise RuntimeError(f"无法从 uid={stripped} 获取 sec_user_id，请改用抖音主页链接")
+
+            # 获取完整资料（nickname / avatar）
+            profile = await get_user_profile(sec_uid, db)
+            return {
+                "sec_user_id": sec_uid,
+                "nickname": user_info.get("nickname") or profile.get("nickname") or "",
+            }
+
+        else:
+            # 其他格式直接当 sec_user_id 使用（向后兼容）
+            sec_uid = stripped
+
+        # 获取完整用户资料（nickname / avatar 等）
         profile = await get_user_profile(sec_uid, db)
 
         return {
@@ -251,7 +312,7 @@ async def resolve_sec_user_id(input_str: str, db: AsyncSession) -> dict:
             "nickname": profile.get("nickname") or "",
         }
     except Exception as e:
-        await report_failure(cred_id, db)
+        await _report_failure(cred_id, db)
         raise RuntimeError(f"TikHub resolve_sec_user_id failed: {e}") from e
 
 
@@ -290,7 +351,7 @@ async def fetch_user_videos(
                 response.raise_for_status()
                 raw = response.json()
 
-            await report_success(cred_id, db)
+            await _report_success(cred_id, db)
 
             data = raw.get("data") or {}
             aweme_list = data.get("aweme_list") or []
@@ -312,7 +373,7 @@ async def fetch_user_videos(
 
         return all_videos
     except Exception as e:
-        await report_failure(cred_id, db)
+        await _report_failure(cred_id, db)
         raise RuntimeError(f"TikHub fetch_user_videos failed: {e}") from e
 
 
@@ -351,7 +412,7 @@ async def fetch_video_by_share_url(share_url: str, db: AsyncSession) -> dict:
             )
             response.raise_for_status()
             raw = response.json()
-            await report_success(cred_id, db)
+            await _report_success(cred_id, db)
 
         # TikHub 返回结构：data.aweme_detail
         aweme = (raw.get("data") or {}).get("aweme_detail") or raw.get("data") or {}
@@ -375,7 +436,7 @@ async def fetch_video_by_share_url(share_url: str, db: AsyncSession) -> dict:
             "play_url": play_url,
         }
     except Exception as e:
-        await report_failure(cred_id, db)
+        await _report_failure(cred_id, db)
         raise RuntimeError(f"TikHub fetch_video_by_share_url failed: {e}") from e
 
 
