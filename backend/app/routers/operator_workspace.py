@@ -4,6 +4,7 @@ app/routers/operator_workspace.py
 红人工作台接口（运营端）：
   GET    /api/operator/workspace/{kol_id}/dashboard
   GET    /api/operator/workspace/{kol_id}/benchmarks
+  POST   /api/operator/workspace/{kol_id}/benchmarks/validate  — TikHub 验证账号
   POST   /api/operator/workspace/{kol_id}/benchmarks
   PUT    /api/operator/workspace/{kol_id}/benchmarks/{id}
   DELETE /api/operator/workspace/{kol_id}/benchmarks/{id}
@@ -16,8 +17,10 @@ from typing import Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import AsyncSessionLocal
+from app.adapters import tikhub as tikhub_adapter
+from app.core.database import AsyncSessionLocal, get_db
 from app.core.response import ErrorCode, error_response, success_response
 from app.middlewares.auth import get_current_user
 from app.models.kol import Kol
@@ -132,6 +135,38 @@ class BenchmarkRequest(BaseModel):
     account_type: Literal["content", "livestream"]
     description: Optional[str] = None
     sort_order: int = 0
+
+
+class ValidateAccountRequest(BaseModel):
+    account_input: str  # 抖音主页链接、分享短链或账号 ID
+
+
+@router.post("/{kol_id}/benchmarks/validate", response_model=None)
+async def validate_benchmark_account(
+    kol_id: int,
+    body: ValidateAccountRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_operator),
+):
+    """
+    调 TikHub 验证抖音账号是否存在，返回昵称和头像供前端预览确认。
+    成功时 success=True，失败时 success=False（不抛 HTTP 异常，由前端展示错误提示）。
+    """
+    async with AsyncSessionLocal() as session:
+        await _get_kol_or_404(session, kol_id)
+
+    try:
+        resolved = await tikhub_adapter.resolve_sec_user_id(body.account_input, db)
+        profile = await tikhub_adapter.get_user_profile(resolved["sec_user_id"], db)
+    except Exception as e:
+        return error_response("TIKHUB_ERROR", f"账号查找失败：{str(e)[:120]}")
+
+    return success_response(data={
+        "sec_user_id": resolved["sec_user_id"],
+        "nickname": resolved["nickname"] or profile.get("nickname") or "",
+        "avatar_url": profile.get("avatar_url"),
+        "follower_count": profile.get("follower_count"),
+    })
 
 
 @router.get("/{kol_id}/benchmarks", response_model=None)

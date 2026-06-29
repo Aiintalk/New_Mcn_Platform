@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Modal, Form, Input, Radio, Popconfirm, Skeleton, Checkbox, message } from 'antd';
-import { PlusOutlined, CloseOutlined } from '@ant-design/icons';
+import { Modal, Form, Input, Radio, Popconfirm, Skeleton, Checkbox, message, Avatar } from 'antd';
+import { PlusOutlined, CloseOutlined, UserOutlined } from '@ant-design/icons';
 import type { KolBenchmark, QianchuanProduct, WorkspaceDashboardData } from '../../../types/kolWorkspace';
 import {
   getWorkspaceDashboard,
@@ -8,7 +8,9 @@ import {
   updateBenchmark,
   deleteBenchmark,
   updateActiveProducts,
+  validateBenchmarkAccount,
 } from '../../../api/kolWorkspace';
+import type { BenchmarkAccountPreview } from '../../../api/kolWorkspace';
 import { getQianchuanProducts } from '../../../api/qianchuanProducts';
 
 interface WorkspaceDashboardProps {
@@ -18,7 +20,7 @@ interface WorkspaceDashboardProps {
 
 // ─── 对标账号弹窗 ────────────────────────────────────────────────────────────
 interface BenchmarkFormValues {
-  account_name: string;
+  account_input: string;   // 新增：抖音主页链接或账号 ID（验证用）
   account_type: 'content' | 'livestream';
   description: string;
 }
@@ -169,9 +171,12 @@ export default function WorkspaceDashboard({ kolId, onKolLoaded }: WorkspaceDash
   const [dashboard, setDashboard] = useState<WorkspaceDashboardData | null>(null);
 
   // 对标账号弹窗
-  const [bmModalOpen, setBmModalOpen]     = useState(false);
-  const [bmEditing, setBmEditing]         = useState<KolBenchmark | null>(null);
-  const [bmLoading, setBmLoading]         = useState(false);
+  const [bmModalOpen, setBmModalOpen]       = useState(false);
+  const [bmEditing, setBmEditing]           = useState<KolBenchmark | null>(null);
+  const [bmLoading, setBmLoading]           = useState(false);
+  const [bmStep, setBmStep]                 = useState<'form' | 'preview'>('form');
+  const [bmPreview, setBmPreview]           = useState<BenchmarkAccountPreview | null>(null);
+  const [bmPendingValues, setBmPendingValues] = useState<BenchmarkFormValues | null>(null);
   const [bmForm] = Form.useForm<BenchmarkFormValues>();
 
   // 管理商品弹窗
@@ -202,6 +207,9 @@ export default function WorkspaceDashboard({ kolId, onKolLoaded }: WorkspaceDash
   // ── 对标账号操作 ──────────────────────────────────────────────────────────
   function openCreateBenchmark() {
     setBmEditing(null);
+    setBmStep('form');
+    setBmPreview(null);
+    setBmPendingValues(null);
     bmForm.resetFields();
     bmForm.setFieldsValue({ account_type: 'content' });
     setBmModalOpen(true);
@@ -209,28 +217,71 @@ export default function WorkspaceDashboard({ kolId, onKolLoaded }: WorkspaceDash
 
   function openEditBenchmark(bm: KolBenchmark) {
     setBmEditing(bm);
+    setBmStep('form');
+    setBmPreview(null);
+    setBmPendingValues(null);
+    bmForm.resetFields();
     bmForm.setFieldsValue({
-      account_name: bm.account_name,
-      account_type: bm.account_type,
-      description:  bm.description ?? '',
+      account_input: bm.account_name,   // 编辑时回填已存的名称
+      account_type:  bm.account_type,
+      description:   bm.description ?? '',
     });
     setBmModalOpen(true);
   }
 
+  function closeBmModal() {
+    setBmModalOpen(false);
+    setBmStep('form');
+    setBmPreview(null);
+    setBmPendingValues(null);
+    bmForm.resetFields();
+  }
+
+  /** 表单提交：新增走验证流程，编辑直接保存 */
   async function handleBmSubmit(values: BenchmarkFormValues) {
     setBmLoading(true);
     try {
       if (bmEditing) {
-        await updateBenchmark(kolId, bmEditing.id, values);
+        // 编辑：直接更新，account_name 保持原值（或用户修改的 account_input）
+        await updateBenchmark(kolId, bmEditing.id, {
+          account_name: values.account_input,
+          account_type: values.account_type,
+          description:  values.description,
+          sort_order:   bmEditing.sort_order,
+        });
         message.success('对标账号已更新');
+        closeBmModal();
+        load();
       } else {
-        await createBenchmark(kolId, { ...values, sort_order: 0 });
-        message.success('对标账号已添加');
+        // 新增：先调 TikHub 验证，跳到预览步骤
+        const preview = await validateBenchmarkAccount(kolId, values.account_input);
+        setBmPreview(preview);
+        setBmPendingValues(values);
+        setBmStep('preview');
       }
-      setBmModalOpen(false);
+    } catch (e: unknown) {
+      message.error((e instanceof Error ? e.message : null) || '操作失败，请检查账号格式或稍后重试');
+    } finally {
+      setBmLoading(false);
+    }
+  }
+
+  /** 预览步骤确认：真正入库 */
+  async function handleBmConfirm() {
+    if (!bmPreview || !bmPendingValues) return;
+    setBmLoading(true);
+    try {
+      await createBenchmark(kolId, {
+        account_name: bmPreview.nickname,
+        account_type: bmPendingValues.account_type,
+        description:  bmPendingValues.description || null,
+        sort_order:   0,
+      });
+      message.success('对标账号已添加');
+      closeBmModal();
       load();
     } catch (e: unknown) {
-      message.error((e instanceof Error ? e.message : null) || '操作失败');
+      message.error((e instanceof Error ? e.message : null) || '添加失败');
     } finally {
       setBmLoading(false);
     }
@@ -405,39 +456,74 @@ export default function WorkspaceDashboard({ kolId, onKolLoaded }: WorkspaceDash
 
       {/* ── 对标账号 Modal ──────────────────────────────────────────── */}
       <Modal
-        title={bmEditing ? '编辑对标账号' : '添加对标账号'}
+        title={bmEditing ? '编辑对标账号' : (bmStep === 'preview' ? '确认添加对标账号' : '添加对标账号')}
         open={bmModalOpen}
-        onCancel={() => { setBmModalOpen(false); bmForm.resetFields(); }}
-        onOk={() => bmForm.submit()}
-        okText={bmEditing ? '保存' : '添加'}
-        cancelText="取消"
+        onCancel={bmStep === 'preview' ? () => { setBmStep('form'); setBmPreview(null); } : closeBmModal}
+        onOk={bmStep === 'preview' ? handleBmConfirm : () => bmForm.submit()}
+        okText={bmStep === 'preview' ? '确认添加' : (bmEditing ? '保存' : '查找账号')}
+        cancelText={bmStep === 'preview' ? '返回修改' : '取消'}
         confirmLoading={bmLoading}
-        destroyOnClose
+        destroyOnHidden
       >
-        <Form
-          form={bmForm}
-          layout="vertical"
-          onFinish={handleBmSubmit}
-          style={{ marginTop: 16 }}
-          initialValues={{ account_type: 'content' }}
-        >
-          <Form.Item
-            label="账号名"
-            name="account_name"
-            rules={[{ required: true, message: '请输入账号名' }]}
+        {bmStep === 'form' ? (
+          <Form
+            form={bmForm}
+            layout="vertical"
+            onFinish={handleBmSubmit}
+            style={{ marginTop: 16 }}
+            initialValues={{ account_type: 'content' }}
           >
-            <Input placeholder="请输入对标账号名称" />
-          </Form.Item>
-          <Form.Item label="类型" name="account_type">
-            <Radio.Group>
-              <Radio value="content">内容对标</Radio>
-              <Radio value="livestream">直播对标</Radio>
-            </Radio.Group>
-          </Form.Item>
-          <Form.Item label="简介" name="description">
-            <Input.TextArea rows={3} placeholder="简单描述该账号的特点（选填）" />
-          </Form.Item>
-        </Form>
+            <Form.Item
+              label={bmEditing ? '账号名' : '抖音账号'}
+              name="account_input"
+              rules={[{ required: true, message: '请输入账号信息' }]}
+              extra={!bmEditing ? '支持抖音主页链接、分享短链或抖音号 ID' : undefined}
+            >
+              <Input placeholder={bmEditing ? '账号名' : 'https://www.douyin.com/user/... 或 v.douyin.com/xxx/'} />
+            </Form.Item>
+            <Form.Item label="类型" name="account_type">
+              <Radio.Group>
+                <Radio value="content">内容对标</Radio>
+                <Radio value="livestream">直播对标</Radio>
+              </Radio.Group>
+            </Form.Item>
+            <Form.Item label="简介" name="description">
+              <Input.TextArea rows={3} placeholder="简单描述该账号的特点（选填）" />
+            </Form.Item>
+          </Form>
+        ) : (
+          /* 预览确认步骤 */
+          <div style={{ padding: '16px 0' }}>
+            <p style={{ marginBottom: 16, color: 'var(--text-secondary)' }}>
+              已找到以下抖音账号，确认后将添加为对标账号：
+            </p>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              padding: '12px 16px',
+              background: 'var(--bg-secondary, #f5f5f5)',
+              borderRadius: 8,
+              border: '1px solid var(--border-color, #e8e8e8)',
+            }}>
+              <Avatar
+                size={48}
+                src={bmPreview?.avatar_url ?? undefined}
+                icon={<UserOutlined />}
+              />
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 15 }}>{bmPreview?.nickname}</div>
+                {bmPreview?.follower_count != null && (
+                  <div style={{ color: 'var(--text-secondary)', fontSize: 13, marginTop: 2 }}>
+                    粉丝数：{bmPreview.follower_count >= 10000
+                      ? `${(bmPreview.follower_count / 10000).toFixed(1)} 万`
+                      : bmPreview.follower_count}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </Modal>
 
       {/* ── 管理在售商品 Modal ──────────────────────────────────────── */}

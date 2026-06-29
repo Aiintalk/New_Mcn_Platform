@@ -11,6 +11,16 @@ export const getWorkspaceDashboard = (kolId: number) =>
 export const getBenchmarks = (kolId: number) =>
   get<{ content: KolBenchmark[]; livestream: KolBenchmark[] }>(`/api/operator/workspace/${kolId}/benchmarks`);
 
+export interface BenchmarkAccountPreview {
+  sec_user_id: string;
+  nickname: string;
+  avatar_url: string | null;
+  follower_count: number | null;
+}
+
+export const validateBenchmarkAccount = (kolId: number, accountInput: string) =>
+  post<BenchmarkAccountPreview>(`/api/operator/workspace/${kolId}/benchmarks/validate`, { account_input: accountInput });
+
 export const createBenchmark = (kolId: number, data: Omit<KolBenchmark, 'id' | 'kol_id'>) =>
   post<KolBenchmark>(`/api/operator/workspace/${kolId}/benchmarks`, data);
 
