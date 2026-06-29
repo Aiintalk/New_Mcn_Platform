@@ -35,11 +35,12 @@ function BenchmarkCard({
   onDelete: (b: KolBenchmark) => void;
 }) {
   const [hovered, setHovered] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   return (
     <div
       onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      onMouseLeave={() => { if (!confirmOpen) setHovered(false); }}
       onClick={() => onEdit(benchmark)}
       style={{
         position: 'relative',
@@ -68,20 +69,32 @@ function BenchmarkCard({
           {benchmark.description}
         </div>
       )}
-      {hovered && (
+      {(hovered || confirmOpen) && (
         <Popconfirm
           title="确认删除此对标账号？"
           okText="删除"
           cancelText="取消"
           okButtonProps={{ danger: true }}
+          open={confirmOpen}
+          onOpenChange={(open, e) => {
+            e?.stopPropagation();
+            setConfirmOpen(open);
+            if (!open) setHovered(false);
+          }}
           onConfirm={(e) => {
             e?.stopPropagation();
+            setConfirmOpen(false);
+            setHovered(false);
             onDelete(benchmark);
           }}
-          onOpenChange={(open, e) => { if (open) e?.stopPropagation(); }}
+          onCancel={(e) => {
+            e?.stopPropagation();
+            setConfirmOpen(false);
+            setHovered(false);
+          }}
         >
           <div
-            onClick={(e) => e.stopPropagation()}
+            onClick={(e) => { e.stopPropagation(); setConfirmOpen(true); }}
             style={{
               position: 'absolute',
               top: 6,
