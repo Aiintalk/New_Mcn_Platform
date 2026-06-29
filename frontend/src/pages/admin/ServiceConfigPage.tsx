@@ -549,7 +549,7 @@ function TikHubConfigTab() {
                   <tr key={k.id} style={{ borderBottom: '1px solid var(--border)' }}>
                     <td style={{ padding: '10px 12px', color: 'var(--gray-400)' }}>{idx + 1}</td>
                     <td style={{ padding: '10px 12px' }}>{k.label || '—'}</td>
-                    <td style={{ padding: '10px 12px', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{k.api_key}</td>
+                    <td style={{ padding: '10px 12px', fontFamily: 'var(--font-mono)', fontSize: 12, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{k.api_key}</td>
                     <td style={{ padding: '10px 12px' }}>
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12 }}>
                         <span style={{ width: 7, height: 7, borderRadius: '50%', display: 'inline-block', background: k.status === 'active' ? 'var(--success)' : 'var(--gray-300)' }} />
