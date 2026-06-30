@@ -82,14 +82,16 @@ function downloadBlob(content: string, filename: string, mime: string): void {
   URL.revokeObjectURL(url);
 }
 
-export default function SeedingWriterPage() {
+// ── 内部实现（共享逻辑）──────────────────────────────────────────────────────
+function SeedingWriterInner({ initKolId }: { initKolId?: number }) {
   const { message } = App.useApp();
-  const [step, setStep] = useState(1);
+  const isModule = initKolId !== undefined;
+  const [step, setStep] = useState(isModule ? 2 : 1);
 
   // Step 1
   const [personas, setPersonas] = useState<PersonaOption[]>([]);
   const [personasLoading, setPersonasLoading] = useState(false);
-  const [selectedPersonaId, setSelectedPersonaId] = useState<number | null>(null);
+  const [selectedPersonaId, setSelectedPersonaId] = useState<number | null>(initKolId ?? null);
   const [selectedPersona, setSelectedPersona] = useState<PersonaOption | null>(null);
   const [references, setReferences] = useState<Reference[]>([]);
   const [showRefForm, setShowRefForm] = useState(false);
@@ -149,12 +151,17 @@ export default function SeedingWriterPage() {
     try {
       const data = await getPersonas();
       setPersonas(data);
+      // Module 模式：从列表中找到当前达人的信息
+      if (isModule && initKolId) {
+        const found = data.find((p) => p.id === initKolId) ?? null;
+        setSelectedPersona(found);
+      }
     } catch (err: unknown) {
       message.error(err instanceof Error ? err.message : '加载达人列表失败');
     } finally {
       setPersonasLoading(false);
     }
-  }, [message]);
+  }, [message, isModule, initKolId]);
 
   useEffect(() => {
     loadPersonas();
@@ -628,23 +635,21 @@ export default function SeedingWriterPage() {
       <div className="page-header">
         <div>
           <h1 className="page-title">种草内容仿写</h1>
-          <p className="page-desc">选达人 · 产品信息 · 对标验证 · 种草仿写</p>
+          <p className="page-desc">{isModule ? '产品信息 · 对标验证 · 种草仿写' : '选达人 · 产品信息 · 对标验证 · 种草仿写'}</p>
         </div>
       </div>
 
       <Steps
-        current={step - 1}
-        items={[
-          { title: '选达人' },
-          { title: '产品信息' },
-          { title: '对标验证' },
-          { title: '种草仿写' },
-        ]}
+        current={isModule ? step - 2 : step - 1}
+        items={isModule
+          ? [{ title: '产品信息' }, { title: '对标验证' }, { title: '种草仿写' }]
+          : [{ title: '选达人' }, { title: '产品信息' }, { title: '对标验证' }, { title: '种草仿写' }]
+        }
         style={{ marginBottom: 'var(--sp-6)' }}
       />
 
-      {/* Step 1 · 选达人 + 素材库 */}
-      {step >= 1 && (
+      {/* Step 1 · 选达人 + 素材库（仅独立页面模式） */}
+      {!isModule && step >= 1 && (
         <div className="card" style={{ marginBottom: 'var(--sp-4)' }}>
           <h3 style={{ marginBottom: 'var(--sp-3)' }}>Step 1 · 选择达人</h3>
           <div style={{ marginBottom: 'var(--sp-3)' }}>
@@ -1409,4 +1414,14 @@ export default function SeedingWriterPage() {
       )}
     </div>
   );
+}
+
+// ── 核心 Module（接受外部 kolId，跳过 Step 1 选达人）───────────────────────
+export function SeedingWriterModule({ kolId }: { kolId: number }) {
+  return <SeedingWriterInner initKolId={kolId} />;
+}
+
+// ── 独立页面（保留完整 Step 1 选达人流程）────────────────────────────────────
+export default function SeedingWriterPage() {
+  return <SeedingWriterInner />;
 }

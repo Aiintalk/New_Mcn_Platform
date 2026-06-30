@@ -37,6 +37,13 @@ from app.models.oss_call_log import OssCallLog
 from app.models.asr_call_log import AsrCallLog
 from app.models.material_library import KolReference, MaterialLibraryConfig
 from app.models.subtitle import SubtitleJob, SubtitleItem, SubtitleConfig
+from app.models.qianchuan_product import QianchuanProduct
+from app.models.kol_benchmark import KolBenchmark
+from app.models.kol_active_product import KolActiveProduct
+from app.models.values_writer import ValuesWriterConfig
+from app.models.qianchuan_script_review import QianchuanScriptReviewConfig
+from app.models.retrospective import RetrospectiveConfig, RetrospectiveSession
+from app.models.kol_workspace_config import KolWorkspaceConfig
 
 __all__ = [
     "User",
@@ -82,4 +89,12 @@ __all__ = [
     "SubtitleJob",
     "SubtitleItem",
     "SubtitleConfig",
+    "QianchuanProduct",
+    "KolBenchmark",
+    "KolActiveProduct",
+    "ValuesWriterConfig",
+    "QianchuanScriptReviewConfig",
+    "RetrospectiveConfig",
+    "RetrospectiveSession",
+    "KolWorkspaceConfig",
 ]

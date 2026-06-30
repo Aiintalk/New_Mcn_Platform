@@ -44,6 +44,10 @@ const LivestreamReviewPage = lazy(() => import('./pages/operator/LivestreamRevie
 const QianchuanWriterPage = lazy(() => import('./pages/operator/QianchuanWriterPage'));
 const MaterialLibraryPage = lazy(() => import('./pages/operator/MaterialLibraryPage'));
 const SubtitleExtractorPage = lazy(() => import('./pages/operator/SubtitleExtractorPage'));
+const ValuesWriterPage = lazy(() => import('./pages/operator/ValuesWriterPage'));
+const QianchuanScriptReviewPage = lazy(() => import('./pages/operator/QianchuanScriptReviewPage'));
+const KolWorkspacePage = lazy(() => import('./pages/operator/KolWorkspacePage'));
+const KolWorkspaceConfigPage = lazy(() => import('./pages/admin/KolWorkspaceConfigPage'));
 
 function Page403() {
   return (
@@ -96,6 +100,9 @@ export default function App() {
 
           {/* Operator routes */}
           <Route element={<ProtectedRoute />}>
+            {/* 工作台：独立布局，不用 OperatorLayout */}
+            <Route path="/kol-workspace/:kol_id" element={<KolWorkspacePage />} />
+
             <Route element={<OperatorLayout />}>
               <Route path="/" element={<HomePage />} />
               <Route path="/workspace" element={<WorkspacePage />} />
@@ -117,6 +124,8 @@ export default function App() {
               <Route path="/workspace/subtitle" element={<SubtitleExtractorPage />} />
               <Route path="/workspace/persona-review" element={<PersonaReviewPage />} />
               <Route path="/workspace/kol-intake" element={<OperatorIntakePage />} />
+              <Route path="/workspace/values-writer" element={<ValuesWriterPage />} />
+              <Route path="/workspace/qianchuan-script-review" element={<QianchuanScriptReviewPage />} />
               <Route path="/workspace/kol-intake/chat" element={<OperatorIntakeChatPage />} />
               <Route path="/tasks" element={<TasksPage />} />
               <Route path="/outputs" element={<OutputsPage />} />
@@ -130,6 +139,7 @@ export default function App() {
                 <Route path="/admin" element={<AdminDashboardPage />} />
                 <Route path="/admin/users" element={<UsersPage />} />
                 <Route path="/admin/kols" element={<KolsPage />} />
+                <Route path="/admin/kols/:kolId/workspace-config" element={<KolWorkspaceConfigPage />} />
                 <Route path="/admin/workspace" element={<WorkspaceConfigPage />} />
                 <Route path="/admin/tasks" element={<AdminTasksPage />} />
                 <Route path="/admin/outputs" element={<AdminOutputsPage />} />

@@ -26,6 +26,12 @@ class Kol(Base):
     owner_id = Column(BigInteger, ForeignKey("users.id"), nullable=True)
     status = Column(String(32), nullable=False, default="signed")
     created_by = Column(BigInteger, ForeignKey("users.id"), nullable=True)
+    # 人物档案 5 分区（Sprint 18）
+    background    = Column(Text, nullable=True)
+    experience    = Column(Text, nullable=True)
+    relationships = Column(Text, nullable=True)
+    unique_story  = Column(Text, nullable=True)
+    extra_notes   = Column(Text, nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
     deleted_at = Column(TIMESTAMP(timezone=True), nullable=True)

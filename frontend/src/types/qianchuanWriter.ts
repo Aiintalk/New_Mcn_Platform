@@ -49,6 +49,7 @@ export interface QianchuanChatMessage {
 export interface QianchuanChatRequest {
   messages: QianchuanChatMessage[];
   persona_id: number;
+  kol_id?: number;
   create_job?: boolean;
   job_context?: {
     product_name?: string;

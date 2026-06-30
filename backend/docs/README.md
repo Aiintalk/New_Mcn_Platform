@@ -23,9 +23,9 @@ backend/
 │   │   └── seed.py                    #   初始数据填充
 │   ├── middlewares/
 │   │   └── auth.py                    #   JWT 鉴权（get_current_user / require_admin）
-│   ├── models/                        # SQLAlchemy ORM 模型（29 个文件）
+│   ├── models/                        # SQLAlchemy ORM 模型（33 个文件）
 │   │   ├── user.py                    #   用户表
-│   │   ├── kol.py                     #   红人表
+│   │   ├── kol.py                     #   红人表（Sprint 18 新增 background/experience/relationships/unique_story/extra_notes 5 列）
 │   │   ├── credential.py              #   AI 密钥池表
 │   │   ├── workspace.py               #   工作空间 / 工具配置表
 │   │   ├── kol_intake.py              #   入驻问卷相关表（5 张）
@@ -43,6 +43,9 @@ backend/
 │   │   ├── qianchuan_writer.py        #   千川文案写作配置表（Sprint 14）
 │   │   ├── persona_writer.py          #   人设脚本仿写配置表（Sprint 15）
 │   │   ├── seeding_writer.py          #   种草内容仿写配置+产品+素材表（Sprint 16）
+│   │   ├── qianchuan_product.py       #   千川产品库（Sprint 18）
+│   │   ├── kol_benchmark.py           #   达人对标账号（Sprint 18）
+│   │   ├── kol_active_product.py      #   达人在售商品关联（Sprint 18）
 │   │   └── ...                        #   log / file / output / session / task
 │   ├── routers/                       # API 路由（按角色分文件，52 个）
 │   │   ├── auth.py                    #   POST /api/auth/login、/change-password
@@ -81,6 +84,9 @@ backend/
 │   │   ├── operator_qianchuan_writer.py # 千川文案写作（运营端，Sprint 14）
 │   │   ├── operator_persona_writer.py #  人设脚本仿写（运营端，Sprint 15）
 │   │   ├── operator_seeding_writer.py #  种草内容仿写（运营端，Sprint 16）
+│   │   ├── operator_qianchuan_products.py # 千川产品库 CRUD（运营端，Sprint 18）
+│   │   ├── operator_workspace.py      #   红人工作台（首页/对标/在售商品，Sprint 18）
+│   │   ├── admin_kols.py + _operator_router # 红人管理（admin）+ persona-details（operator，Sprint 18）
 │   │   ├── persona.py                 #   人格定位（运营端）
 │   │   ├── intake_public.py           #   公开接口（博主填写问卷）
 │   │   ├── tool_chat_stream.py        #   工具：AI 流式对话
@@ -233,3 +239,6 @@ BugFix：      BugFix_{序号}_{描述}.md
 | seeding-writer | 种草内容仿写 | operator_seeding_writer.py / admin_seeding_writer.py | Sprint 16 |
 | material-library | 素材库（红人素材中枢） | operator_material_library.py / admin_material_library.py | Sprint 18（迁移） |
 | subtitle | 字幕提取（单条异步+批量+思维导图+统一历史+软删除） | operator_subtitle.py / admin_subtitle.py | Sprint 19（迁移）；Sprint 21（异步任务化+软删除） |
+| values-writer | 价值观仿写（4步向导） | operator_values_writer.py / admin_values_writer.py | Sprint 20 |
+| qianchuan-script-review | 千川脚本预审（直销/价值观双模式） | operator_script_review.py / admin_script_review.py | Sprint 21 |
+| retrospective | 复盘（工作台子模块，多维材料+AI分析+导出） | operator_retrospective.py / admin_retrospective.py | Sprint 22 |

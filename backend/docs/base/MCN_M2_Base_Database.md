@@ -1112,3 +1112,112 @@ migration 035 UPDATE：
 
 `035_subtitle.sql`
 
+---
+
+## 32. values_writer_configs 价值观仿写配置表（Sprint 20）
+
+### 32.1 用途
+
+存储价值观仿写工具的 AI 配置（4 个 Prompt + 模型绑定）。管理员在后台「价值观仿写」ConfigTab 中维护。
+
+### 32.2 字段说明
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | BIGSERIAL | 是 | PK |
+| `config_key` | VARCHAR(64) | 是 | UNIQUE，目前只有 `default` |
+| `extract_values_prompt` | TEXT | 否 | Step 1：从人物档案提炼价值观 |
+| `emotion_direction_prompt` | TEXT | 否 | Step 2：推导情绪方向 |
+| `writing_prompt` | TEXT | 否 | Step 3：生成内容 |
+| `iteration_prompt` | TEXT | 否 | Step 4：迭代优化 |
+| `model_id` | BIGINT FK ai_models | 否 | AI 模型（NULL 时用默认） |
+| `is_active` | BOOLEAN | 是 | 启用开关 |
+| `created_at` | TIMESTAMPTZ | 是 | |
+| `updated_at` | TIMESTAMPTZ | 是 | 触发器自动更新 |
+
+### 32.3 迁移文件
+
+### 32.3 迁移文件
+
+`043_values_writer.sql`
+
+---
+
+## 33. qianchuan_script_review_configs 千川脚本预审配置表（Sprint 21）
+
+### 33.1 用途
+
+存储千川脚本预审工具的 AI 配置（2 套 Prompt：千川直销模式 + 价值观模式）。
+
+### 33.2 字段说明
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | BIGSERIAL | 是 | PK |
+| `config_key` | VARCHAR(64) | 是 | UNIQUE，目前只有 `default` |
+| `direct_prompt` | TEXT | 否 | 千川直销模式 Prompt（检查产品名/价格/卖点替换） |
+| `value_prompt` | TEXT | 否 | 价值观内容模式 Prompt（评估情绪强度/信息差） |
+| `ai_model_id` | BIGINT FK ai_models | 否 | AI 模型（NULL 时用默认） |
+| `is_active` | BOOLEAN | 是 | 启用开关 |
+| `created_at` | TIMESTAMPTZ | 是 | |
+| `updated_at` | TIMESTAMPTZ | 是 | 触发器自动更新 |
+
+### 33.3 迁移文件
+
+`044_qianchuan_script_review.sql`
+
+---
+
+## 34. retrospective_sessions 复盘记录表（Sprint 22）
+
+### 34.1 用途
+
+存储红人工作台「复盘」模块的复盘记录。每条记录对应一次复盘任务，包含多维材料输入和 AI 生成的复盘报告。
+
+### 34.2 字段说明
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | BIGSERIAL | 是 | PK |
+| `kol_id` | BIGINT FK kols | 是 | 所属红人 |
+| `created_by` | BIGINT FK users | 否 | 创建人（软删时置 null） |
+| `title` | VARCHAR(200) | 是 | 复盘标题 |
+| `status` | VARCHAR(20) | 是 | `draft`（草稿）/ `done`（已完成），默认 draft |
+| `live_data` | TEXT | 否 | 直播数据（粘贴文本） |
+| `material_data` | TEXT | 否 | 素材数据（粘贴文本） |
+| `review_text` | TEXT | 否 | 评价文字（粘贴文本） |
+| `live_script` | TEXT | 否 | 直播脚本（文本） |
+| `material_scripts` | JSONB | 否 | 素材脚本列表，格式 `[{"name": "文件名", "text": "内容"}]` |
+| `result` | TEXT | 否 | AI 生成的复盘报告（analyze 接口写入） |
+| `created_at` | TIMESTAMPTZ | 是 | |
+| `updated_at` | TIMESTAMPTZ | 是 | 触发器自动更新 |
+
+索引：`idx_retrospective_sessions_kol_id`（kol_id）
+
+### 34.3 迁移文件
+
+`045_retrospective.sql`
+
+---
+
+## 35. retrospective_configs 复盘配置表（Sprint 22）
+
+### 35.1 用途
+
+存储复盘功能的 AI 配置（System Prompt + 模型绑定）。管理员在后台「复盘」ConfigTab 中维护。
+
+### 35.2 字段说明
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | BIGSERIAL | 是 | PK |
+| `config_key` | VARCHAR(64) | 是 | UNIQUE，目前只有 `default` |
+| `system_prompt` | TEXT | 否 | 复盘分析 System Prompt（null 时使用内置默认） |
+| `ai_model_id` | BIGINT FK ai_models | 否 | AI 模型（null 时默认 claude-sonnet-4-6） |
+| `is_active` | BOOLEAN | 是 | 启用开关 |
+| `created_at` | TIMESTAMPTZ | 是 | |
+| `updated_at` | TIMESTAMPTZ | 是 | 触发器自动更新 |
+
+### 35.3 迁移文件
+
+`045_retrospective.sql`

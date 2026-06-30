@@ -1,11 +1,11 @@
 # MCN_PM_Agent — 项目记忆与当前状态（M2）
 
-> 最后更新：2026-06-27（**Sprint 21 字幕异步任务化 + 统一历史 + 软删除**完成，分支 `feature/subtitle-async-history`，独立 PR）：基于 Sprint 19 字幕提取（main，PR #14 已合并）的迭代。POST /extract 改异步（kind='single' + 后台 `_run_single_extract`）+ 新增 DELETE /batch/{job_code} 软删除 + 前端 HistoryList 组件统一展示单条+批量历史（含复制/重生成思维导图/删除）。migration 044（subtitle_jobs.kind/deleted_at）+ 045（subtitle_items.meta_json）。后端 30+11 测试全过，前端 5+6 测试全过。**待用户浏览器验证 8 项**。上一个：Sprint 19 字幕提取迁移完成（main，PR #14））
+> 最后更新：2026-06-30（合并 main → feature/kol-workspace：把 main 的 Sprint 21 字幕异步任务化（PR #15 已合并到 main）带入 feature 分支。feature 自身的 Sprint 21 千川脚本预审 + Sprint 22 复盘 + Sprint 23 工作台配置保留。所有文档冲突已解决，PR #13 现可合并。）
 
+> **🚧 当前状态**：Sprint 21 + Sprint 22 代码 + 文档全部完成，`feature/kol-workspace` 分支等待合并（PR #13 待更新）。
 
-> **📋 Sprint 17 backlog**（已写需求文档，待开工）：管理端调用日志扩展（用户列 + 功能列）—— `docs/pm/M2_Sprint17_管理端调用日志扩展_需求文档.md`，方案 A 最小可用 ~75 分钟，5 个决策点待 review。同期排障发现 TikHub Cloudflare 网关间歇 502（约 40% 故障率，**非代码 bug**），后续如频繁影响可加 adapter 自动重试（独立任务，未开工）
+> **📋 Sprint 17 backlog**（已写需求文档，待开工）：管理端调用日志扩展（用户列 + 功能列）—— `docs/pm/M2_Sprint17_管理端调用日志扩展_需求文档.md`
 
-> **🔍 workspace_tools 旧名清理（待开工）**：2026-06-24 核查发现 3 条疑似旧名/废弃记录：`qianchuan (id=3, online) / review (id=4, dev) / subtitle (id=5, dev)`（Sprint 1-2 占位，被后续 Sprint 拆细替代）。5 条此前未注册的工具（livestream-writer/livestream-review/persona-review/qianchuan-preview/qianchuan-collection）**已在本日 migration 注册上线**。旧名清理待后续 migration 处理
 > 更新角色：MCN_PM_Agent
 > 上一份文档：`docs/pm/PM_记忆与状态.md`（M1 阶段，已归档）
 
@@ -32,7 +32,39 @@
 
 ## 二、M2 阶段（当前）
 
-### M2 工作项 — Sprint 21 字幕提取异步任务化 + 统一历史 + 软删除 ✅ 完成（分支 `feature/subtitle-async-history`，独立 PR）
+> **Sprint 编号说明**：main 与 feature/kol-workspace 两分支并行开发期间各自用了 Sprint 18/19 编号，内容不同（main = 素材库/字幕；feature = 红人工作台）。合并后按"保留双方记录、时间序"原则记录如下，最新在前。
+
+### M2 工作项 — Sprint 22 复盘（retrospective）🔄 进行中 → ✅ 代码完成（feature/kol-workspace）
+
+**核心定位**：红人工作台复盘子模块。支持多维材料录入（直播数据/素材数据/评价文字/直播脚本/素材脚本），AI 流式生成复盘报告，支持历史管理和 Word 导出。不设 workspace_tools 注册（属 KolWorkspace 内嵌模块，非独立工作台工具）。
+
+| # | 事项 | 结果 |
+|---|------|------|
+| 1 | Migration 045 | `retrospective_sessions` + `retrospective_configs` 两张表 |
+| 2 | ORM 模型 2 个 | `RetrospectiveSession`、`RetrospectiveConfig` |
+| 3 | 后端接口 9 个 | admin GET/PUT config（2）+ operator list/create/delete/parse-files/analyze（SSE）/export-word（7） |
+| 4 | conftest.py 更新 | `operator_retrospective.AsyncSessionLocal` 加入 patch 列表 |
+| 5 | 前端 | `types/retrospective.ts` + `api/retrospective.ts` + `WorkspaceRetrospective.tsx`（三视图）+ `RetrospectiveConfigTab.tsx` |
+| 6 | 工作台接入 | `KolWorkspacePage.tsx` 加 `retrospective` 导航项 + `WorkspaceConfigPage` 注册 ConfigTab |
+| 7 | 后端集成测试 | 13 / 13 通过 |
+| 8 | 前端组件测试 | 6 / 6 通过 |
+| 9 | 契约文档 | `Base_API §28` + `Base_Database §34-35` 已更新 |
+| 10 | 测试报告 | `backend/docs/tests/M2_Sprint22_测试报告_复盘_v1.md` |
+
+**关键设计点**：
+- **三视图模式**：列表视图（历史）→ 编辑视图（录入材料 + 分析）→ 详情视图（查看报告）
+- **材料多维输入**：直播数据/素材数据/评价文字 支持文件解析（parse-files 接口），直播脚本/素材脚本支持粘贴
+- **analyze 自动保存**：SSE 流完成后后台 AsyncSessionLocal 写 result + status='done'，前端无需手动保存
+- **物理删除**：复盘记录允许物理删除（业务决策，非软删）
+
+**不在范围**：
+- 多用户共享复盘（当前按 created_by 隔离）
+- 复盘历史版本管理
+- 复盘模板功能
+
+---
+
+### M2 工作项 — Sprint 21 字幕异步任务化 + 统一历史 + 软删除 ✅ 完成（main，PR #15 已合并）
 
 **背景**：用户反馈"解析过程中切换页面回来后看不到历史记录"，且单条 ASR 解析需 1-3 分钟同步阻塞前端不合理。基于 Sprint 19 字幕提取（main，PR #14 已合并）做异步化迭代。
 
@@ -60,7 +92,58 @@
 
 ---
 
-### M2 工作项 — Sprint 19 字幕提取（subtitle-extractor）迁移 ✅ 完成（main，PR #14 已合并）
+### M2 工作项 — Sprint 21 千川脚本预审（qianchuan-script-review）✅ 完成（feature/kol-workspace）
+
+**核心定位**：工作台独立工具页，对千川脚本进行 AI 预审。支持「千川直销模式」（检查产品名/价格/卖点替换）和「价值观模式」（评估情绪强度/信息差）两种预审类型，返回结构化结论（rating/must_fix/suggestions/passed）。
+
+| # | 事项 | 结果 |
+|---|------|------|
+| 1 | Migration 044 | `qianchuan_script_review_configs` 表 + 默认配置种子 |
+| 2 | 后端接口 3 个 | admin GET/PUT config（2）+ operator POST review（1，非流式） |
+| 3 | conftest.py 更新 | `operator_script_review.AsyncSessionLocal` 加入 patch 列表 |
+| 4 | 前端 | `types/scriptReview.ts` + `api/scriptReview.ts` + `QianchuanScriptReviewPage.tsx`（双栏布局）+ `ScriptReviewConfigTab.tsx` |
+| 5 | 路由注册 | `App.tsx` 加 `/workspace/qianchuan-script-review` lazy 路由 |
+| 6 | 后端集成测试 | 8 / 8 通过 |
+| 7 | 前端组件测试 | 7 / 7 通过 |
+| 8 | 契约文档 | `Base_API §27` + `Base_Database §33`（已存在）已更新 |
+| 9 | 测试报告 | `backend/docs/tests/M2_Sprint21_测试报告_qianchuan-script-review_v1.md` |
+
+**关键设计点**：
+- **非流式预审**：AI 返回完整 JSON，前端等待结果（不走 SSE），适合短脚本快速判定
+- **两 Prompt 合一配置**：`direct_prompt` + `value_prompt` 同存一条 `config_key='default'` 配置行
+- **JSON 容错解析**：AI 返回 markdown fence 包裹 JSON 时自动提取，解析失败返回 error_response
+- **rating 三档**：`pass`（可上线）/ `minor`（小改可上线）/ `fail`（需大改）
+
+---
+
+### M2 工作项 — Sprint 20 价值观仿写 ✅ 完成（feature/kol-workspace，PR #13）
+
+| # | 事项 | 结果 |
+|---|------|------|
+| 1 | Migration 043（原 038） | `values_writer_configs` 表 + 默认配置种子 |
+| 2 | 后端接口 6 个 | 管理端 GET/PUT config + 运营端 extract-values（非流式）+ emotion-direction/write/iterate（SSE 流式） |
+| 3 | 前端 ValuesWriterPage | 4 步向导（选价值观→情绪方向→生成内容→迭代），同时导出 ValuesWriterModule 供工作台内嵌 |
+| 4 | 工作台接入 | `values-writer` 导航项激活，点击直接进 Step 2（达人已锁定） |
+| 5 | 管理端配置 | ValuesWriterConfigTab（4 Prompt + 模型 + 启用开关） |
+| 6 | 测试 | 后端 1017/1017 通过，前端 203/203 通过 |
+
+---
+
+### M2 工作项 — Sprint 19 红人工作台扩展（feature 分支）✅ 完成（feature/kol-workspace，PR #13）
+
+**背景**：Sprint 18 建立了工作台框架，Sprint 19 补全达人相关的内容模块，并让工具以 Module 方式内嵌进工作台。
+
+| # | 事项 | 结果 |
+|---|------|------|
+| 1 | WorkspacePersona | 5 分区人物档案 inline 编辑（background/experience/relationships/unique_story/extra_notes） |
+| 2 | WorkspaceReferences | 素材库 6 类管理（人设/千川各 3 类，折叠列表 + Popconfirm 删除） |
+| 3 | 5 个工具页拆 Module | QianchuanWriterModule / SeedingWriterModule / PersonaWriterModule / LivestreamWriterModule / LivestreamReviewModule |
+| 4 | KolWorkspacePage 接入 | 9 个导航项激活（含新增 seeding-writer/persona-writer/livestream-writer/livestream-review） |
+| 5 | 测试 | 198/198 全通过（含修复 Sprint 16 预存失败） |
+
+---
+
+### M2 工作项 — Sprint 19 字幕提取（subtitle-extractor）迁移（main 分支）✅ 完成
 
 **背景**：旧架构 `Ai_Toolbox/subtitle-extractor-web/` 全量迁移。Sprint 3 起即有 `tool_transcribe.py`（云雾 Whisper，Sprint 3 债务），本次新建 `operator_subtitle.py` + `admin_subtitle.py`，与 tool_transcribe.py 不冲突。ASR adapter 已在 Sprint 4+ 就绪可调用。
 
@@ -93,6 +176,29 @@
 - 批量任务多进程（Celery/RQ）
 - 字幕翻译 / 字幕时间轴对齐（旧架构也没做）
 - access_code 跨设备查询模式（Step 8 已废弃，新架构 JWT + created_by 替代）
+
+---
+
+### M2 工作项 — Sprint 18 红人工作台基础架构（feature 分支）✅ 完成（feature/kol-workspace，PR #13）
+
+**背景**：huimin-studio 全量迁移需求确认，以达人为中心建立「红人工作台」，本 Sprint 建立数据层 + Shell + 首页 Dashboard + 千川产品库 Module。
+
+| # | 事项 | 结果 | 归属 |
+|---|------|------|------|
+| 1 | Migration 039-042（原 034-037） | kols+5列 + qianchuan_products + kol_benchmarks + kol_active_products | 本地 DB |
+| 2 | ORM 模型 3 个 + kol.py 扩展 | QianchuanProduct / KolBenchmark / KolActiveProduct | 后端 |
+| 3 | 后端接口 13 个 | 千川产品库(4) + 工作台首页(1) + 对标账号(4) + 在售商品(2) + 人物档案(2) | 后端 |
+| 4 | 前端工作台框架 | KolWorkspacePage Shell + WorkspaceDashboard + QianchuanProductsModule | 前端 |
+| 5 | 路由 + 入口 | /kol-workspace/:kol_id 路由 + KolsPage「进入工作台」按钮 | 前端 |
+| 6 | 测试 | 后端 32 个集成测试全通过（1006/1006）；前端 18 个单元测试全通过 | 测试 |
+
+**待办**：PR 创建 + CI 通过 + 人工验收（访问 http://localhost:5175，从红人列表进入工作台验证）
+
+---
+
+### M2 工作项 — Sprint 18 素材库迁移（main 分支）✅ 完成
+
+迁移自旧架构 `Ai_Toolbox/material-library-web/`。后端 migration 034 + 2 张新表（kol_references + material_library_configs）+ 9 个 API（7 运营 + 2 管理）+ 22 个后端测试通过 + 6/6 convention_guard；前端 MaterialLibraryPage（左右分栏 4 Tab：人格档案/内容规划/参考素材/入驻信息）+ MaterialLibraryConfigTab + 18 个前端测试通过。关键决策：人格档案/内容规划复用 kols.persona + kols.content_plan（**不新建 profile 表**）。契约文档同步：Base_API §24 + Base_Database §28-29 + 前后端 README + 根 README。
 
 ---
 

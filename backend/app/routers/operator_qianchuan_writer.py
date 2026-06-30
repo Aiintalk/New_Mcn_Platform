@@ -34,6 +34,7 @@ from app.models.user import User
 from app.services import word_export
 from app.services.file_parser import parse_uploaded_file
 from app.services.qianchuan_writer_prompt import render_system_prompt
+from app.services.workspace_prompt import resolve_prompt
 
 router = APIRouter(prefix="/tools/qianchuan-writer", tags=["qianchuan-writer"])
 
@@ -192,6 +193,7 @@ async def parse_file(
 class ChatRequest(BaseModel):
     messages: list[dict]
     persona_id: int
+    kol_id: int | None = None
     create_job: bool = False
     job_context: dict | None = None
 
@@ -231,8 +233,9 @@ async def chat(
         )
     kol_name, kol_persona, kol_content_plan = kol_row[0], kol_row[1] or "", kol_row[2] or ""
 
-    # 渲染 system_prompt
-    template = config.system_prompt or ""
+    # 渲染 system_prompt（优先使用红人专属 Prompt）
+    kol_prompt = await resolve_prompt(body.kol_id, "qianchuan-writer", "system_prompt", db)
+    template = kol_prompt or config.system_prompt or ""
     system_prompt = render_system_prompt(
         template,
         name=kol_name,

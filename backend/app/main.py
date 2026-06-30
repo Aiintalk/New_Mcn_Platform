@@ -20,7 +20,7 @@ from app.routers.admin_logs import router as admin_logs_router
 from app.routers.admin_credentials import router as admin_credentials_router
 from app.routers.admin_system import router as admin_system_router
 from app.routers.admin_ai import router as admin_ai_router
-from app.routers.admin_kols import router as admin_kols_router
+from app.routers.admin_kols import router as admin_kols_router, _operator_router as operator_kols_router
 from app.routers.intake_public import router as intake_public_router
 from app.routers.operator_intake import router as operator_intake_router
 from app.routers.operator_homepage import router as operator_homepage_router
@@ -65,6 +65,12 @@ from app.routers.operator_subtitle import router as operator_subtitle_router
 from app.routers.admin_subtitle import router as admin_subtitle_router
 from app.routers import operator_tiktok_review
 from app.routers import admin_tiktok_review
+from app.routers import operator_qianchuan_products
+from app.routers import operator_workspace
+from app.routers import admin_values_writer, operator_values_writer
+from app.routers import admin_script_review, operator_script_review
+from app.routers import admin_retrospective, operator_retrospective
+from app.routers import admin_kol_workspace
 
 
 @asynccontextmanager
@@ -136,6 +142,7 @@ app.include_router(admin_credentials_router, prefix="/api")
 app.include_router(admin_system_router, prefix="/api")
 app.include_router(admin_ai_router, prefix="/api")
 app.include_router(admin_kols_router, prefix="/api")
+app.include_router(operator_kols_router, prefix="/api")
 app.include_router(intake_public_router, prefix="/api")
 app.include_router(operator_intake_router, prefix="/api")
 app.include_router(operator_homepage_router, prefix="/api")
@@ -180,3 +187,12 @@ app.include_router(operator_material_library_router, prefix="/api")
 app.include_router(admin_material_library_router, prefix="/api")
 app.include_router(operator_subtitle_router, prefix="/api")
 app.include_router(admin_subtitle_router, prefix="/api")
+app.include_router(operator_qianchuan_products.router, prefix="/api")
+app.include_router(operator_workspace.router, prefix="/api")
+app.include_router(admin_values_writer.router, prefix="/api")
+app.include_router(operator_values_writer.router, prefix="/api")
+app.include_router(admin_script_review.router, prefix="/api")
+app.include_router(operator_script_review.router, prefix="/api")
+app.include_router(admin_retrospective.router, prefix="/api")
+app.include_router(operator_retrospective.router, prefix="/api")
+app.include_router(admin_kol_workspace.router, prefix="/api")

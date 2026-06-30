@@ -127,7 +127,7 @@ const GREEN = '#10b981';
 const GREEN_BG = '#f0fdf4';
 
 /* ── 主组件 ── */
-export default function LivestreamReviewPage() {
+function LivestreamReviewInner() {
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [error, setError] = useState('');
   const [scripts, setScripts] = useState<ScriptEntry[]>([]);
@@ -565,4 +565,15 @@ export default function LivestreamReviewPage() {
       <style>{`@keyframes blink { 0%, 100% { opacity: 1 } 50% { opacity: 0 } }`}</style>
     </div>
   );
+}
+
+// ── 核心 Module（接受外部 kolId，直接展示复盘功能）──────────────────────────
+// LivestreamReview 不依赖达人选择，kolId 用于未来扩展
+export function LivestreamReviewModule({ kolId: _kolId }: { kolId: number }) {
+  return <LivestreamReviewInner />;
+}
+
+// ── 独立页面 ─────────────────────────────────────────────────────────────────
+export default function LivestreamReviewPage() {
+  return <LivestreamReviewInner />;
 }
