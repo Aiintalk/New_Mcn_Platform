@@ -28,6 +28,7 @@ from app.models.log import OperationLog
 from app.models.output import Output
 from app.models.task import TaskJob
 from app.models.user import User
+from app.services.workspace_prompt import resolve_prompt
 from app.services.file_parser import parse_livestream_writer_file
 
 router = APIRouter(prefix="/tools/livestream-writer", tags=["livestream-writer"])
@@ -187,6 +188,7 @@ class ChatRequest(BaseModel):
     messages: list[dict]
     systemPrompt: str
     model: str = DEFAULT_MODEL
+    kol_id: int | None = None
     createJob: bool = False
     jobContext: dict | None = None
 
@@ -195,6 +197,7 @@ class ChatRequest(BaseModel):
 async def chat(
     body: ChatRequest,
     request: Request,
+    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_operator),
 ):
     """AI 流式对话，返回 raw text stream（非 SSE）。429 时最多重试 5 次（5/10/15/20/25s 退避）。"""
@@ -203,13 +206,17 @@ async def chat(
             status_code=400,
             detail={"code": "INVALID_INPUT", "message": "messages 不能为空"},
         )
-    if not body.systemPrompt.strip():
+
+    # 优先使用红人专属 Prompt，否则使用前端传入的 systemPrompt
+    kol_prompt = await resolve_prompt(body.kol_id, "livestream-writer", "system_prompt", db)
+    resolved_system_prompt = kol_prompt or body.systemPrompt
+    if not resolved_system_prompt.strip():
         raise HTTPException(
             status_code=400,
             detail={"code": "INVALID_INPUT", "message": "systemPrompt 不能为空"},
         )
 
-    messages = [{"role": "system", "content": body.systemPrompt}] + body.messages
+    messages = [{"role": "system", "content": resolved_system_prompt}] + body.messages
     user_id = current_user.id
     create_job = body.createJob
     job_context = body.jobContext or {}

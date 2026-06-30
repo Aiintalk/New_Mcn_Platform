@@ -35,6 +35,7 @@ from app.models.task import TaskJob
 from app.models.user import User
 from app.services import word_export
 from app.services.persona_writer_prompt import render_prompt
+from app.services.workspace_prompt import resolve_prompt
 
 router = APIRouter(prefix="/tools/persona-writer", tags=["persona-writer"])
 
@@ -233,6 +234,7 @@ async def fetch_video(
 
 class EvaluateOpeningRequest(BaseModel):
     transcript: str
+    kol_id: int | None = None
 
 
 @router.post("/evaluate-opening")
@@ -252,7 +254,8 @@ async def evaluate_opening(
     config = await _get_config(db)
     model_id = await _resolve_model_id(config, db, is_heavy=False)
 
-    template = config.evaluation_prompt or ""
+    kol_prompt = await resolve_prompt(body.kol_id, "persona-writer", "evaluation_prompt", db)
+    template = kol_prompt or config.evaluation_prompt or ""
     system_prompt = render_prompt(template, transcript=body.transcript)
 
     messages = [
@@ -295,6 +298,7 @@ async def evaluate_opening(
 
 class AnalyzeStructureRequest(BaseModel):
     transcript: str
+    kol_id: int | None = None
 
 
 @router.post("/analyze-structure")
@@ -314,7 +318,8 @@ async def analyze_structure(
     config = await _get_config(db)
     model_id = await _resolve_model_id(config, db, is_heavy=False)
 
-    template = config.analysis_prompt or ""
+    kol_prompt = await resolve_prompt(body.kol_id, "persona-writer", "analysis_prompt", db)
+    template = kol_prompt or config.analysis_prompt or ""
     system_prompt = render_prompt(template, transcript=body.transcript)
 
     messages = [
@@ -359,6 +364,7 @@ class ChatRequest(BaseModel):
     scene: str = "writing"  # writing | iteration
     topic_mode: str = "default"  # custom | default（仅 writing 场景有效）
     persona_id: int = 0
+    kol_id: int | None = None
     transcript: str = ""
     structure_analysis: str = ""
     topic: str = ""
@@ -399,7 +405,8 @@ async def chat(
     is_custom = body.topic_mode == "custom"
 
     if body.scene == "writing":
-        template = config.writing_prompt or ""
+        kol_prompt = await resolve_prompt(body.kol_id, "persona-writer", "writing_prompt", db)
+        template = kol_prompt or config.writing_prompt or ""
         system_prompt = render_prompt(
             template,
             name=kol_name,
@@ -411,7 +418,8 @@ async def chat(
             is_custom=is_custom,
         )
     else:
-        template = config.iteration_prompt or ""
+        kol_prompt = await resolve_prompt(body.kol_id, "persona-writer", "iteration_prompt", db)
+        template = kol_prompt or config.iteration_prompt or ""
         system_prompt = render_prompt(
             template,
             name=kol_name,

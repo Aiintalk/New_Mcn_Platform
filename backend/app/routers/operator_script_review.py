@@ -18,6 +18,7 @@ from app.core.response import error_response, success_response
 from app.middlewares.auth import get_current_user
 from app.models.qianchuan_script_review import QianchuanScriptReviewConfig
 from app.models.user import User
+from app.services.workspace_prompt import resolve_prompt
 
 router = APIRouter(prefix="/operator/qianchuan-script-review", tags=["operator-qianchuan-script-review"])
 
@@ -100,6 +101,7 @@ class ReviewRequest(BaseModel):
     original_script: str
     adapted_script: str
     product: Optional[dict] = None
+    kol_id: int | None = None
 
 
 @router.post("/review")
@@ -117,7 +119,8 @@ async def review_script(
     model_id = await _resolve_model_id(config, db)
 
     if body.script_type == "direct":
-        template = (config.direct_prompt if config and config.direct_prompt else _DEFAULT_DIRECT_PROMPT)
+        kol_prompt = await resolve_prompt(body.kol_id, "script-review", "direct_prompt", db)
+        template = kol_prompt or (config.direct_prompt if config and config.direct_prompt else _DEFAULT_DIRECT_PROMPT)
         product_info = ""
         if body.product:
             product_info = "\n".join(f"{k}: {v}" for k, v in body.product.items())
@@ -127,7 +130,8 @@ async def review_script(
             product_info=product_info,
         )
     else:
-        template = (config.value_prompt if config and config.value_prompt else _DEFAULT_VALUE_PROMPT)
+        kol_prompt = await resolve_prompt(body.kol_id, "script-review", "value_prompt", db)
+        template = kol_prompt or (config.value_prompt if config and config.value_prompt else _DEFAULT_VALUE_PROMPT)
         prompt = template.format(
             original_script=body.original_script,
             adapted_script=body.adapted_script,

@@ -47,6 +47,7 @@ const SubtitleExtractorPage = lazy(() => import('./pages/operator/SubtitleExtrac
 const ValuesWriterPage = lazy(() => import('./pages/operator/ValuesWriterPage'));
 const QianchuanScriptReviewPage = lazy(() => import('./pages/operator/QianchuanScriptReviewPage'));
 const KolWorkspacePage = lazy(() => import('./pages/operator/KolWorkspacePage'));
+const KolWorkspaceConfigPage = lazy(() => import('./pages/admin/KolWorkspaceConfigPage'));
 
 function Page403() {
   return (
@@ -138,6 +139,7 @@ export default function App() {
                 <Route path="/admin" element={<AdminDashboardPage />} />
                 <Route path="/admin/users" element={<UsersPage />} />
                 <Route path="/admin/kols" element={<KolsPage />} />
+                <Route path="/admin/kols/:kolId/workspace-config" element={<KolWorkspaceConfigPage />} />
                 <Route path="/admin/workspace" element={<WorkspaceConfigPage />} />
                 <Route path="/admin/tasks" element={<AdminTasksPage />} />
                 <Route path="/admin/outputs" element={<AdminOutputsPage />} />

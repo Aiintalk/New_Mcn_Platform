@@ -57,6 +57,7 @@ from app.models.user import User
 from app.services import word_export
 from app.services.document_parser import parse_files_to_text
 from app.services.seeding_writer_prompt import render_prompt
+from app.services.workspace_prompt import resolve_prompt
 
 router = APIRouter(prefix="/tools/seeding-writer", tags=["seeding-writer"])
 
@@ -755,6 +756,7 @@ async def parse_product_document(
 class ExtractSellingPointsRequest(BaseModel):
     raw_text: str
     preliminary_info: dict | None = None
+    kol_id: int | None = None
 
 
 @router.post("/products/extract-selling-points")
@@ -775,6 +777,8 @@ async def extract_selling_points(
     model_id = await _resolve_model_id(config, db, is_heavy=True)
 
     template = config.sp_system_prompt or ""
+    kol_prompt = await resolve_prompt(body.kol_id, "seeding-writer", "sp_system", db)
+    template = kol_prompt or config.sp_system_prompt or ""
     system_prompt = render_prompt(template, raw_text=body.raw_text[:4000])
 
     user_content = f"以下是产品资料原文：\n\n{body.raw_text[:4000]}"
@@ -967,6 +971,7 @@ async def poll_transcribe(
 
 class AnalyzeStructureRequest(BaseModel):
     transcript: str
+    kol_id: int | None = None
 
 
 @router.post("/analyze-structure")
@@ -987,6 +992,8 @@ async def analyze_structure(
     model_id = await _resolve_model_id(config, db, is_heavy=False)
 
     template = config.structure_analysis_prompt or ""
+    kol_prompt = await resolve_prompt(body.kol_id, "seeding-writer", "structure_analysis", db)
+    template = kol_prompt or config.structure_analysis_prompt or ""
     system_prompt = render_prompt(template, transcript=body.transcript)
 
     messages = [
@@ -1032,6 +1039,7 @@ class AiRecommendRequest(BaseModel):
     product_id: int
     reference_ids: list[int] = []
     transcript: str = ""
+    kol_id: int | None = None
 
 
 @router.post("/ai-recommend")
@@ -1051,6 +1059,8 @@ async def ai_recommend(
     references_text = _build_references_text(references)
 
     template = config.ai_recommend_prompt or ""
+    kol_prompt = await resolve_prompt(body.kol_id, "seeding-writer", "ai_recommend", db)
+    template = kol_prompt or config.ai_recommend_prompt or ""
     system_prompt = render_prompt(
         template,
         soul=kol_persona,
@@ -1109,6 +1119,7 @@ class ChatRequest(BaseModel):
     structure_analysis: str = ""
     topic: str = ""
     messages: list[dict] = []
+    kol_id: int | None = None
     create_job: bool = False
     job_context: dict | None = None
 
@@ -1166,10 +1177,12 @@ async def chat(
     )
 
     if body.scene == "writing":
-        template = config.writing_prompt or ""
+        kol_prompt = await resolve_prompt(body.kol_id, "seeding-writer", "writing", db)
+        template = kol_prompt or config.writing_prompt or ""
         system_prompt = render_prompt(template, topic=body.topic, **render_kwargs)
     else:
-        template = config.iteration_prompt or ""
+        kol_prompt = await resolve_prompt(body.kol_id, "seeding-writer", "iteration", db)
+        template = kol_prompt or config.iteration_prompt or ""
         system_prompt = render_prompt(template, **render_kwargs)
 
     messages = [{"role": "system", "content": system_prompt}] + body.messages

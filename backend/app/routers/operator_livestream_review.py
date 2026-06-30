@@ -25,6 +25,7 @@ from app.models.output import Output
 from app.models.task import TaskJob
 from app.models.user import User
 from app.services.file_parser import parse_livestream_review_file
+from app.services.workspace_prompt import resolve_prompt
 from app.tools.livestream_review.service import (
     merge_scripts_and_excel,
     generate_review_stream,
@@ -105,6 +106,7 @@ class ExcelRowItem(BaseModel):
 class GenerateRequest(BaseModel):
     scripts: list[ScriptItem]
     excel_data: list[ExcelRowItem] = []
+    kol_id: int | None = None
 
 
 @router.post("/generate")
@@ -154,6 +156,14 @@ async def generate(
 
     user_id = current_user.id
 
+    # 查询红人专属 Prompt（has_excel 决定用哪条，这里先在 router 层做决策）
+    has_excel_flag = any(
+        row.get("gmv") or row.get("gpm") or row.get("ad_spend")
+        for row in [e.model_dump() for e in body.excel_data]
+    )
+    prompt_key = "with_excel_prompt" if has_excel_flag else "without_excel_prompt"
+    override_prompt = await resolve_prompt(body.kol_id, "livestream-review", prompt_key, db)
+
     async def stream_with_db():
         async with AsyncSessionLocal() as stream_db:
             async for chunk in generate_review_stream(
@@ -161,6 +171,7 @@ async def generate(
                 db=stream_db,
                 user_id=user_id,
                 task_job_id=task_job_id,
+                override_prompt=override_prompt,
             ):
                 yield chunk
 

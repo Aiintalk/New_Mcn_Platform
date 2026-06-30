@@ -143,6 +143,7 @@ export function QianchuanWriterModule({ kolId }: { kolId: number }) {
       const resp = await chatStream({
         messages: [{ role: 'user', content: userMsg }],
         persona_id: selectedPersona.id,
+        kol_id: kolId,
         create_job: true,
         job_context: {
           product_name: productName,
@@ -178,6 +179,7 @@ export function QianchuanWriterModule({ kolId }: { kolId: number }) {
       const resp = await chatStream({
         messages: apiMessages,
         persona_id: selectedPersona.id,
+        kol_id: kolId,
       });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const full = await readStream(resp, (text) => setStreamDisplay(text));

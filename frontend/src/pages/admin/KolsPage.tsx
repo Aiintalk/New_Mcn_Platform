@@ -414,6 +414,12 @@ export default function KolsPage() {
                       </button>
                       <button
                         className="btn btn-ghost btn-sm"
+                        onClick={() => navigate(`/admin/kols/${k.id}/workspace-config`)}
+                      >
+                        工作台配置
+                      </button>
+                      <button
+                        className="btn btn-ghost btn-sm"
                         onClick={() => {
                           setEditKol(k);
                           editForm.setFieldsValue({

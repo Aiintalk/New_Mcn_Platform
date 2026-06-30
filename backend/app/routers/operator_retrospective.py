@@ -30,6 +30,7 @@ from app.models.retrospective import RetrospectiveConfig, RetrospectiveSession
 from app.models.user import User
 from app.services import document_parser
 from app.services.word_export import markdown_to_docx_bytes
+from app.services.workspace_prompt import resolve_prompt
 
 router = APIRouter(prefix="/operator/workspace", tags=["operator-retrospective"])
 
@@ -345,7 +346,8 @@ async def analyze_stream(
     )).scalar_one_or_none()
 
     system_prompt = (
-        config.system_prompt if config and config.system_prompt else _DEFAULT_SYSTEM_PROMPT
+        await resolve_prompt(kol_id, "retrospective", "system_prompt", db)
+        or (config.system_prompt if config and config.system_prompt else _DEFAULT_SYSTEM_PROMPT)
     )
     model_id = await _resolve_model_id(config, db)
 

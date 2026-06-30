@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
@@ -18,6 +18,8 @@ import {
   PlayCircleOutlined,
 } from '@ant-design/icons';
 import type { WorkspaceTab } from '../../types/kolWorkspace';
+import { getKolWorkspaceConfig } from '../../api/kolWorkspaceConfig';
+import type { WorkspaceTabCode } from '../../types/kolWorkspaceConfig';
 import WorkspaceDashboard from './workspace/WorkspaceDashboard';
 import QianchuanProductsModule from './workspace/QianchuanProductsModule';
 import WorkspacePersona from './workspace/WorkspacePersona';
@@ -62,6 +64,13 @@ export default function KolWorkspacePage() {
   const [activeTab, setActiveTab] = useState<WorkspaceTab>('dashboard');
   const [kolName, setKolName] = useState('');
   const [kolAvatar, setKolAvatar] = useState<string | null>(null);
+  const [enabledTabs, setEnabledTabs] = useState<WorkspaceTabCode[] | null>(null);
+
+  useEffect(() => {
+    getKolWorkspaceConfig(kolId)
+      .then(cfg => setEnabledTabs(cfg.enabled_tabs as WorkspaceTabCode[]))
+      .catch(() => setEnabledTabs(null)); // 失败时降级显示全部 tab
+  }, [kolId]);
 
   // kol_id 非法处理
   if (!kol_id || isNaN(kolId)) {
@@ -147,7 +156,9 @@ export default function KolWorkspacePage() {
             flexShrink: 0,
           }}
         >
-          {NAV_ITEMS.map((item) => {
+          {NAV_ITEMS.filter(item =>
+            !enabledTabs || enabledTabs.includes(item.tab as WorkspaceTabCode)
+          ).map((item) => {
             const isActive = activeTab === item.tab;
             return (
               <div
@@ -202,7 +213,7 @@ export default function KolWorkspacePage() {
           {activeTab === 'livestream-writer' && <LivestreamWriterModule kolId={kolId} />}
           {activeTab === 'livestream-review' && <LivestreamReviewModule kolId={kolId} />}
           {activeTab === 'values-writer' && <ValuesWriterModule kolId={kolId} />}
-          {activeTab === 'script-review' && <QianchuanScriptReviewModule />}
+          {activeTab === 'script-review' && <QianchuanScriptReviewModule kolId={kolId} />}
           {activeTab === 'retrospective' && <WorkspaceRetrospective kolId={kolId} />}
         </main>
       </div>

@@ -186,9 +186,11 @@ async def generate_review_stream(
     db: AsyncSession,
     user_id: int,
     task_job_id: int,
+    override_prompt: str | None = None,
 ) -> AsyncGenerator[str, None]:
     """
     从 DB 读取激活的 Prompt + 模型，调用 yunwu adapter 流式生成复盘报告。
+    override_prompt 非空时优先使用（红人专属 Prompt）。
     在 finally 块更新 task_jobs 状态（success / error）。
     """
     has_excel = detect_has_excel(merged)
@@ -200,8 +202,11 @@ async def generate_review_stream(
         "WHERE config_key = :key AND is_active = true LIMIT 1"
     ), {"key": config_key})).fetchone()
 
-    system_prompt = (config_row[0] if config_row and config_row[0]
-                     else (PROMPT_WITH_EXCEL if has_excel else PROMPT_WITHOUT_EXCEL))
+    if override_prompt:
+        system_prompt = override_prompt
+    else:
+        system_prompt = (config_row[0] if config_row and config_row[0]
+                         else (PROMPT_WITH_EXCEL if has_excel else PROMPT_WITHOUT_EXCEL))
 
     # 解析模型
     model_id = DEFAULT_MODEL

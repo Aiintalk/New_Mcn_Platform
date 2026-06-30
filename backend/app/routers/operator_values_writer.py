@@ -21,6 +21,7 @@ from app.core.response import success_response
 from app.middlewares.auth import get_current_user
 from app.models.values_writer import ValuesWriterConfig
 from app.models.user import User
+from app.services.workspace_prompt import resolve_prompt
 
 router = APIRouter(prefix="/operator/values-writer", tags=["operator-values-writer"])
 
@@ -184,9 +185,8 @@ async def extract_values(
     model_id = await _resolve_model_id(config, db)
 
     prompt_template = (
-        config.extract_values_prompt
-        if config and config.extract_values_prompt
-        else _DEFAULT_EXTRACT_PROMPT
+        await resolve_prompt(body.kol_id, "values-writer", "extract_values_prompt", db)
+        or (config.extract_values_prompt if config and config.extract_values_prompt else _DEFAULT_EXTRACT_PROMPT)
     )
     prompt = prompt_template.format(persona_text=persona_text)
     if body.extra_context:
@@ -245,9 +245,8 @@ async def emotion_direction(
     model_id = await _resolve_model_id(config, db)
 
     prompt_template = (
-        config.emotion_direction_prompt
-        if config and config.emotion_direction_prompt
-        else _DEFAULT_EMOTION_PROMPT
+        await resolve_prompt(body.kol_id, "values-writer", "emotion_direction_prompt", db)
+        or (config.emotion_direction_prompt if config and config.emotion_direction_prompt else _DEFAULT_EMOTION_PROMPT)
     )
     values_str = "、".join(body.selected_values)
     prompt = prompt_template.format(
@@ -298,9 +297,8 @@ async def write(
     model_id = await _resolve_model_id(config, db)
 
     prompt_template = (
-        config.writing_prompt
-        if config and config.writing_prompt
-        else _DEFAULT_WRITING_PROMPT
+        await resolve_prompt(body.kol_id, "values-writer", "writing_prompt", db)
+        or (config.writing_prompt if config and config.writing_prompt else _DEFAULT_WRITING_PROMPT)
     )
     values_str = "、".join(body.selected_values)
     prompt = prompt_template.format(
@@ -352,9 +350,8 @@ async def iterate(
     model_id = await _resolve_model_id(config, db)
 
     prompt_template = (
-        config.iteration_prompt
-        if config and config.iteration_prompt
-        else _DEFAULT_ITERATION_PROMPT
+        await resolve_prompt(body.kol_id, "values-writer", "iteration_prompt", db)
+        or (config.iteration_prompt if config and config.iteration_prompt else _DEFAULT_ITERATION_PROMPT)
     )
     prompt = prompt_template.format(
         persona_text=persona_text,

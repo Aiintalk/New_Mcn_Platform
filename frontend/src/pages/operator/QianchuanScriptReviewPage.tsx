@@ -11,7 +11,7 @@ const RATING_CONFIG: Record<ReviewRating, { bg: string; color: string; label: st
   fail:  { bg: 'var(--danger-bg)',  color: 'var(--danger)',  label: '❌ 需要大改' },
 };
 
-export function QianchuanScriptReviewModule() {
+export function QianchuanScriptReviewModule({ kolId }: { kolId?: number }) {
   const { message } = App.useApp();
   const [scriptType, setScriptType] = useState<ScriptType>('direct');
   const [originalScript, setOriginalScript] = useState('');
@@ -47,6 +47,7 @@ export function QianchuanScriptReviewModule() {
         original_script: originalScript,
         adapted_script: adaptedScript,
         product,
+        kol_id: kolId,
       });
       setResult(res);
     } catch (err: unknown) {
