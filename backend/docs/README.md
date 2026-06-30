@@ -238,7 +238,7 @@ BugFix：      BugFix_{序号}_{描述}.md
 | persona-writer | 人设脚本仿写 | operator_persona_writer.py / admin_persona_writer.py | Sprint 15 |
 | seeding-writer | 种草内容仿写 | operator_seeding_writer.py / admin_seeding_writer.py | Sprint 16 |
 | material-library | 素材库（红人素材中枢） | operator_material_library.py / admin_material_library.py | Sprint 18（迁移） |
-| subtitle | 字幕提取（单条/批量+思维导图） | operator_subtitle.py / admin_subtitle.py | Sprint 19（迁移） |
+| subtitle | 字幕提取（单条异步+批量+思维导图+统一历史+软删除） | operator_subtitle.py / admin_subtitle.py | Sprint 19（迁移）；Sprint 21（异步任务化+软删除） |
 | values-writer | 价值观仿写（4步向导） | operator_values_writer.py / admin_values_writer.py | Sprint 20 |
 | qianchuan-script-review | 千川脚本预审（直销/价值观双模式） | operator_script_review.py / admin_script_review.py | Sprint 21 |
 | retrospective | 复盘（工作台子模块，多维材料+AI分析+导出） | operator_retrospective.py / admin_retrospective.py | Sprint 22 |

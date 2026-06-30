@@ -1,6 +1,6 @@
 # MCN_PM_Agent — 项目记忆与当前状态（M2）
 
-> 最后更新：2026-06-27（**Sprint 21 + Sprint 22 完成**：千川脚本预审（qianchuan-script-review）+ 复盘（retrospective）均已 commit 到 `feature/kol-workspace`。契约文档、测试报告、PM 记忆同步更新。分支待合并 PR。）
+> 最后更新：2026-06-30（合并 main → feature/kol-workspace：把 main 的 Sprint 21 字幕异步任务化（PR #15 已合并到 main）带入 feature 分支。feature 自身的 Sprint 21 千川脚本预审 + Sprint 22 复盘 + Sprint 23 工作台配置保留。所有文档冲突已解决，PR #13 现可合并。）
 
 > **🚧 当前状态**：Sprint 21 + Sprint 22 代码 + 文档全部完成，`feature/kol-workspace` 分支等待合并（PR #13 待更新）。
 
@@ -61,6 +61,34 @@
 - 多用户共享复盘（当前按 created_by 隔离）
 - 复盘历史版本管理
 - 复盘模板功能
+
+---
+
+### M2 工作项 — Sprint 21 字幕异步任务化 + 统一历史 + 软删除 ✅ 完成（main，PR #15 已合并）
+
+**背景**：用户反馈"解析过程中切换页面回来后看不到历史记录"，且单条 ASR 解析需 1-3 分钟同步阻塞前端不合理。基于 Sprint 19 字幕提取（main，PR #14 已合并）做异步化迭代。
+
+**实施记录**：
+
+| # | 事项 | 结果 |
+|---|------|------|
+| 1 | Migration 044 + 045 | `subtitle_jobs.kind`（single/batch）+ `deleted_at`（软删除）+ `(kind, deleted_at)` 索引；`subtitle_items.meta_json`（单条任务的视频元信息 JSON） |
+| 2 | POST /extract 异步任务化 | 改为创建 `SubtitleJob(kind='single', total=1)` + 后台 `asyncio.create_task(_run_single_extract())`，立即返回 `{job_code, status:'processing'}`；前端拿 job_code 轮询 |
+| 3 | 新增 DELETE /batch/{job_code} | 软删除（设置 `deleted_at = now()`），写 OperationLog（action=`subtitle_delete`） |
+| 4 | GET /batches 改语义 | 单条+批量统一历史列表（过滤 `deleted_at IS NULL`），原"我的批量任务"语义被替换 |
+| 5 | 前端 HistoryList 组件 | `pages/operator/subtitle/HistoryList.tsx`（新建）：自包含，展开详情/复制/重新生成思维导图/删除/自动轮询 processing 任务 |
+| 6 | 前端 API 重命名 | `listMyBatches` → `listHistory`（保留别名），新增 `deleteHistory`；SubtitleExtractorPage 单条区改轮询模式（创建 job → 每 3s 轮询 → 完成显示） |
+| 7 | _item_to_dict 扁平化 | meta_json 里的 play_url/cover_url/nickname/digg_count/aweme_id 扁平到 API 响应顶层 |
+| 8 | 测试 | 后端 `test_operator_subtitle.py` 30/30 ✅ + `test_admin_subtitle.py` 11/11 ✅；前端 `SubtitleExtractorPage.test.tsx` 5/5 ✅ + `HistoryList.test.tsx` 6/6 ✅ |
+| 9 | 文档 | 契约 Base_API §25 + Base_Database §30 + 前后端 README + 需求文档 + 前后端任务单 + 测试报告 + 前后端开发验收 均已落地 |
+
+**踩坑记录**：
+1. **OperationLog COUNT 全量套件污染**：测试 `WHERE action = 'subtitle_xxx'` 在全量 suite 跑时其他用例污染计数，改用 `EXISTS + detail::json->>'job_code' = :jc` 精确匹配
+2. **批量 replace_all 漏 `result?.text` 可选链版本**：`replace_all('result.text' → 'result.transcript')` 漏掉 5 处 `result?.text`，单独再做一次 `replace_all('result?.text' → 'result?.transcript')`
+3. **fake timers + userEvent 异步轮询测试**：必须 `vi.useFakeTimers({ shouldAdvanceTime: true })` + `userEvent.setup({ advanceTimers: vi.advanceTimersByTime })`，否则 setInterval 不触发
+4. **Windows watchfiles 不触发 uvicorn reload**：改完代码后必须手动重启 uvicorn（kill 父+子+multiprocessing 孙三个进程），不能依赖 --reload 自动加载
+
+**不在本次范围**：思维导图持久化（仍只缓存前端 state）、批量任务的"重新生成思维导图"（仅单条支持）、WebSocket 推送（仍轮询）、历史记录搜索/筛选、批量任务的批量删除。
 
 ---
 
