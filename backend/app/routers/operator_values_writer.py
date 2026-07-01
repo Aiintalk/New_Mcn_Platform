@@ -6,8 +6,10 @@ app/routers/operator_values_writer.py
   POST /api/operator/values-writer/emotion-direction — 推导情绪方向（SSE 流式）
   POST /api/operator/values-writer/write             — 生成价值观内容（SSE 流式）
   POST /api/operator/values-writer/iterate           — 迭代优化（SSE 流式）
+  POST /api/operator/values-writer/save-output       — 保存产出（手动保存到历史）
 """
 import json
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -19,11 +21,16 @@ from app.adapters import yunwu as yunwu_adapter
 from app.core.database import AsyncSessionLocal, get_db
 from app.core.response import success_response
 from app.middlewares.auth import get_current_user
+from app.models.log import OperationLog
+from app.models.output import Output
 from app.models.values_writer import ValuesWriterConfig
 from app.models.user import User
 from app.services.workspace_prompt import resolve_prompt
 
 router = APIRouter(prefix="/operator/values-writer", tags=["operator-values-writer"])
+
+TOOL_CODE = "values-writer"
+TOOL_NAME = "价值观仿写"
 
 _DEFAULT_EXTRACT_PROMPT = (
     "你是一位内容策略师。根据以下达人档案，提炼出该达人在内容创作上最核心的3-6个价值观关键词。\n"
@@ -71,6 +78,14 @@ async def require_operator(current_user: User = Depends(get_current_user)) -> Us
             detail={"code": "PERMISSION_DENIED", "message": "无权限访问"},
         )
     return current_user
+
+
+def _get_ip(request: Request) -> str:
+    """从 request 取客户端 IP（优先 x-forwarded-for）。"""
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
 
 
 async def _get_kol_persona(db: AsyncSession, kol_id: int) -> str:
@@ -377,3 +392,59 @@ async def iterate(
         yield _sse_done()
 
     return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+# ---------------------------------------------------------------------------
+# POST /save-output（手动保存产出至 outputs 表）
+# ---------------------------------------------------------------------------
+
+class SaveOutputRequest(BaseModel):
+    content: str
+    title: str = ""
+    topic: str | None = None  # 价值观主题，写入 OperationLog 便于追溯
+
+
+@router.post("/save-output", response_model=None)
+async def save_output(
+    body: SaveOutputRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_operator),
+):
+    """保存价值观仿写产出至 outputs 表（账号隔离，复用全局 GET /outputs?tool_code=...）。"""
+    if not body.content.strip():
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "INVALID_INPUT", "message": "content 不能为空"},
+        )
+
+    word_count = len(body.content.replace(" ", "").replace("\n", "").replace("\t", ""))
+    output = Output(
+        title=body.title or f"{TOOL_NAME} · {datetime.now().strftime('%Y-%m-%d')}",
+        tool_code=TOOL_CODE,
+        tool_name=TOOL_NAME,
+        content=body.content,
+        word_count=word_count,
+        created_by=current_user.id,
+    )
+    db.add(output)
+    await db.flush()
+
+    db.add(OperationLog(
+        user_id=current_user.id,
+        username=current_user.username,
+        role=current_user.role,
+        action="values_writer_save_output",
+        target_type="output",
+        target_id=output.id,
+        detail={
+            "title": body.title,
+            "topic": body.topic,
+            "word_count": word_count,
+        },
+        ip=_get_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    ))
+    await db.commit()
+
+    return success_response(data={"output_id": output.id})

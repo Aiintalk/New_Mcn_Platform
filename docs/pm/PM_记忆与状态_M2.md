@@ -1,8 +1,8 @@
 # MCN_PM_Agent — 项目记忆与当前状态（M2）
 
-> 最后更新：2026-06-30（合并 main → feature/kol-workspace：把 main 的 Sprint 21 字幕异步任务化（PR #15 已合并到 main）带入 feature 分支。feature 自身的 Sprint 21 千川脚本预审 + Sprint 22 复盘 + Sprint 23 工作台配置保留。所有文档冲突已解决，PR #13 现可合并。）
+> 最后更新：2026-07-01（**管理端配置页 UX 完善**：`/admin/workspace` 工具列表操作列加「配置」按钮直达对应 Tab + 4 个预留 Tab 占位 + 修 selling-point-extractor 映射 bug；同日稍早完成 values-writer + script-review 补历史记录功能 P0 #2）。上一个：2026-06-30（**PR #13 红人工作台 Sprint 18-23 合并到 main**：merge commit `b9d50c6`，含 Sprint 22 复盘 + Sprint 21 千川脚本预审 + Sprint 23 工作台配置 + Sprint 18-20 工作台主体；feature/kol-workspace 分支保留持续开发。再上一个：2026-06-28 旧架构数据全量迁移到新架构 — 12 服务 260 文件 → 8 业务表，272 INSERT + 20 UPDATE + 32 KOL，迁移工具 `backend/scripts/migrate_legacy_data.py` + 迁移记录文档仍在工作区待提交）
 
-> **🚧 当前状态**：Sprint 21 + Sprint 22 代码 + 文档全部完成，`feature/kol-workspace` 分支等待合并（PR #13 待更新）。
+> **🚧 当前状态**：PR #13 红人工作台 Sprint 18-23 已合并到 main（merge commit `b9d50c6`，2026-06-30）。`feature/kol-workspace` 分支保留持续开发。下一步候选：legacy 迁移工具归档 / KolWorkspacePage 测试失败修复 / Sprint 17 backlog。
 
 > **📋 Sprint 17 backlog**（已写需求文档，待开工）：管理端调用日志扩展（用户列 + 功能列）—— `docs/pm/M2_Sprint17_管理端调用日志扩展_需求文档.md`
 
@@ -34,7 +34,85 @@
 
 > **Sprint 编号说明**：main 与 feature/kol-workspace 两分支并行开发期间各自用了 Sprint 18/19 编号，内容不同（main = 素材库/字幕；feature = 红人工作台）。合并后按"保留双方记录、时间序"原则记录如下，最新在前。
 
-### M2 工作项 — Sprint 22 复盘（retrospective）🔄 进行中 → ✅ 代码完成（feature/kol-workspace）
+### M2 工作项 — 管理端工具配置页 UX 完善（配置按钮 + 预留 Tab）✅ 完成（main，2026-07-01）
+
+**背景**：`/admin/workspace` 工具列表原本只有「编辑 / 停用」操作，23 个工具的配置入口只能靠管理员手动在 Tab 栏找。用户要求把「配置」按钮加到操作列，且对所有工具都预留入口（包括分组占位与未做配置页的）。
+
+**改动**（`frontend/src/pages/admin/WorkspaceConfigPage.tsx` 单文件）：
+
+| # | 事项 | 结果 |
+|---|------|------|
+| 1 | Tabs 受控化 | 加 `activeKey` state + `onChange`，让外部按钮能切 Tab |
+| 2 | CONFIG_TAB_KEYS 白名单 | 23 个 tool_code 全部纳入（含 4 个预留占位）|
+| 3 | TOOL_CODE_TO_TAB_KEY 例外映射 | 3 条：`kol-intake→intake` / `qianchuan-script-review→script-review` / `selling-point-extractor→selling-point`（**最后一条是修 bug**，原本漏了导致卖点提取器无配置按钮）|
+| 4 | PlaceholderConfigTab 占位组件 | 4 个未做独立配置页的工具（persona-positioning / qianchuan-collection / qianchuan 分组 / review 分组）显示「暂未提供独立配置项」|
+| 5 | 操作列加「配置」按钮 | 放在「编辑」之前，按 CONFIG_TAB_KEYS 判断显隐 |
+| 6 | 顺手修 selling-point-extractor 映射 bug | 该 tool_code 与 Tab key（selling-point）不一致，原本漏映射 → 现在卖点提取器也有「配置」按钮 |
+
+**关键决策**：
+- 4 个预留 Tab 的 label 带「（预留）」后缀，管理员一眼能看出哪些还没做
+- 以后补真实配置：新建 `XxxConfigTab.tsx` → 替换 children → 去掉「（预留）」后缀即可
+
+**遗留**：4 个预留位以后逐个补真实配置页（persona-positioning / qianchuan-collection 优先，qianchuan+review 分组可能永远是占位）。
+
+---
+
+### M2 工作项 — values-writer + script-review 补历史记录功能（P0 #2）✅ 完成（main，2026-07-01）
+
+**问题定位**：PR #13 上线的 values-writer（价值观仿写）和 qianchuan-script-review（千川脚本预审）两个工具**完全没有历史记录功能** — 用户调用完成后无 INSERT 落 `outputs` 表，刷新页面或离开后结果丢失。同期工具 persona-writer / seeding-writer 早已用共享 `outputs` 表 + save-output 模式实现历史，是现成可复制范式。
+
+**修复方案**：参照 persona-writer:525-570 的 `save_output` 实现，两个工具各加 `POST /save-output`；前端两页加「保存到历史」按钮 + 页内历史抽屉（首次抽出可复用组件 `OutputHistoryDrawer`）。
+
+| # | 事项 | 结果 |
+|---|------|------|
+| 1 | `routers/operator_values_writer.py` | 加 TOOL_CODE/TOOL_NAME + `SaveOutputRequest` + POST /save-output（content+title+topic，写 OperationLog） |
+| 2 | `routers/operator_script_review.py` | 加 POST /save-output（content+content_json+title，JSONB 存结构化评分） |
+| 3 | `components/OutputHistoryDrawer.tsx` | **新增可复用组件**：Ant Design Drawer + List，按 tool_code 过滤全局 `/api/outputs`，分页 + 软删 + 可选 renderItem |
+| 4 | `ValuesWriterPage.tsx` | 加「保存到历史」+「历史记录」按钮 + `<OutputHistoryDrawer>` |
+| 5 | `QianchuanScriptReviewPage.tsx` | 加保存按钮 + 历史抽屉（renderItem 自定义渲染评分 Tag） |
+| 6 | `api/valuesWriter.ts` + `api/scriptReview.ts` | 加 `saveOutput()` 函数 |
+| 7 | `types/valuesWriter.ts` + `types/scriptReview.ts` | 加 `SaveOutputRequest` 类型 |
+| 8 | 后端测试 | 每工具 4 个 save-output 用例（success / empty_content / writes_operation_log / account_isolation），28/28 通过 |
+| 9 | 契约文档 | Base_API §26 加 26.x POST /save-output；§27 加同款 endpoint |
+| 10 | README | backend + frontend 标注新功能；新增 `components/` 目录说明 |
+| 11 | 端到端 curl | dev 服实测两个 save-output success；GET /outputs?tool_code=X 正确过滤；OperationLog 2 条 |
+
+**关键设计**：
+- **复用全局 GET /outputs?tool_code=X + DELETE /outputs/{id}**，不在工具 router 里重复 list/delete endpoint
+- **script-review 用 outputs.content_json JSONB** 存 ReviewResult 结构化评分，content 存仿写脚本原文
+- **首次建可复用组件** `components/OutputHistoryDrawer`（前端原本无 components/ 目录）— 未来 persona-writer / seeding-writer 加 UI 也可复用
+- **不需要 migration** — outputs 表已含 content + content_json 双字段
+
+**红线合规**：#1 标准信封 / #2 写 OperationLog / #3 走 request.ts / #4 契约同步 / #5 双 README / #8 软删（全 outputs.py 已是软删）。
+
+**未来增量**：persona-writer / seeding-writer 也有 save-output API 但前端没接入 UI（只有 API 没人调）— 后续可统一接入 `OutputHistoryDrawer` 组件。
+
+---
+
+### M2 工作项 — 启用 TikHubCallLog 写入（修复长期 bug）✅ 完成（main，2026-07-01）
+
+**问题定位**：`tikhub_call_logs` 表 + ORM 早已设计好，`admin_tikhub /stats /operations /users` 三个聚合接口也基于此表 —— 但全 backend 没有任何代码在写它。实测表 0 行，admin_tikhub /stats 返回全空。PR #13 红人工作台的「添加对标账号验证」也调 TikHub 但不写日志 → TikHub 调用长期处于"成本不可监控、Key 故障不可定位、用户行为不可追溯"状态。
+
+**修复方案**：参考已有先例 `yunwu.py` 的 AiCallLog finally 写法（红线 #6 同款），把同样模式套到 `tikhub.py`。
+
+| # | 事项 | 结果 |
+|---|------|------|
+| 1 | `adapters/tikhub.py` | 加 `_log_call` helper + 6 个公开 async 函数（`resolve_sec_user_id` / `get_user_profile` / `get_user_fans_info` / `get_live_room_products` / `fetch_user_videos` / `fetch_video_by_share_url`）try/finally 写 `TikHubCallLog` |
+| 2 | `routers/operator_workspace.py` | 2 处调用（validate benchmark 路径）传 `user_id=current_user.id` |
+| 3 | `tests/integration/routers/test_operator_workspace.py` | 加 3 个 validate 测试（含 avatar_in_resolve / fallback_profile / tikhub_error 三个分支） |
+| 4 | 后端开发约定 | `§4.2 外部服务 Service` 加"禁止裸 httpx 调 TikHub"小节；新增 `§7.4 TikHubCallLog` 字段说明 |
+| 5 | 端到端验证 | dev 服实测 `/operator/workspace/3/benchmarks/validate` → `tikhub_call_logs` 新增 2 行（get_user_profile + resolve_sec_user_id，user_id=1 admin）；admin_tikhub /stats 从空变 `total_calls=2` |
+| 6 | 全量回归 | 1075 passed，14 failed（**全部预先存在**：12 个 tikhub_adapter 测试 mock 路径 `report_failure`→应为 `_report_failure`、2 个 pages_extracts） |
+
+**字段映射**：credential_id（凭证池返回）/ user_id（None=系统调用如 kol_scheduler）/ platform（固定 `"douyin"`）/ endpoint（函数名，与 admin_tikhub SQL GROUP BY 对齐）/ status (`success`/`error`) / latency_ms (`int((time.monotonic()-start)*1000)`)。
+
+**API 兼容**：6 函数 `user_id` 默认 None → 10+ 现有调用点零破坏（admin_system / operator_benchmark / operator_persona_writer / operator_seeding_writer / operator_subtitle / kol_scheduler）。
+
+**未来增量**：其余调用点后续逐步补 `user_id=current_user.id`（日志照常写，只是 user_id=NULL）。
+
+---
+
+### M2 工作项 — Sprint 22 复盘（retrospective）✅ 完成（feature/kol-workspace，PR #13 已合并 2026-06-30）
 
 **核心定位**：红人工作台复盘子模块。支持多维材料录入（直播数据/素材数据/评价文字/直播脚本/素材脚本），AI 流式生成复盘报告，支持历史管理和 Word 导出。不设 workspace_tools 注册（属 KolWorkspace 内嵌模块，非独立工作台工具）。
 
@@ -61,6 +139,43 @@
 - 多用户共享复盘（当前按 created_by 隔离）
 - 复盘历史版本管理
 - 复盘模板功能
+
+---
+
+### M2 工作项 — 旧架构数据全量迁移到新架构 ✅ 完成（2026-06-28，本地 mcn_m1 已导入；迁移工具 + 记录文档待提交）
+
+**背景**：旧架构 15 个服务的备份数据（`D:\2026年工作\AI相关\Arya姐\backups\all-services-data-backup-20260627`，JSON + Markdown 混合存储）需迁移到新架构 PostgreSQL，让历史数据在新架构功能里可见、可查询、可继续使用。
+
+**执行结果**（272 INSERT + 20 UPDATE + 32 新 KOL，单一 transaction）：
+
+| Phase | 服务 | 数据形态 | 目标表 | 新增 |
+|-------|------|---------|--------|------|
+| A.1 | benchmark-analyzer | 34 JSON | `benchmark_analyses` | 34 |
+| A.2 | kol-intake | 6 JSON | `kol_intake_links` + `kol_intake_submissions` | 6+6 |
+| A.3 | persona-positioning | 10 JSON | `persona_reports` | 10 |
+| A.4 | selling-point-extractor | 37 JSON | `outputs`（tool_code='selling-point-extractor'） | 37 |
+| B | 6 服务 personas/ 目录 | soul.md + content-plan.md | `kols.persona` / `kols.content_plan` | 32 新 KOL + 12 persona + 8 plan |
+| C.1 | qianchuan-collection/global/scripts | 68 .md | `qianchuan_collection_scripts`（pool='global'） | 68 |
+| C.2 | qianchuan-collection/personas.bak | 33 .md | `qianchuan_collection_scripts`（pool='persona'） | 33 |
+| C.3 | material-library/\<name\>/scripts | 24 .md | `kol_references`（type='红人爆款文案'） | 24 |
+
+**关键设计**：
+- 脚本 `backend/scripts/migrate_legacy_data.py`（~580 行，参考 `migrate_material_library.py`）
+- CLI：`--backup-dir --admin-id 1 --dry-run/--no-dry-run --phase=A|B|C|all --service=<name> --overwrite`
+- 幂等：benchmark 按 (sec_user_id, created_at)、kol-intake 按 token UNIQUE、persona-report 按 (operator_id, influencer_name, created_at)、selling-point 按 content_json.legacy_id、Phase B 按 name+NULL、Phase C 按 (pool, title)/(kol_id, title)
+- 事务：A+B+C 同一 AsyncSessionLocal，任一异常全 rollback（第一轮失败已验证 rollback 干净）
+- 身份：所有 created_by/operator_id/owner_id = user_id=1 (admin)
+- 踩坑1：Windows 控制台 GBK 遇 emoji 报 UnicodeEncodeError → 入口 `sys.stdout.reconfigure(encoding='utf-8')`
+- 踩坑2：PostgreSQL 拒绝 `\u0000`（DOCX/PDF base64 二进制含此字符）→ `_strip_nulls` 递归清洗所有 Text/JSONB 字段
+- 踩坑3：dry-run 跨服务同名 KOL 误报"新建 39"（实际 32）→ 进程内 `_KOL_CACHE` 解决 + Phase C 找不到 KOL 问题
+
+**未迁 4 个**：taoran-writer（products 表不存在）/ huimin-studio + taoran-studio（studio 表不存在）/ anya-agent（空数组）。详见迁移记录文档"未迁服务"章节。
+
+**产物**（仍在工作区待提交）：
+- 脚本：`backend/scripts/migrate_legacy_data.py`
+- 服务器导出脚本：`backend/scripts/export_legacy_for_server.py`（生成 `legacy_for_server_*.sql`，20MB，含真实业务数据，已加 .gitignore）
+- 前置检查 SQL：`deploy/scripts/preflight_legacy_migration.sql`
+- 迁移记录：`docs/pm/M2_数据迁移记录_legacy_to_new.md`（含字段映射、count 对比、抽样核查、回滚预案、合规检查）
 
 ---
 

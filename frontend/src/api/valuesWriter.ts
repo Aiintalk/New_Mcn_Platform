@@ -1,5 +1,5 @@
 import { get, post, put } from './request';
-import type { ValuesWriterConfig } from '../types/valuesWriter';
+import type { ValuesWriterConfig, ValuesWriterSaveOutputRequest } from '../types/valuesWriter';
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
 
@@ -25,6 +25,10 @@ export const extractValues = (kolId: number, extraContext?: string) =>
     kol_id: kolId,
     ...(extraContext ? { extra_context: extraContext } : {}),
   });
+
+/** 保存价值观仿写产出至历史（手动保存） */
+export const saveOutput = (body: ValuesWriterSaveOutputRequest) =>
+  post<{ output_id: number }>('/api/operator/values-writer/save-output', body);
 
 /** 生成情绪方向（SSE 流式） */
 export async function emotionDirectionStream(

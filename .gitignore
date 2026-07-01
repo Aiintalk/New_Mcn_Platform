@@ -59,3 +59,6 @@ docs/pm/BUG修复登记.md
 backend/scripts/_e2e_seed_personas.py
 
 .gstack/
+
+# Legacy 数据迁移产物（含真实业务数据，一次性使用，禁止进 git）
+backend/legacy_for_server_*.sql

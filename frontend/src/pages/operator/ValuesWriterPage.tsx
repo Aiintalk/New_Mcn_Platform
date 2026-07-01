@@ -14,9 +14,11 @@ import {
   emotionDirectionStream,
   writeStream,
   iterateStream,
+  saveOutput,
 } from '../../api/valuesWriter';
 import { get } from '../../api/request';
 import type { QianchuanWriterPersona } from '../../types/qianchuanWriter';
+import OutputHistoryDrawer from '../../components/OutputHistoryDrawer';
 
 const { TextArea } = Input;
 
@@ -58,6 +60,10 @@ export function ValuesWriterModule({ kolId }: { kolId: number }) {
   const [contentStreaming, setContentStreaming] = useState(false);
   const [iterationInstruction, setIterationInstruction] = useState('');
   const [iterating, setIterating] = useState(false);
+
+  // History drawer + save
+  const [saving, setSaving] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   // Load values on mount
   useEffect(() => {
@@ -153,6 +159,27 @@ export function ValuesWriterModule({ kolId }: { kolId: number }) {
     }).catch(() => {
       message.error('复制失败，请手动复制');
     });
+  }
+
+  async function handleSave() {
+    if (!content.trim()) {
+      message.warning('内容为空，无法保存');
+      return;
+    }
+    setSaving(true);
+    try {
+      const titleSuffix = selectedValues.length > 0 ? `· ${selectedValues.join('、')}` : '';
+      await saveOutput({
+        content,
+        title: `价值观仿写 ${titleSuffix}`.trim(),
+        topic: selectedValues.length > 0 ? selectedValues.join('、') : null,
+      });
+      message.success('已保存到历史');
+    } catch (err: unknown) {
+      message.error(err instanceof Error ? err.message : '保存失败');
+    } finally {
+      setSaving(false);
+    }
   }
 
   const steps = [
@@ -357,16 +384,31 @@ export function ValuesWriterModule({ kolId }: { kolId: number }) {
 
             {/* 工具栏 */}
             {content && (
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
-                <button className="btn btn-ghost btn-sm" onClick={handleCopy}>
-                  复制全文
-                </button>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 8 }}>
                 <button
                   className="btn btn-ghost btn-sm"
-                  onClick={() => downloadTxt(content)}
+                  onClick={() => setHistoryOpen(true)}
                 >
-                  导出 TXT
+                  历史记录
                 </button>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button className="btn btn-ghost btn-sm" onClick={handleCopy}>
+                    复制全文
+                  </button>
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => downloadTxt(content)}
+                  >
+                    导出 TXT
+                  </button>
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={handleSave}
+                    disabled={saving || contentStreaming || iterating}
+                  >
+                    {saving ? '保存中...' : '保存到历史'}
+                  </button>
+                </div>
               </div>
             )}
 
@@ -395,6 +437,13 @@ export function ValuesWriterModule({ kolId }: { kolId: number }) {
           </div>
         </div>
       )}
+
+      <OutputHistoryDrawer
+        toolCode="values-writer"
+        toolName="价值观仿写"
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+      />
     </div>
   );
 }

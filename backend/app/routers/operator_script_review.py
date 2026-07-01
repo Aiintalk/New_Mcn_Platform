@@ -2,12 +2,14 @@
 app/routers/operator_script_review.py
 
 运营端接口（JWT 鉴权，operator / admin 角色）：
-  POST /api/operator/qianchuan-script-review/review  — 非流式脚本预审
+  POST /api/operator/qianchuan-script-review/review       — 非流式脚本预审
+  POST /api/operator/qianchuan-script-review/save-output  — 保存预审结果到历史
 """
 import json
+from datetime import datetime
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,11 +18,16 @@ from app.adapters import yunwu as yunwu_adapter
 from app.core.database import AsyncSessionLocal, get_db
 from app.core.response import error_response, success_response
 from app.middlewares.auth import get_current_user
+from app.models.log import OperationLog
+from app.models.output import Output
 from app.models.qianchuan_script_review import QianchuanScriptReviewConfig
 from app.models.user import User
 from app.services.workspace_prompt import resolve_prompt
 
 router = APIRouter(prefix="/operator/qianchuan-script-review", tags=["operator-qianchuan-script-review"])
+
+TOOL_CODE = "qianchuan-script-review"
+TOOL_NAME = "千川脚本预审"
 
 _DEFAULT_DIRECT_PROMPT = """\
 你是千川脚本审核员。对比原版脚本和仿写脚本，按以下维度审核：
@@ -72,6 +79,14 @@ async def require_operator(current_user: User = Depends(get_current_user)) -> Us
             detail={"code": "PERMISSION_DENIED", "message": "无权限访问"},
         )
     return current_user
+
+
+def _get_ip(request: Request) -> str:
+    """从 request 取客户端 IP（优先 x-forwarded-for）。"""
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
 
 
 async def _call_review_ai(prompt: str, model_id: str) -> str:
@@ -159,3 +174,68 @@ async def review_script(
         "suggestions": result.get("suggestions", []),
         "passed": result.get("passed", []),
     })
+
+
+# ---------------------------------------------------------------------------
+# POST /save-output（保存预审结果到 outputs 表）
+# ---------------------------------------------------------------------------
+
+class SaveOutputRequest(BaseModel):
+    content: str  # 仿写脚本原文（便于查看历史时还原上下文）
+    content_json: dict  # ReviewResult：{rating, must_fix[], suggestions[], passed[]}
+    title: str = ""
+
+
+@router.post("/save-output", response_model=None)
+async def save_output(
+    body: SaveOutputRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_operator),
+):
+    """保存千川脚本预审结果至 outputs 表（content_json 存结构化评分）。"""
+    if not body.content.strip():
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "INVALID_INPUT", "message": "content 不能为空"},
+        )
+    if not body.content_json:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "INVALID_INPUT", "message": "content_json 不能为空"},
+        )
+
+    word_count = len(body.content.replace(" ", "").replace("\n", "").replace("\t", ""))
+    rating = body.content_json.get("rating", "")
+    title = body.title or f"{TOOL_NAME} · {datetime.now().strftime('%Y-%m-%d')} [{rating}]"
+    output = Output(
+        title=title,
+        tool_code=TOOL_CODE,
+        tool_name=TOOL_NAME,
+        content=body.content,
+        content_json=body.content_json,
+        word_count=word_count,
+        created_by=current_user.id,
+    )
+    db.add(output)
+    await db.flush()
+
+    db.add(OperationLog(
+        user_id=current_user.id,
+        username=current_user.username,
+        role=current_user.role,
+        action="script_review_save_output",
+        target_type="output",
+        target_id=output.id,
+        detail={
+            "title": title,
+            "rating": rating,
+            "must_fix_count": len(body.content_json.get("must_fix", [])),
+            "word_count": word_count,
+        },
+        ip=_get_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    ))
+    await db.commit()
+
+    return success_response(data={"output_id": output.id})

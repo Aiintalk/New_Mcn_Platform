@@ -9,3 +9,10 @@ export interface ValuesWriterConfig {
   is_active: boolean;
   updated_at: string | null;
 }
+
+/** POST /operator/values-writer/save-output 请求体 */
+export interface ValuesWriterSaveOutputRequest {
+  content: string;
+  title?: string;
+  topic?: string | null;
+}

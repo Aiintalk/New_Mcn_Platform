@@ -156,13 +156,17 @@ async def validate_benchmark_account(
         await _get_kol_or_404(session, kol_id)
 
     try:
-        resolved = await tikhub_adapter.resolve_sec_user_id(body.account_input, db)
+        resolved = await tikhub_adapter.resolve_sec_user_id(
+            body.account_input, db, user_id=current_user.id
+        )
 
         # 抖音号路径（handler_user_profile_v2）已含 avatar_url，其他路径补查
         avatar_url = resolved.pop("_avatar_url", None)
         follower_count = None
         if not avatar_url:
-            profile = await tikhub_adapter.get_user_profile(resolved["sec_user_id"], db)
+            profile = await tikhub_adapter.get_user_profile(
+                resolved["sec_user_id"], db, user_id=current_user.id
+            )
             avatar_url = profile.get("avatar_url")
             follower_count = profile.get("follower_count")
 
