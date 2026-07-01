@@ -1,9 +1,13 @@
 import { useState, useEffect } from 'react';
-import { Select, Spin, App } from 'antd';
-import { submitReview } from '../../api/scriptReview';
+import { Select, Spin, App, Tag, Typography } from 'antd';
+import { submitReview, saveOutput } from '../../api/scriptReview';
 import { getQianchuanProducts } from '../../api/qianchuanProducts';
 import type { ScriptType, ReviewResult, ReviewRating } from '../../types/scriptReview';
 import type { QianchuanProduct } from '../../types/kolWorkspace';
+import type { Output } from '../../types/output';
+import OutputHistoryDrawer from '../../components/OutputHistoryDrawer';
+
+const { Text, Paragraph } = Typography;
 
 const RATING_CONFIG: Record<ReviewRating, { bg: string; color: string; label: string }> = {
   pass:  { bg: 'var(--success-bg)', color: 'var(--success)', label: '✅ 通过，可以上线' },
@@ -20,6 +24,10 @@ export function QianchuanScriptReviewModule({ kolId }: { kolId?: number }) {
   const [selectedProduct, setSelectedProduct] = useState<QianchuanProduct | null>(null);
   const [reviewing, setReviewing] = useState(false);
   const [result, setResult] = useState<ReviewResult | null>(null);
+
+  // History drawer + save
+  const [saving, setSaving] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   useEffect(() => {
     if (scriptType === 'direct') {
@@ -55,6 +63,66 @@ export function QianchuanScriptReviewModule({ kolId }: { kolId?: number }) {
     } finally {
       setReviewing(false);
     }
+  }
+
+  async function handleSave() {
+    if (!result || !adaptedScript.trim()) {
+      message.warning('请先完成预审再保存');
+      return;
+    }
+    setSaving(true);
+    try {
+      const titlePreview = adaptedScript.slice(0, 20).replace(/\n/g, ' ');
+      await saveOutput({
+        content: adaptedScript,
+        content_json: result,
+        title: `脚本预审 [${result.rating}] · ${titlePreview}...`,
+      });
+      message.success('已保存到历史');
+    } catch (err: unknown) {
+      message.error(err instanceof Error ? err.message : '保存失败');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  /** 历史抽屉自定义渲染：展示评分 + 必须修改数 */
+  function renderHistoryItem(item: Output) {
+    const review = item.content_json as ReviewResult | undefined;
+    const ratingLabel = review?.rating ? RATING_CONFIG[review.rating].label : '';
+    return (
+      <div style={{ width: '100%' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+          <Text strong>{item.title || `#${item.id}`}</Text>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {new Date(item.created_at).toLocaleString('zh-CN')}
+          </Text>
+        </div>
+        {ratingLabel && (
+          <Tag
+            color={
+              review?.rating === 'pass' ? 'success' :
+              review?.rating === 'minor' ? 'warning' : 'error'
+            }
+            style={{ marginBottom: 6 }}
+          >
+            {ratingLabel}
+          </Tag>
+        )}
+        {review?.must_fix && review.must_fix.length > 0 && (
+          <div style={{ fontSize: 12, color: 'var(--gray-500)', marginBottom: 4 }}>
+            必须修改 {review.must_fix.length} 条
+          </div>
+        )}
+        <Paragraph
+          type="secondary"
+          ellipsis={{ rows: 2, expandable: true, symbol: '展开' }}
+          style={{ marginBottom: 0, whiteSpace: 'pre-wrap', fontSize: 12 }}
+        >
+          {item.content ?? ''}
+        </Paragraph>
+      </div>
+    );
   }
 
   const canSubmit = originalScript.trim().length > 0 && adaptedScript.trim().length > 0;
@@ -204,6 +272,21 @@ export function QianchuanScriptReviewModule({ kolId }: { kolId?: number }) {
         <div className="card">
           <div className="card-header">
             <h2 className="card-title">审核结果</h2>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => setHistoryOpen(true)}
+              >
+                历史记录
+              </button>
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={handleSave}
+                disabled={saving}
+              >
+                {saving ? '保存中...' : '保存到历史'}
+              </button>
+            </div>
           </div>
           <div className="card-body">
             {/* 评级 Banner */}
@@ -318,6 +401,14 @@ export function QianchuanScriptReviewModule({ kolId }: { kolId?: number }) {
           </div>
         </div>
       )}
+
+      <OutputHistoryDrawer
+        toolCode="qianchuan-script-review"
+        toolName="千川脚本预审"
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        renderItem={renderHistoryItem}
+      />
     </div>
   );
 }

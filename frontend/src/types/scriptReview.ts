@@ -34,3 +34,10 @@ export interface ReviewRequest {
     core_selling_point?: string;
   } | null;
 }
+
+/** POST /operator/qianchuan-script-review/save-output 请求体 */
+export interface ScriptReviewSaveOutputRequest {
+  content: string; // 仿写脚本原文
+  content_json: ReviewResult; // 结构化评分
+  title?: string;
+}

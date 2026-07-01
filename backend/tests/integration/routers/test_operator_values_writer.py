@@ -9,6 +9,7 @@ Covers:
 5. test_write_streaming → SSE Content-Type contains event-stream
 6. test_admin_get_config → returns default config
 7. test_admin_put_config → update succeeds
+8. test_save_output_success / empty_content / account_isolation → POST /save-output
 """
 import json
 from unittest.mock import AsyncMock, patch
@@ -260,3 +261,79 @@ class TestAdminPutConfig:
             "AND user_id = :uid"
         ), {"uid": admin_user.id})).scalar()
         assert log_count >= 1
+
+
+# ---------------------------------------------------------------------------
+# Test 8: POST /save-output
+# ---------------------------------------------------------------------------
+
+class TestSaveOutput:
+    @pytest.mark.asyncio
+    async def test_save_success(self, test_client, operator_headers, operator_user, test_session):
+        resp = await test_client.post(
+            "/api/operator/values-writer/save-output",
+            json={
+                "title": "价值观仿写_测试",
+                "content": "我们相信真实的力量",
+                "topic": "真实",
+            },
+            headers=operator_headers,
+        )
+        body = resp.json()
+        assert body["success"] is True
+        assert "output_id" in body["data"]
+
+        output_id = body["data"]["output_id"]
+        row = (await test_session.execute(text(
+            "SELECT tool_code, tool_name, created_by FROM outputs WHERE id = :id"
+        ), {"id": output_id})).fetchone()
+        assert row[0] == "values-writer"
+        assert row[1] == "价值观仿写"
+        assert row[2] == operator_user.id
+
+    @pytest.mark.asyncio
+    async def test_save_empty_content(self, test_client, operator_headers):
+        resp = await test_client.post(
+            "/api/operator/values-writer/save-output",
+            json={"content": "   "},
+            headers=operator_headers,
+        )
+        assert resp.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_save_writes_operation_log(
+        self, test_client, operator_headers, operator_user, test_session
+    ):
+        resp = await test_client.post(
+            "/api/operator/values-writer/save-output",
+            json={"content": "测试内容", "title": "log_test", "topic": "治愈"},
+            headers=operator_headers,
+        )
+        assert resp.json()["success"] is True
+
+        log_count = (await test_session.execute(text(
+            "SELECT COUNT(*) FROM operation_logs "
+            "WHERE action = 'values_writer_save_output' "
+            "AND user_id = :uid"
+        ), {"uid": operator_user.id})).scalar()
+        assert log_count >= 1
+
+    @pytest.mark.asyncio
+    async def test_save_account_isolation(
+        self, test_client, operator_user, operator_token, admin_token
+    ):
+        """operator 保存的 output，admin 通过全局 /outputs 看不到（账号隔离）。"""
+        resp = await test_client.post(
+            "/api/operator/values-writer/save-output",
+            json={"title": "operator专属", "content": "内容A"},
+            headers={"Authorization": f"Bearer {operator_token}"},
+        )
+        assert resp.status_code == 200
+
+        # admin 通过全局 GET /outputs?tool_code=values-writer 看不到 operator 的
+        resp = await test_client.get(
+            "/api/outputs?tool_code=values-writer",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        titles = [item["title"] for item in resp.json()["data"]["items"]]
+        assert "operator专属" not in titles

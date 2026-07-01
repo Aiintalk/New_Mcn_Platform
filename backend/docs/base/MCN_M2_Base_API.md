@@ -2159,9 +2159,9 @@ Response.data：
 
 | 方向 | 接口数 |
 |------|--------|
-| 运营端 | 4 |
+| 运营端 | 5（4 工具接口 + 1 save-output） |
 | 管理端 | 2 |
-| 小计 | 6 |
+| 小计 | 7 |
 
 ### 26.2 管理端接口
 
@@ -2253,6 +2253,28 @@ Request Body：
 
 Response：`Content-Type: text/event-stream`
 
+#### POST `/api/operator/values-writer/save-output`
+
+保存生成内容到历史（手动触发，复用全局 `outputs` 表，`tool_code='values-writer'`）。
+
+Request Body：
+```json
+{
+  "content": "仿写出的完整内容",
+  "title": "可选标题",
+  "topic": "可选主题，如「真实、治愈」"
+}
+```
+
+Response `data`：
+```json
+{ "output_id": 123 }
+```
+
+写 OperationLog（action=`values_writer_save_output`, target_type=`output`）。
+
+历史查询走全局接口：`GET /api/outputs?tool_code=values-writer`（用户隔离）；删除走 `DELETE /api/outputs/{id}`（软删）。
+
 ---
 
 ## 27. qianchuan-script-review 千川脚本预审（Sprint 21）
@@ -2319,6 +2341,27 @@ Response `data`：
 ```
 
 `rating` 取值：`pass`（可上线）/ `minor`（小改可上线）/ `fail`（需大改）。
+
+#### POST `/api/operator/qianchuan-script-review/save-output`
+
+保存预审结果到历史（手动触发，复用全局 `outputs` 表，`tool_code='qianchuan-script-review'`）。
+
+Request Body：
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `content` | string | 是 | 仿写脚本原文（便于还原上下文） |
+| `content_json` | object | 是 | 结构化评分（同 review 接口返回的 ReviewResult：rating/must_fix/suggestions/passed） |
+| `title` | string | 否 | 标题，默认自动生成（含 rating） |
+
+Response `data`：
+```json
+{ "output_id": 124 }
+```
+
+写 OperationLog（action=`script_review_save_output`, target_type=`output`）。
+
+历史查询走全局接口：`GET /api/outputs?tool_code=qianchuan-script-review`；删除走 `DELETE /api/outputs/{id}`（软删）。
 
 ---
 
