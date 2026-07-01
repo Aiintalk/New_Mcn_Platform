@@ -15,7 +15,34 @@ import httpx
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.tikhub_call_log import TikHubCallLog
 from app.models.tikhub_credential import TikHubCredential
+
+
+def _log_call(
+    db: AsyncSession,
+    credential_id: int,
+    endpoint: str,
+    user_id: int | None,
+    start: float,
+    status: str,
+    error_message: str | None,
+) -> None:
+    """在 finally 块调用，写 TikHubCallLog（外部服务调用日志）。
+
+    与 yunwu.py 的 AiCallLog 模式一致：adapter 层统一记录，
+    router 层不重复写。同步函数（db.add 本身不阻塞），
+    避免在 finally 内 await 副作用吞掉主调异常。
+    """
+    db.add(TikHubCallLog(
+        credential_id=credential_id,
+        user_id=user_id,
+        platform="douyin",
+        endpoint=endpoint,
+        status=status,
+        latency_ms=int((time.monotonic() - start) * 1000),
+        error_message=error_message,
+    ))
 
 
 async def _get_key_and_url(db: AsyncSession) -> tuple[int, str, str]:
@@ -54,7 +81,11 @@ async def _report_failure(cred_id: int, db: AsyncSession) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def get_user_profile(sec_user_id: str, db: AsyncSession) -> dict:
+async def get_user_profile(
+    sec_user_id: str,
+    db: AsyncSession,
+    user_id: int | None = None,
+) -> dict:
     """
     获取抖音用户基础信息。
 
@@ -63,6 +94,8 @@ async def get_user_profile(sec_user_id: str, db: AsyncSession) -> dict:
     返回: nickname / uid / room_id / unique_id + 完整原始响应
     """
     cred_id, api_key, base_url = await _get_key_and_url(db)
+    start = time.monotonic()
+    status, error_message = "success", None
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.get(
@@ -97,19 +130,31 @@ async def get_user_profile(sec_user_id: str, db: AsyncSession) -> dict:
                 "signature": user_data.get("signature"),
             }
     except Exception as e:
+        status = "error"
+        error_message = str(e)[:500]
         await _report_failure(cred_id, db)
         raise RuntimeError(f"TikHub get_user_profile failed: {e}") from e
+    finally:
+        _log_call(db, cred_id, "get_user_profile", user_id, start, status, error_message)
 
 
-async def get_user_fans_info(user_id: int, db: AsyncSession) -> dict:
+async def get_user_fans_info(
+    user_id: int,
+    db: AsyncSession,
+    caller_user_id: int | None = None,
+) -> dict:
     """
     获取抖音达人粉丝数据。
 
     POST /api/v1/douyin/index/fetch_daren_great_user_fans_info
     参数: user_id（数字型 uid）
     返回: 粉丝数相关数据 + 完整原始响应
+
+    注：参数名 caller_user_id 用于避免与抖音 user_id 混淆，指代发起调用的系统用户。
     """
     cred_id, api_key, base_url = await _get_key_and_url(db)
+    start = time.monotonic()
+    status, error_message = "success", None
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.post(
@@ -136,8 +181,12 @@ async def get_user_fans_info(user_id: int, db: AsyncSession) -> dict:
                 ),
             }
     except Exception as e:
+        status = "error"
+        error_message = str(e)[:500]
         await _report_failure(cred_id, db)
         raise RuntimeError(f"TikHub get_user_fans_info failed: {e}") from e
+    finally:
+        _log_call(db, cred_id, "get_user_fans_info", caller_user_id, start, status, error_message)
 
 
 async def get_live_room_products(
@@ -145,6 +194,7 @@ async def get_live_room_products(
     author_id: str,
     db: AsyncSession,
     limit: int = 100,
+    user_id: int | None = None,
 ) -> dict:
     """
     获取直播间商品列表。
@@ -154,6 +204,8 @@ async def get_live_room_products(
     返回: data.promotions 列表 + 完整原始响应
     """
     cred_id, api_key, base_url = await _get_key_and_url(db)
+    start = time.monotonic()
+    status, error_message = "success", None
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.get(
@@ -168,8 +220,12 @@ async def get_live_room_products(
             promotions = raw.get("data", {}).get("promotions", [])
             return {"raw": raw, "promotions": promotions}
     except Exception as e:
+        status = "error"
+        error_message = str(e)[:500]
         await _report_failure(cred_id, db)
         raise RuntimeError(f"TikHub get_live_room_products failed: {e}") from e
+    finally:
+        _log_call(db, cred_id, "get_live_room_products", user_id, start, status, error_message)
 
 
 async def test_connection(db: AsyncSession) -> dict:
@@ -230,7 +286,11 @@ def _clean_share_url(url: str) -> str:
     return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
 
 
-async def resolve_sec_user_id(input_str: str, db: AsyncSession) -> dict:
+async def resolve_sec_user_id(
+    input_str: str,
+    db: AsyncSession,
+    user_id: int | None = None,
+) -> dict:
     """
     解析用户输入的抖音号或分享链接，返回 sec_user_id 和 nickname。
 
@@ -241,8 +301,13 @@ async def resolve_sec_user_id(input_str: str, db: AsyncSession) -> dict:
     - 分享文本（"长按复制此条消息... https://v.douyin.com/xxx/"）
 
     Returns: {"sec_user_id": str, "nickname": str}
+
+    注：内部可能继续调 get_user_profile，会额外写一条 endpoint=get_user_profile 的日志，
+    属正常（不同 endpoint 各自记录便于统计区分）。
     """
     cred_id, api_key, base_url = await _get_key_and_url(db)
+    start = time.monotonic()
+    status, error_message = "success", None
     try:
         url_match = _extract_douyin_url(input_str)
         stripped = input_str.strip()
@@ -292,7 +357,7 @@ async def resolve_sec_user_id(input_str: str, db: AsyncSession) -> dict:
             if not sec_uid:
                 raise RuntimeError(f"找不到该账号（uid={stripped}），请改用抖音号或主页链接")
 
-            profile = await get_user_profile(sec_uid, db)
+            profile = await get_user_profile(sec_uid, db, user_id=user_id)
             return {
                 "sec_user_id": sec_uid,
                 "nickname": user_info.get("nickname") or profile.get("nickname") or "",
@@ -333,21 +398,26 @@ async def resolve_sec_user_id(input_str: str, db: AsyncSession) -> dict:
             sec_uid = stripped
 
         # 获取完整用户资料（nickname / avatar 等）
-        profile = await get_user_profile(sec_uid, db)
+        profile = await get_user_profile(sec_uid, db, user_id=user_id)
 
         return {
             "sec_user_id": sec_uid,
             "nickname": profile.get("nickname") or "",
         }
     except Exception as e:
+        status = "error"
+        error_message = str(e)[:500]
         await _report_failure(cred_id, db)
         raise RuntimeError(f"TikHub resolve_sec_user_id failed: {e}") from e
+    finally:
+        _log_call(db, cred_id, "resolve_sec_user_id", user_id, start, status, error_message)
 
 
 async def fetch_user_videos(
     sec_user_id: str,
     db: AsyncSession,
     max_pages: int = 10,
+    user_id: int | None = None,
 ) -> list[dict]:
     """
     分页获取用户发布的视频列表。
@@ -356,11 +426,14 @@ async def fetch_user_videos(
         sec_user_id: 抖音 sec_user_id
         db: 数据库会话
         max_pages: 最大翻页数（每页约20条，默认最多200条视频）
+        user_id: 发起调用的系统用户 id（用于调用日志归属，可选）
 
     Returns:
         [{"desc": str, "digg_count": int, "create_time": int, "aweme_id": str}, ...]
     """
     cred_id, api_key, base_url = await _get_key_and_url(db)
+    start = time.monotonic()
+    status, error_message = "success", None
     all_videos: list[dict] = []
     cursor = 0
 
@@ -401,8 +474,12 @@ async def fetch_user_videos(
 
         return all_videos
     except Exception as e:
+        status = "error"
+        error_message = str(e)[:500]
         await _report_failure(cred_id, db)
         raise RuntimeError(f"TikHub fetch_user_videos failed: {e}") from e
+    finally:
+        _log_call(db, cred_id, "fetch_user_videos", user_id, start, status, error_message)
 
 
 # ---------------------------------------------------------------------------
@@ -410,7 +487,11 @@ async def fetch_user_videos(
 # ---------------------------------------------------------------------------
 
 
-async def fetch_video_by_share_url(share_url: str, db: AsyncSession) -> dict:
+async def fetch_video_by_share_url(
+    share_url: str,
+    db: AsyncSession,
+    user_id: int | None = None,
+) -> dict:
     """
     通过抖音分享链接获取单个视频信息。
 
@@ -424,6 +505,8 @@ async def fetch_video_by_share_url(share_url: str, db: AsyncSession) -> dict:
         }
     """
     cred_id, api_key, base_url = await _get_key_and_url(db)
+    start = time.monotonic()
+    status, error_message = "success", None
     try:
         # 先从分享文本中提取 URL
         url = _extract_douyin_url(share_url)
@@ -484,8 +567,12 @@ async def fetch_video_by_share_url(share_url: str, db: AsyncSession) -> dict:
             "nickname": nickname,
         }
     except Exception as e:
+        status = "error"
+        error_message = str(e)[:500]
         await _report_failure(cred_id, db)
         raise RuntimeError(f"TikHub fetch_video_by_share_url failed: {e}") from e
+    finally:
+        _log_call(db, cred_id, "fetch_video_by_share_url", user_id, start, status, error_message)
 
 
 # ---------------------------------------------------------------------------

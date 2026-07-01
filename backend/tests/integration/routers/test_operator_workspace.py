@@ -5,9 +5,12 @@ Covers:
 - GET /{kol_id}/dashboard  (聚合：kol info + benchmarks + active_products)
 - GET/POST/PUT/DELETE /{kol_id}/benchmarks
 - GET/PUT /{kol_id}/active-products
+- POST /{kol_id}/benchmarks/validate (TikHub 账号验证；TikHub 写日志由 adapter 层自动处理，
+  参见 adapters/tikhub.py 的 _log_call，端到端真实测试覆盖)
 """
 import pytest
 from sqlalchemy import text
+from unittest.mock import patch, AsyncMock
 
 
 # ---------------------------------------------------------------------------
@@ -148,6 +151,76 @@ class TestBenchmarks:
             headers=operator_headers,
         )
         assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# POST /{kol_id}/benchmarks/validate (TikHub 账号验证)
+# ---------------------------------------------------------------------------
+
+class TestValidateBenchmarkAccount:
+    @pytest.mark.asyncio
+    async def test_validate_with_avatar_in_resolve(self, test_client, operator_headers, test_session):
+        """抖音号路径：resolve_sec_user_id 已返回 _avatar_url，不再调 get_user_profile。"""
+        kid = await _create_kol(test_session)
+        with patch(
+            "app.routers.operator_workspace.tikhub_adapter.resolve_sec_user_id",
+            new_callable=AsyncMock,
+            return_value={"sec_user_id": "MS4wLjABAAAA_test", "nickname": "测试账号", "_avatar_url": "https://x/avatar.jpeg"},
+        ):
+            resp = await test_client.post(
+                f"/api/operator/workspace/{kid}/benchmarks/validate",
+                json={"account_input": "test_douyin_id"},
+                headers=operator_headers,
+            )
+        body = resp.json()
+        assert body["success"] is True
+        assert body["data"]["sec_user_id"] == "MS4wLjABAAAA_test"
+        assert body["data"]["nickname"] == "测试账号"
+        assert body["data"]["avatar_url"] == "https://x/avatar.jpeg"
+
+    @pytest.mark.asyncio
+    async def test_validate_fallback_to_get_user_profile(self, test_client, operator_headers, test_session):
+        """链接/uid 路径：resolve 不含 _avatar_url，补调 get_user_profile 取 avatar + follower。"""
+        kid = await _create_kol(test_session)
+        with patch(
+            "app.routers.operator_workspace.tikhub_adapter.resolve_sec_user_id",
+            new_callable=AsyncMock,
+            return_value={"sec_user_id": "MS4wLjABAAAA_test2", "nickname": "链接账号"},
+        ), patch(
+            "app.routers.operator_workspace.tikhub_adapter.get_user_profile",
+            new_callable=AsyncMock,
+            return_value={"avatar_url": "https://x/avatar2.jpeg", "follower_count": 12345},
+        ):
+            resp = await test_client.post(
+                f"/api/operator/workspace/{kid}/benchmarks/validate",
+                json={"account_input": "https://www.douyin.com/user/MS4wLj..."},
+                headers=operator_headers,
+            )
+        body = resp.json()
+        assert body["success"] is True
+        assert body["data"]["avatar_url"] == "https://x/avatar2.jpeg"
+        assert body["data"]["follower_count"] == 12345
+
+    @pytest.mark.asyncio
+    async def test_validate_tikhub_error_returns_tikhub_error_code(self, test_client, operator_headers, test_session):
+        """TikHub 内部失败 → success=False, code=TIKHUB_ERROR（不抛 HTTP 5xx）。"""
+        kid = await _create_kol(test_session)
+        with patch(
+            "app.routers.operator_workspace.tikhub_adapter.resolve_sec_user_id",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("TikHub resolve_sec_user_id failed: 找不到该账号"),
+        ):
+            resp = await test_client.post(
+                f"/api/operator/workspace/{kid}/benchmarks/validate",
+                json={"account_input": "not_exist"},
+                headers=operator_headers,
+            )
+        body = resp.json()
+        assert body["success"] is False
+        assert body["code"] == "TIKHUB_ERROR"
+        # 前缀被剥离，用户友好
+        assert "TikHub resolve_sec_user_id failed:" not in body["message"]
+        assert "找不到该账号" in body["message"]
 
 
 # ---------------------------------------------------------------------------
