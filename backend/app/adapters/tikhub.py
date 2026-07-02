@@ -330,37 +330,67 @@ async def resolve_sec_user_id(
                 raise RuntimeError("无法从链接中解析 sec_user_id")
 
         elif re.fullmatch(r"\d{10,20}", stripped):
-            # 纯数字 uid（10-20位）：通过 TikHub fetch_user_profile_by_uid 获取用户资料
+            # 纯数字输入：优先当数字 uid 查，找不到时 fallback 到抖音号（unique_id）查。
+            # 原因：抖音号也可以是纯数字，而 uid 和抖音号是不同维度的 ID。
+            uid_sec_uid = None
+            uid_nickname = None
+            try:
+                async with httpx.AsyncClient(timeout=30) as client:
+                    response = await client.get(
+                        f"{base_url}/api/v1/douyin/web/fetch_user_profile_by_uid",
+                        params={"uid": stripped},
+                        headers={"Authorization": f"Bearer {api_key}"},
+                    )
+                    response.raise_for_status()
+                    raw = response.json()
+                    await _report_success(cred_id, db)
+
+                inner_data = (raw.get("data") or {})
+                status_code = inner_data.get("status_code", 0)
+                if status_code in (0, None):
+                    user_info = (
+                        inner_data.get("data", {}).get("user_info")
+                        or inner_data.get("data", {}).get("user")
+                        or inner_data.get("user_info")
+                        or inner_data.get("user")
+                        or {}
+                    )
+                    uid_sec_uid = user_info.get("sec_uid") or user_info.get("sec_user_id")
+                    uid_nickname = user_info.get("nickname") or ""
+            except Exception:
+                pass  # uid 查询失败，继续尝试抖音号
+
+            if uid_sec_uid:
+                profile = await get_user_profile(uid_sec_uid, db, user_id=user_id)
+                return {
+                    "sec_user_id": uid_sec_uid,
+                    "nickname": uid_nickname or profile.get("nickname") or "",
+                }
+
+            # uid 查询无结果，fallback：把纯数字当抖音号（unique_id）再查一次
             async with httpx.AsyncClient(timeout=30) as client:
                 response = await client.get(
-                    f"{base_url}/api/v1/douyin/web/fetch_user_profile_by_uid",
-                    params={"uid": stripped},
+                    f"{base_url}/api/v1/douyin/web/handler_user_profile_v2",
+                    params={"unique_id": stripped},
                     headers={"Authorization": f"Bearer {api_key}"},
                 )
                 response.raise_for_status()
                 raw = response.json()
                 await _report_success(cred_id, db)
 
-            inner_data = (raw.get("data") or {})
-            status_code = inner_data.get("status_code", 0)
-            if status_code not in (0, None):
-                raise RuntimeError(f"找不到该账号（uid={stripped}），请改用抖音号或主页链接")
+            inner = (raw.get("data") or {})
+            status_code = inner.get("status_code", 0)
+            user_info = inner.get("user_info") or {}
 
-            user_info = (
-                inner_data.get("data", {}).get("user_info")
-                or inner_data.get("data", {}).get("user")
-                or inner_data.get("user_info")
-                or inner_data.get("user")
-                or {}
-            )
-            sec_uid = user_info.get("sec_uid") or user_info.get("sec_user_id")
-            if not sec_uid:
-                raise RuntimeError(f"找不到该账号（uid={stripped}），请改用抖音号或主页链接")
+            if status_code != 0 or not user_info.get("sec_uid"):
+                raise RuntimeError(f"找不到该账号「{stripped}」，请确认抖音号或主页链接是否正确")
 
-            profile = await get_user_profile(sec_uid, db, user_id=user_id)
+            sec_uid = user_info["sec_uid"]
+            avatar_urls = (user_info.get("avatar_thumb") or {}).get("url_list") or []
             return {
                 "sec_user_id": sec_uid,
-                "nickname": user_info.get("nickname") or profile.get("nickname") or "",
+                "nickname": user_info.get("nickname") or "",
+                "_avatar_url": avatar_urls[0] if avatar_urls else None,
             }
 
         elif re.fullmatch(r"[\w.]+", stripped) and not stripped.startswith("MS4"):
