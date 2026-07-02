@@ -2,11 +2,11 @@ import { useState, useEffect, useRef } from 'react';
 import {
   Table, Button, Modal, Form, Input, InputNumber, Select, Tabs, Popconfirm, message, Space, Tag
 } from 'antd';
-import { PlusOutlined, DeleteOutlined, CopyOutlined, DownloadOutlined, SearchOutlined } from '@ant-design/icons';
+import { PlusOutlined, DeleteOutlined, CopyOutlined, DownloadOutlined, SearchOutlined, EditOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import {
   getPersonas, createPersona, deletePersona,
-  getScripts, createScript, deleteScript, parseFile,
+  getScripts, createScript, deleteScript, updateScript, parseFile,
 } from '../../api/qianchuanCollection';
 import type { CollectionPersona, CollectionScript, CreateScriptBody } from '../../types/qianchuanCollection';
 
@@ -35,6 +35,13 @@ export default function QianchuanCollectionPage() {
   const [parsedText, setParsedText] = useState('');
   const [parsingFile, setParsingFile] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // 编辑脚本弹窗
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editForm] = Form.useForm();
+  const [editingScript, setEditingScript] = useState<CollectionScript | null>(null);
+  const [editSubmitting, setEditSubmitting] = useState(false);
+  const editFileInputRef = useRef<HTMLInputElement>(null);
 
   // 展开行：存储已展开的 key
   const [expandedRows, setExpandedRows] = useState<number[]>([]);
@@ -156,6 +163,58 @@ export default function QianchuanCollectionPage() {
     }
   }
 
+  function handleOpenEdit(record: CollectionScript) {
+    setEditingScript(record);
+    editForm.setFieldsValue({
+      title: record.title,
+      content: record.content,
+      likes: record.likes ?? undefined,
+      source: record.source ?? undefined,
+      source_account: record.source_account ?? undefined,
+    });
+    setEditModalOpen(true);
+  }
+
+  async function handleUpdateScript() {
+    if (!editingScript) return;
+    try {
+      const values = await editForm.validateFields();
+      setEditSubmitting(true);
+      await updateScript(editingScript.id, {
+        title: values.title,
+        content: values.content,
+        likes: values.likes ?? null,
+        source: values.source || null,
+        source_account: values.source_account || null,
+      });
+      messageApi.success('脚本已更新');
+      setEditModalOpen(false);
+      setEditingScript(null);
+      editForm.resetFields();
+      loadScripts(page, search);
+    } catch (e: unknown) {
+      if (e instanceof Error) messageApi.error(e.message);
+    } finally {
+      setEditSubmitting(false);
+    }
+  }
+
+  async function handleEditParseFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setParsingFile(true);
+    try {
+      const result = await parseFile(file);
+      editForm.setFieldsValue({ content: result.text });
+      messageApi.success('文件解析成功');
+    } catch (err: unknown) {
+      if (err instanceof Error) messageApi.error(err.message);
+    } finally {
+      setParsingFile(false);
+      if (editFileInputRef.current) editFileInputRef.current.value = '';
+    }
+  }
+
   async function handleParseFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -252,16 +311,24 @@ export default function QianchuanCollectionPage() {
     {
       title: '操作',
       key: 'action',
-      width: 80,
+      width: 100,
       render: (_: unknown, record: CollectionScript) => (
-        <Popconfirm
-          title="确认删除这条脚本？"
-          onConfirm={() => handleDeleteScript(record.id)}
-          okText="删除"
-          cancelText="取消"
-        >
-          <Button type="link" danger size="small" icon={<DeleteOutlined />} />
-        </Popconfirm>
+        <Space size={4}>
+          <Button
+            type="link"
+            size="small"
+            icon={<EditOutlined />}
+            onClick={() => handleOpenEdit(record)}
+          />
+          <Popconfirm
+            title="确认删除这条脚本？"
+            onConfirm={() => handleDeleteScript(record.id)}
+            okText="删除"
+            cancelText="取消"
+          >
+            <Button type="link" danger size="small" icon={<DeleteOutlined />} />
+          </Popconfirm>
+        </Space>
       ),
     },
   ];
@@ -470,6 +537,75 @@ export default function QianchuanCollectionPage() {
               </Button>
               <span style={{ marginLeft: 8, fontSize: 12, color: 'var(--gray-500)' }}>
                 文件内容将自动填入下方输入框
+              </span>
+            </div>
+          </Form.Item>
+
+          <Form.Item
+            name="content"
+            label="脚本内容"
+            rules={[{ required: true, message: '请输入脚本内容' }]}
+          >
+            <Input.TextArea
+              rows={8}
+              placeholder="粘贴或上传脚本正文..."
+              style={{ resize: 'vertical' }}
+            />
+          </Form.Item>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            <Form.Item name="likes" label="点赞数（选填）">
+              <InputNumber min={0} style={{ width: '100%' }} placeholder="例如：50000" />
+            </Form.Item>
+            <Form.Item name="source" label="来源平台（选填）">
+              <Input placeholder="例如：抖音" maxLength={100} />
+            </Form.Item>
+          </div>
+
+          <Form.Item name="source_account" label="来源账号（选填）">
+            <Input placeholder="来源达人账号名" maxLength={100} />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* 编辑脚本弹窗 */}
+      <Modal
+        title="编辑脚本"
+        open={editModalOpen}
+        onOk={handleUpdateScript}
+        onCancel={() => { setEditModalOpen(false); setEditingScript(null); editForm.resetFields(); }}
+        confirmLoading={editSubmitting}
+        okText="保存"
+        cancelText="取消"
+        destroyOnHidden
+        width={680}
+      >
+        <Form form={editForm} layout="vertical" style={{ marginTop: 16 }}>
+          <Form.Item
+            name="title"
+            label="脚本标题"
+            rules={[{ required: true, message: '请输入脚本标题' }]}
+          >
+            <Input placeholder="输入脚本标题" maxLength={200} showCount />
+          </Form.Item>
+
+          <Form.Item label="重新上传文件（可选）">
+            <div>
+              <input
+                ref={editFileInputRef}
+                type="file"
+                accept=".txt,.md,.docx,.pdf"
+                style={{ display: 'none' }}
+                onChange={handleEditParseFile}
+              />
+              <Button
+                loading={parsingFile}
+                onClick={() => editFileInputRef.current?.click()}
+              >
+                上传文件（.txt / .md / .docx / .pdf）
+              </Button>
+              <span style={{ marginLeft: 8, fontSize: 12, color: 'var(--gray-500)' }}>
+                上传后将替换当前内容
               </span>
             </div>
           </Form.Item>

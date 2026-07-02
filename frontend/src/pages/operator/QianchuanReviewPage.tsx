@@ -31,15 +31,15 @@ function parseExcelWorkbook(wb: XLSX.WorkBook): ExcelRow[] {
   if (raw.length < 2) return [];
 
   const knownLabels: [string[], keyof ExcelRow][] = [
-    [['素材名称', '视频主题', '素材标题', '视频名称'], 'video_theme'],
-    [['整体消耗', '消耗', '花费', '总消耗'], 'spend'],
-    [['展示次数', '展示', '曝光', '曝光次数'], 'impressions'],
-    [['点击率', 'CTR', 'ctr', '整体点击率'], 'ctr'],
-    [['3s完播率', '3秒完播率', '3s完播', '3秒播放率'], 'three_sec_rate'],
-    [['转化数', '成交数', '订单数'], 'conversions'],
-    [['转化成本', '成交成本', '单次转化成本'], 'cost_per_conversion'],
-    [['ROI', 'roi', '投产比', '投产', '整体支付ROI', '支付ROI'], 'roi'],
-    [['千次展示成本', 'CPM', 'cpm', '千展成本', '千次展现费用', '整体千次展现费用'], 'cpm'],
+    [['素材名称', '视频主题', '素材标题', '视频名称', '创意名称', '广告创意'], 'video_theme'],
+    [['整体消耗', '消耗', '花费', '总消耗', '消耗(元)', '花费(元)'], 'spend'],
+    [['展示次数', '展示', '曝光', '曝光次数', '展现次数', '整体展示次数'], 'impressions'],
+    [['点击率', 'CTR', 'ctr', '整体点击率', '点击率(%)'], 'ctr'],
+    [['3s完播率', '3秒完播率', '3s完播', '3秒播放率', '3秒完播率(%)'], 'three_sec_rate'],
+    [['转化数', '成交数', '订单数', '成交单量', '转化量'], 'conversions'],
+    [['转化成本', '成交成本', '单次转化成本', '成交成本(元)'], 'cost_per_conversion'],
+    [['ROI', 'roi', '投产比', '投产', '整体支付ROI', '支付ROI', '整体ROI'], 'roi'],
+    [['千次展示成本', 'CPM', 'cpm', '千展成本', '千次展现费用', '整体千次展现费用', '千次展现费用(元)'], 'cpm'],
     [['投放时段', '时段', '投放时间'], 'time_range'],
   ];
 
@@ -179,7 +179,7 @@ export default function QianchuanReviewPage() {
         const data = new Uint8Array(evt.target?.result as ArrayBuffer);
         const wb = XLSX.read(data, { type: 'array' });
         const parsed = parseExcelWorkbook(wb);
-        if (parsed.length === 0) { setError('未能解析Excel数据，请检查格式'); return; }
+        if (parsed.length === 0) { setError('未能识别数据：请确认下载的是千川「素材报表」（数据分析 → 素材 → 导出），不是计划报表或广告组报表'); return; }
         setExcelData(parsed);
         setError('');
       } catch { setError('Excel解析失败'); }
@@ -393,7 +393,11 @@ export default function QianchuanReviewPage() {
           <div className="card">
             <div className="card-body">
               <div style={{ fontWeight: 600, fontSize: 15, color: 'var(--gray-800)', marginBottom: 4 }}>上传千川投放数据</div>
-              <div style={{ fontSize: 13, color: 'var(--gray-400)', marginBottom: 16 }}>可选步骤，跳过也能基于脚本内容生成复盘报告</div>
+              <div style={{ fontSize: 13, color: 'var(--gray-400)', marginBottom: 8 }}>可选步骤，跳过也能基于脚本内容生成复盘报告</div>
+              <div style={{ fontSize: 12, color: 'var(--gray-500)', background: 'var(--gray-50)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '8px 12px', marginBottom: 16, lineHeight: 1.6 }}>
+                📥 <strong>如何下载：</strong>千川后台 → 数据分析 → <strong>素材</strong> → 选择时间范围 → 导出报表（.xlsx）<br />
+                ⚠️ 请下载<strong>「素材报表」</strong>，不是「计划报表」或「广告组报表」
+              </div>
               <div
                 onClick={() => excelFileRef.current?.click()}
                 style={{

@@ -116,6 +116,9 @@ async def extract_frames(
     current_user: User = Depends(require_password_changed),
 ):
     """截帧接口：接收视频，返回 base64 帧列表和时长。"""
+    import shutil
+    if not shutil.which("ffprobe") or not shutil.which("ffmpeg"):
+        raise HTTPException(status_code=503, detail={"code": "DEPENDENCY_MISSING", "message": "截帧服务不可用：服务器未安装 ffmpeg，请联系管理员"})
     if not file.filename:
         raise HTTPException(status_code=400, detail={"code": "INVALID_INPUT", "message": "请上传视频文件"})
 

@@ -29,6 +29,20 @@ from app.models.kol_intake import (
 from app.models.log import OperationLog
 from app.models.user import User
 
+_DEFAULT_REPORT_MODEL = "claude-sonnet-4-6"
+_DEFAULT_REPORT_PROVIDER = "yunwu"
+_DEFAULT_REPORT_PROMPT = """你是一位专业的MCN公司红人招募分析师。以下是与红人的采集对话记录，请根据内容生成一份结构化的红人评估报告。
+
+对话记录：
+{qa_content}
+
+请按以下结构输出报告：
+## 基本信息
+## 内容方向与风格
+## 商业化潜力
+## 综合评估
+## 招募建议"""
+
 router = APIRouter(prefix="/operator/intake/direct", tags=["operator-intake-direct"])
 
 
@@ -469,15 +483,16 @@ async def _generate_operator_session_report(session_id: int) -> None:
                 select(KolIntakeConfig).where(KolIntakeConfig.config_key == "report_generation")
             )).scalar_one_or_none()
 
-            if config is None or config.ai_model_id is None:
-                raise RuntimeError("report_generation AI 未配置")
-
-            ai_model = (await db.execute(
-                select(AiModel).where(AiModel.id == config.ai_model_id)
-            )).scalar_one_or_none()
-
-            if ai_model is None or ai_model.status != "active":
-                raise RuntimeError("report_generation AI 模型不可用")
+            # 解析模型 ID 与 provider，ai_model_id 未配置时用兜底默认值
+            report_model_id = _DEFAULT_REPORT_MODEL
+            report_provider = _DEFAULT_REPORT_PROVIDER
+            if config is not None and config.ai_model_id is not None:
+                ai_model = (await db.execute(
+                    select(AiModel).where(AiModel.id == config.ai_model_id)
+                )).scalar_one_or_none()
+                if ai_model is not None and ai_model.status == "active":
+                    report_model_id = ai_model.model_id
+                    report_provider = ai_model.provider
 
             # 格式化对话历史为 qa_content
             qa_lines = []
@@ -498,7 +513,7 @@ async def _generate_operator_session_report(session_id: int) -> None:
 
             qa_content = "\n\n".join(qa_lines) if qa_lines else "（暂无完整对话记录）"
 
-            base_prompt = config.system_prompt or ""
+            base_prompt = (config.system_prompt if config else None) or _DEFAULT_REPORT_PROMPT
             report_prompt = base_prompt.replace("{qa_content}", qa_content)
 
             report_messages = [{"role": "user", "content": report_prompt}]
@@ -510,8 +525,8 @@ async def _generate_operator_session_report(session_id: int) -> None:
                 ai_report = await yunwu_adapter.chat(
                     messages=report_messages,
                     db=db,
-                    model_id=ai_model.model_id,
-                    provider=ai_model.provider,
+                    model_id=report_model_id,
+                    provider=report_provider,
                     feature="kol_intake_report",
                     max_tokens=8000,
                     temperature=1.0,
@@ -522,8 +537,8 @@ async def _generate_operator_session_report(session_id: int) -> None:
                 ai_report = await yunwu_adapter.chat(
                     messages=report_messages,
                     db=db,
-                    model_id=ai_model.model_id,
-                    provider=ai_model.provider,
+                    model_id=report_model_id,
+                    provider=report_provider,
                     feature="kol_intake_report",
                     max_tokens=8000,
                     temperature=0.7,

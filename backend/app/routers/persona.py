@@ -42,6 +42,9 @@ from app.services.persona_docx import (
 
 router = APIRouter(tags=["persona"])
 
+_DEFAULT_MODEL = "claude-sonnet-4-6"
+_DEFAULT_PROVIDER = "yunwu"
+
 
 # ── 鉴权 ──────────────────────────────────────────────────────────
 
@@ -269,12 +272,13 @@ async def generate(
 
     async with AsyncSessionLocal() as db:
         config = await _get_persona_config(db)
-        if config.ai_model_id is None:
-            raise HTTPException(
-                status_code=400,
-                detail={"code": "VALIDATION_ERROR", "message": "AI 模型未配置，请联系管理员"},
-            )
-        ai_model = await _get_ai_model(db, config.ai_model_id)
+        if config.ai_model_id is not None:
+            ai_model = await _get_ai_model(db, config.ai_model_id)
+            _model_id = ai_model.model_id
+            _provider = ai_model.provider or _DEFAULT_PROVIDER
+        else:
+            _model_id = _DEFAULT_MODEL
+            _provider = _DEFAULT_PROVIDER
 
         # 创建报告记录
         report = PersonaReport(
@@ -320,8 +324,8 @@ async def generate(
                 async for chunk in yunwu_adapter.chat_stream(
                     messages=messages,
                     db=db,
-                    model_id=ai_model.model_id,
-                    provider=ai_model.provider or "yunwu",
+                    model_id=_model_id,
+                    provider=_provider,
                     user_id=current_user.id,
                     feature="persona_generation",
                     max_tokens=30000,
@@ -440,12 +444,13 @@ async def optimize(
 ):
     async with AsyncSessionLocal() as db:
         config = await _get_persona_config(db)
-        if config.ai_model_id is None:
-            raise HTTPException(
-                status_code=400,
-                detail={"code": "VALIDATION_ERROR", "message": "AI 模型未配置，请联系管理员"},
-            )
-        ai_model = await _get_ai_model(db, config.ai_model_id)
+        if config.ai_model_id is not None:
+            ai_model = await _get_ai_model(db, config.ai_model_id)
+            _model_id = ai_model.model_id
+            _provider = ai_model.provider or _DEFAULT_PROVIDER
+        else:
+            _model_id = _DEFAULT_MODEL
+            _provider = _DEFAULT_PROVIDER
 
     label = "人格档案" if body.content_type == "profile" else "内容规划"
     system_prompt = _build_optimize_prompt(label, body.current_content, body.influencer_info, body.benchmark_text)
@@ -456,8 +461,8 @@ async def optimize(
             async for chunk in yunwu_adapter.chat_stream(
                 messages=messages,
                 db=db,
-                model_id=ai_model.model_id,
-                provider=ai_model.provider or "yunwu",
+                model_id=_model_id,
+                provider=_provider,
                 user_id=current_user.id,
                 feature="persona_optimize",
                 max_tokens=16000,

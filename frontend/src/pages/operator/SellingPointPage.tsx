@@ -98,7 +98,7 @@ export default function SellingPointPage() {
       try {
         const data = await parseFile(file);
         setter(prev => [...prev, { name: data.filename, text: data.text }]);
-      } catch { setError(`文件 ${file.name} 上传失败`); }
+      } catch (e) { setError(`文件 ${file.name} 上传失败：${e instanceof Error ? e.message : '未知错误'}`); }
     }
     setUploading(false);
     if (type === 'brief' && briefRef.current) briefRef.current.value = '';

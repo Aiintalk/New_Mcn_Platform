@@ -5,6 +5,8 @@ export interface QianchuanWriterPersona {
   id: number;
   name: string;
   soul_preview: string;
+  soul_full: string;
+  content_plan: string;
   creator_name: string;
 }
 

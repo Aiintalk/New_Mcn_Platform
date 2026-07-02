@@ -354,6 +354,69 @@ async def create_script(
 
 
 # ---------------------------------------------------------------------------
+# PUT /scripts/{script_id}
+# ---------------------------------------------------------------------------
+
+class UpdateScriptBody(BaseModel):
+    title: str
+    content: str
+    likes: Optional[int] = None
+    source: Optional[str] = None
+    source_account: Optional[str] = None
+    script_date: Optional[str] = None
+
+
+@router.put("/scripts/{script_id}")
+async def update_script(
+    script_id: int,
+    body: UpdateScriptBody,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_operator),
+):
+    """编辑脚本的标题、内容及元数据。"""
+    if not body.title.strip():
+        raise HTTPException(status_code=400, detail={"code": "INVALID_INPUT", "message": "标题不能为空"})
+    if not body.content.strip():
+        raise HTTPException(status_code=400, detail={"code": "INVALID_INPUT", "message": "内容不能为空"})
+
+    row = await db.execute(sa_text(
+        "SELECT id FROM qianchuan_collection_scripts WHERE id = :id AND is_deleted = false LIMIT 1"
+    ), {"id": script_id})
+    if not row.fetchone():
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "SCRIPT_NOT_FOUND", "message": "脚本不存在或已删除"},
+        )
+
+    await db.execute(sa_text(
+        """UPDATE qianchuan_collection_scripts
+           SET title = :title, content = :content, likes = :likes,
+               source = :source, source_account = :source_account,
+               script_date = :script_date, updated_at = now()
+           WHERE id = :id"""
+    ), {
+        "id": script_id,
+        "title": body.title.strip(),
+        "content": body.content.strip(),
+        "likes": body.likes,
+        "source": body.source or None,
+        "source_account": body.source_account or None,
+        "script_date": body.script_date or None,
+    })
+    db.add(OperationLog(
+        user_id=current_user.id,
+        username=current_user.username,
+        role=current_user.role,
+        action="collection_script_update",
+        target_type="qianchuan_collection_script",
+        target_id=script_id,
+        detail={"title": body.title},
+    ))
+    await db.commit()
+    return success_response(data={"ok": True})
+
+
+# ---------------------------------------------------------------------------
 # DELETE /scripts/{script_id}
 # ---------------------------------------------------------------------------
 

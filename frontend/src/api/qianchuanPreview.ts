@@ -27,7 +27,7 @@ export async function parseFile(file: File): Promise<ParseFileResponse> {
   });
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({}));
-    throw new Error(err?.detail?.message || '文件解析失败');
+    throw new Error(err?.message || '文件解析失败');
   }
   const json = await resp.json();
   return json.data as ParseFileResponse;

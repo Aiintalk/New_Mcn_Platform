@@ -7,7 +7,7 @@
  *
  * 其余 JSON 接口全部走 request.ts 的 get / post / del。
  */
-import { get, post, del } from './request';
+import { get, post, put, del } from './request';
 import { useAuthStore } from '../store/authStore';
 import type {
   CollectionPersona,
@@ -66,6 +66,20 @@ export function createScript(body: CreateScriptBody): Promise<{ id: number }> {
 /** 软删除脚本 */
 export function deleteScript(id: number): Promise<{ ok: boolean }> {
   return del<{ ok: boolean }>(`/api/tools/qianchuan-collection/scripts/${id}`);
+}
+
+export interface UpdateScriptBody {
+  title: string;
+  content: string;
+  likes?: number | null;
+  source?: string | null;
+  source_account?: string | null;
+  script_date?: string | null;
+}
+
+/** 编辑脚本 */
+export function updateScript(id: number, body: UpdateScriptBody): Promise<{ ok: boolean }> {
+  return put<{ ok: boolean }>(`/api/tools/qianchuan-collection/scripts/${id}`, body);
 }
 
 // ---------------------------------------------------------------------------
