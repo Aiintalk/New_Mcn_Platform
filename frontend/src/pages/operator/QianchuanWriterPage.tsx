@@ -592,10 +592,12 @@ export default function QianchuanWriterPage() {
               padding: 'var(--sp-3)',
               borderRadius: 'var(--radius-md)',
               marginBottom: 'var(--sp-3)',
+              maxHeight: 400,
+              overflowY: 'auto',
             }}
           >
             <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 'var(--sp-2)' }}>
-              人物档案预览
+              人格档案
             </div>
             <div
               style={{
@@ -603,13 +605,27 @@ export default function QianchuanWriterPage() {
                 color: 'var(--gray-700)',
                 whiteSpace: 'pre-wrap',
                 lineHeight: 1.6,
-                maxHeight: 120,
-                overflow: 'hidden',
               }}
             >
-              {selectedPersona.soul_preview}
-              {selectedPersona.soul_preview.length >= 400 ? '...' : ''}
+              {selectedPersona.soul_full || selectedPersona.soul_preview || '（暂无内容）'}
             </div>
+            {selectedPersona.content_plan && (
+              <>
+                <div style={{ fontWeight: 600, fontSize: 13, marginTop: 'var(--sp-3)', marginBottom: 'var(--sp-2)', borderTop: '1px solid var(--border)', paddingTop: 'var(--sp-2)' }}>
+                  内容规划
+                </div>
+                <div
+                  style={{
+                    fontSize: 13,
+                    color: 'var(--gray-700)',
+                    whiteSpace: 'pre-wrap',
+                    lineHeight: 1.6,
+                  }}
+                >
+                  {selectedPersona.content_plan}
+                </div>
+              </>
+            )}
           </div>
         )}
         <Button

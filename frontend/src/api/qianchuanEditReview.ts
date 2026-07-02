@@ -50,9 +50,10 @@ export async function extractFrames(file: File, count = 8): Promise<ExtractFrame
   })
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({}))
-    throw new Error(err?.detail?.message || '截帧失败')
+    throw new Error(err?.message || '截帧失败')
   }
-  return resp.json()
+  const json = await resp.json()
+  return json.data
 }
 
 /** 转录：FormData 上传，原生 fetch（例外：FormData）*/
@@ -68,9 +69,10 @@ export async function transcribeVideo(file: File, language = 'zh'): Promise<{ te
   })
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({}))
-    throw new Error(err?.detail?.message || '转录失败')
+    throw new Error(err?.message || '转录失败')
   }
-  return resp.json()
+  const json = await resp.json()
+  return json.data
 }
 
 /** 流式预审：原生 fetch + getReader（例外：getReader）*/

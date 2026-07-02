@@ -118,6 +118,8 @@ async def get_kol_personas(
                 SELECT k.id,
                        k.name,
                        LEFT(k.persona, :preview_len) AS soul_preview,
+                       k.persona                     AS soul_full,
+                       k.content_plan,
                        COALESCE(u.username, '系统预设') AS creator_name
                 FROM kols k
                 LEFT JOIN users u ON k.created_by = u.id
@@ -137,7 +139,9 @@ async def get_kol_personas(
             "id": row[0],
             "name": row[1],
             "soul_preview": row[2] or "",
-            "creator_name": row[3],
+            "soul_full": row[3] or "",
+            "content_plan": row[4] or "",
+            "creator_name": row[5],
         }
         for row in rows
     ]

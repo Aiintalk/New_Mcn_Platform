@@ -134,7 +134,7 @@ export default function QianchuanPreviewPage() {
             <input
               id={inputId}
               type="file"
-              accept=".txt,.docx,.doc"
+              accept=".txt,.docx"
               style={{ display: 'none' }}
               onChange={e => {
                 const f = e.target.files?.[0];
