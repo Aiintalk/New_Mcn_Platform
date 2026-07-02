@@ -31,10 +31,11 @@ class TestExtractFrames:
         async def mock_extract(video_path, count):
             return [{"time": 0.0, "base64": fake_frame_b64}], 10.5
 
-        with patch(
-            "app.routers.tool_extract_frames._extract_frames",
-            side_effect=mock_extract,
-        ):
+        with patch("shutil.which", return_value="/usr/bin/ffmpeg"), \
+             patch(
+                "app.routers.tool_extract_frames._extract_frames",
+                side_effect=mock_extract,
+             ):
             resp = await test_client.post(
                 "/api/tools/extract-frames",
                 files={"file": ("v.mp4", b"fake_video_bytes", "video/mp4")},
@@ -57,10 +58,11 @@ class TestExtractFrames:
         async def mock_extract_fail(video_path, count):
             raise ValueError("无法读取视频时长")
 
-        with patch(
-            "app.routers.tool_extract_frames._extract_frames",
-            side_effect=mock_extract_fail,
-        ):
+        with patch("shutil.which", return_value="/usr/bin/ffmpeg"), \
+             patch(
+                "app.routers.tool_extract_frames._extract_frames",
+                side_effect=mock_extract_fail,
+             ):
             resp = await test_client.post(
                 "/api/tools/extract-frames",
                 files={"file": ("v.mp4", b"bad_video", "video/mp4")},
@@ -68,3 +70,14 @@ class TestExtractFrames:
             )
 
         assert resp.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_missing_ffmpeg_returns_503(self, test_client, operator_token):
+        with patch("shutil.which", return_value=None):
+            resp = await test_client.post(
+                "/api/tools/extract-frames",
+                files={"file": ("v.mp4", b"fake", "video/mp4")},
+                headers={"Authorization": f"Bearer {operator_token}"},
+            )
+        assert resp.status_code == 503
+        assert resp.json()["code"] == "DEPENDENCY_MISSING"

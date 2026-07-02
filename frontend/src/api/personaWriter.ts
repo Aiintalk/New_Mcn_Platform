@@ -44,7 +44,7 @@ export async function evaluateOpeningStream(
   });
   if (!resp.ok || !resp.body) {
     const err = await resp.json().catch(() => ({}));
-    throw new Error(err?.detail?.message ?? `评估失败: ${resp.status}`);
+    throw new Error(err?.message ?? `评估失败: ${resp.status}`);
   }
   return readPlainStream(resp, onChunk);
 }
@@ -67,7 +67,7 @@ export async function analyzeStructureStream(
   });
   if (!resp.ok || !resp.body) {
     const err = await resp.json().catch(() => ({}));
-    throw new Error(err?.detail?.message ?? `拆解失败: ${resp.status}`);
+    throw new Error(err?.message ?? `拆解失败: ${resp.status}`);
   }
   return readPlainStream(resp, onChunk);
 }
@@ -90,7 +90,7 @@ export async function chatStream(
   });
   if (!resp.ok || !resp.body) {
     const err = await resp.json().catch(() => ({}));
-    throw new Error(err?.detail?.message ?? `生成失败: ${resp.status}`);
+    throw new Error(err?.message ?? `生成失败: ${resp.status}`);
   }
   return readPlainStream(resp, onChunk);
 }
