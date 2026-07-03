@@ -35,7 +35,7 @@ frontend/
 │   │   ├── tiktokWriter.ts            #   TikTok 脚本仿写
 │   │   ├── sellingPoint.ts            #   产品卖点提取器
 │   │   ├── qianchuanReview.ts         #   千川脚本复盘
-│   │   ├── qianchuanEditReview.ts     #   千川剪辑预审
+│   │   ├── qianchuanEditReview.ts     #   千川剪辑预审（chatStream 支持 ai_model_id 参数，2026-07-03 修复 admin 配模型不生效）
 │   │   ├── livestreamWriter.ts        #   直播脚本仿写
 │   │   ├── livestreamReview.ts        #   直播间脚本复盘
 │   │   ├── personaReview.ts           #   人设脚本复盘

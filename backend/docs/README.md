@@ -273,3 +273,19 @@ BugFix：      BugFix_{序号}_{描述}.md
 - SQL 验证：DB `ai_models.provider` 字段可正确 JOIN 读取，`_pick_and_lock` 按 provider 过滤 credentials 工作正常
 
 **使用方法**：管理员在「工具配置 → 卖点提取（或其他工具）」选择不同厂商的模型后，请求会路由到对应服务商的凭证池（credentials 表 `provider` 字段过滤）。
+
+### 2026-07-03 补修补：tool_chat_stream.py 漏传 provider + qianchuan-edit-review 配模型无效
+
+**背景**：上一轮修复漏了 1 个共享 router `tool_chat_stream.py`（`POST /api/tools/chat-stream`，目前仅供千川剪辑预审使用）；同时发现 qianchuan-edit-review 工具的运营端 `getConfig()` 拉到了 `ai_model_id` 但完全没用，`analyze()` 仍硬编码 `'gpt-4o'`，**admin 配模型等于白配**。
+
+**修复内容**：
+- `app/routers/tool_chat_stream.py`：
+  - `ChatStreamRequest` 加 `ai_model_id: int | None = None`
+  - 加 `_resolve_model(ai_model_id, db)` → `(model_id, provider)`（参照 operator_selling_point.py:77，但接受 id 而非 config 对象，保持共享 router 通用性）
+  - 加 `DEFAULT_MODEL="gpt-4o"` / `DEFAULT_PROVIDER="yunwu"` 常量
+  - `generate()` 内 `yunwu_adapter.chat_stream(...)` 调用显式传 `provider=provider`
+- `tests/integration/routers/test_tool_chat_stream.py`：加 2 用例（`test_passes_default_provider_when_no_ai_model_id` / `test_passes_provider_from_ai_model_id`）；原 `fake_stream` 签名加 `**kwargs` 兼容
+- 前端 `api/qianchuanEditReview.ts`：`chatStream` 加 `aiModelId?: number | null`，仅非空时放进 body
+- 前端 `pages/operator/QianChuanEditReviewPage.tsx`：加 `activeModelId` state，`useEffect` 从 `getConfig()` 读取，`analyze()` 传给 `chatStream`
+
+**验证**：后端 6/6 测试通过（含 2 新用例）；前端 tsc 0 错误；其他 19 个相关测试回归全过

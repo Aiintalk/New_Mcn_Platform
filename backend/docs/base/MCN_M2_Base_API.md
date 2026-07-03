@@ -966,9 +966,14 @@ Request（JSON）：
   "messages": [{ "role": "user", "content": [{ "type": "text", "text": "..." }, { "type": "image_url", "image_url": { "url": "data:image/..." } }] }],
   "system_prompt": "string",
   "model": "gpt-4o",
-  "max_tokens": 8000
+  "max_tokens": 8000,
+  "ai_model_id": null
 }
 ```
+
+字段说明：
+- `model`：直接指定 model_id 字符串；当 `ai_model_id` 为空时使用此值，provider 默认 `yunwu`
+- `ai_model_id`（可选）：有值则查 `ai_models` 表，用表中的 `model_id` 覆盖 `model` 字段，并用表中的 `provider` 决定走哪个服务商的凭证池（yunwu/siliconflow/glm）；表无此 id 或 status≠active 时回退到默认值。**调用方应优先传 `ai_model_id`**（如 qianchuan-edit-review 工具，admin 配的模型靠此字段生效）
 
 Response：`text/plain; charset=utf-8`（raw text stream，非 SSE event 格式）
 
