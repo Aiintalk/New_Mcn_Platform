@@ -81,6 +81,7 @@ export function chatStream(
   systemPrompt: string,
   model = 'gpt-4o',
   maxTokens = 8000,
+  aiModelId?: number | null,
 ): Promise<Response> {
   return fetch('/api/tools/chat-stream', {
     method: 'POST',
@@ -88,7 +89,13 @@ export function chatStream(
       'Content-Type': 'application/json',
       ...getAuthHeaders(),
     },
-    body: JSON.stringify({ messages, system_prompt: systemPrompt, model, max_tokens: maxTokens }),
+    body: JSON.stringify({
+      messages,
+      system_prompt: systemPrompt,
+      model,
+      max_tokens: maxTokens,
+      ...(aiModelId ? { ai_model_id: aiModelId } : {}),
+    }),
   })
 }
 

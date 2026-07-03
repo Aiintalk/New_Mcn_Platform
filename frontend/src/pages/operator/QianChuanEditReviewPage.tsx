@@ -89,11 +89,13 @@ export default function QianChuanEditReviewPage() {
   const [exporting, setExporting] = useState(false)
   const [saving, setSaving] = useState(false)
   const [activePrompt, setActivePrompt] = useState(SYSTEM_PROMPT)
+  const [activeModelId, setActiveModelId] = useState<number | null>(null)
   const reportRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     getConfig().then(cfg => {
       if (cfg.system_prompt) setActivePrompt(cfg.system_prompt)
+      if (cfg.ai_model_id) setActiveModelId(cfg.ai_model_id)
     }).catch(() => {/* 读取失败沿用内置 Prompt */})
   }, [])
 
@@ -162,6 +164,7 @@ export default function QianChuanEditReviewPage() {
         activePrompt,
         'gpt-4o',
         8000,
+        activeModelId,
       )
       if (!resp.ok) throw new Error('AI 分析请求失败')
 

@@ -1,6 +1,6 @@
 # MCN_PM_Agent — 项目记忆与当前状态（M2）
 
-> 最后更新：2026-07-03（**AI 多服务商切换不生效 + siliconflow list index out of range 修复**：13 个 router 的 chat_stream 调用补传 `provider` 参数；yunwu.py 防御空 choices 数组；4 个新单测 + 253 个相关测试全过）。上一个：2026-07-01（**管理端配置页 UX 完善**：`/admin/workspace` 工具列表操作列加「配置」按钮直达对应 Tab + 4 个预留 Tab 占位 + 修 selling-point-extractor 映射 bug；同日稍早完成 values-writer + script-review 补历史记录功能 P0 #2）。再上一个：2026-06-30（**PR #13 红人工作台 Sprint 18-23 合并到 main**：merge commit `b9d50c6`，含 Sprint 22 复盘 + Sprint 21 千川脚本预审 + Sprint 23 工作台配置 + Sprint 18-20 工作台主体；feature/kol-workspace 分支保留持续开发。再上一个：2026-06-28 旧架构数据全量迁移到新架构 — 12 服务 260 文件 → 8 业务表，272 INSERT + 20 UPDATE + 32 KOL，迁移工具 `backend/scripts/migrate_legacy_data.py` + 迁移记录文档仍在工作区待提交）
+> 最后更新：2026-07-03（**qianchuan-edit-review provider 切换 + ai_model_id 解析彻底修复**：补修补 `tool_chat_stream.py` 漏传 provider + qianchuan-edit-review 前端硬编码 'gpt-4o' 导致 admin 配模型无效；2 个新单测，6/6 全过）。上一个：同日稍早完成 AI 多服务商切换不生效修复（13 个 router 的 chat_stream 调用补传 `provider` 参数 + yunwu.py 防御空 choices 数组）。再上一个：2026-07-01（**管理端配置页 UX 完善**：`/admin/workspace` 工具列表操作列加「配置」按钮直达对应 Tab + 4 个预留 Tab 占位 + 修 selling-point-extractor 映射 bug；同日稍早完成 values-writer + script-review 补历史记录功能 P0 #2）。再上一个：2026-06-30（**PR #13 红人工作台 Sprint 18-23 合并到 main**：merge commit `b9d50c6`，含 Sprint 22 复盘 + Sprint 21 千川脚本预审 + Sprint 23 工作台配置 + Sprint 18-20 工作台主体；feature/kol-workspace 分支保留持续开发。再上一个：2026-06-28 旧架构数据全量迁移到新架构 — 12 服务 260 文件 → 8 业务表，272 INSERT + 20 UPDATE + 32 KOL，迁移工具 `backend/scripts/migrate_legacy_data.py` + 迁移记录文档仍在工作区待提交）
 
 > **🚧 当前状态**：PR #13 红人工作台 Sprint 18-23 已合并到 main（merge commit `b9d50c6`，2026-06-30）。`feature/kol-workspace` 分支保留持续开发。下一步候选：legacy 迁移工具归档 / KolWorkspacePage 测试失败修复 / Sprint 17 backlog。
 
@@ -33,6 +33,40 @@
 ## 二、M2 阶段（当前）
 
 > **Sprint 编号说明**：main 与 feature/kol-workspace 两分支并行开发期间各自用了 Sprint 18/19 编号，内容不同（main = 素材库/字幕；feature = 红人工作台）。合并后按"保留双方记录、时间序"原则记录如下，最新在前。
+
+### M2 工作项 — qianchuan-edit-review provider 切换 + ai_model_id 解析彻底修复 🔄 进行中（main，2026-07-03）
+
+**背景**：用户问「qianchuan-edit-review 功能逻辑」，梳理时发现两个 bug：(1) PR #19 漏修了共享 router `tool_chat_stream.py`（同样漏传 `provider=`）；(2) 前端 `QianChuanEditReviewPage` 的 `useEffect` 拿到 `ai_model_id` 后完全没用，`analyze()` 硬编码 `'gpt-4o'`，admin 配模型等于白配。
+
+**根因**：
+1. **共享 router 漏传 provider**：`tool_chat_stream.py:59` 调 `yunwu_adapter.chat_stream()` 没传 provider，落入默认 `provider="yunwu"`（与同日早些时候 PR #19 修复的 13 个 router 是同一个坑）
+2. **前端硬编码 model**：`api/qianchuanEditReview.ts` 的 `chatStream` 只接受 `model` 字符串；page 把 admin 配的 `ai_model_id` 拿到 state 但没传到后端；后端也没字段接收
+
+**改动**：
+- **后端 `backend/app/routers/tool_chat_stream.py`**：
+  - `ChatStreamRequest` 加 `ai_model_id: int | None = None`
+  - 加 `_resolve_model(ai_model_id, db)` → `(model_id, provider)`（参照 `operator_selling_point.py:77` 同款 pattern，但接受 `int | None` 而非 config 对象——保留共享 router 通用性）
+  - 加 `DEFAULT_MODEL="gpt-4o"` / `DEFAULT_PROVIDER="yunwu"` 常量
+  - 函数签名加 `db: AsyncSession = Depends(get_db)`（解析 ai_model_id 用）；`generate()` 内仍用独立 `AsyncSessionLocal`（流式 session）
+  - `yunwu_adapter.chat_stream(...)` 调用显式传 `provider=provider`
+- **测试 `tests/integration/routers/test_tool_chat_stream.py`**：加 2 用例（默认 provider + siliconflow 切换）；原 `fake_stream` 签名加 `**kwargs` 兼容
+- **前端 `api/qianchuanEditReview.ts`**：`chatStream` 加 `aiModelId?: number | null` 参数，仅非空时放进 body
+- **前端 `pages/operator/QianChuanEditReviewPage.tsx`**：加 `activeModelId` state，`useEffect` 从 `getConfig()` 读取，`analyze()` 传给 `chatStream`
+- **文档**：Base_API §chat-stream 加 `ai_model_id` 字段说明；backend/docs/README.md 加补修补条目；frontend/docs/README.md 标注
+
+**验证**：
+- 后端单测 6/6 通过（含 2 个新增）
+- 后端 19 个相关测试回归全过（qianchuan-edit-review / chat_stream / export_word / transcribe）
+- 前端 tsc --noEmit 0 错误
+- 端到端 curl 待跑
+
+**红线合规**：
+- ✅ #1 标准信封：chat-stream 是流式例外，不改
+- ✅ #3 前端走 request.ts：chatStream 是 SSE 流式例外（裸 fetch + getReader），合规
+- ✅ #4 改接口同步契约：Base_API §chat-stream 已更新
+- ✅ #5 改后端/前端 README：双 README 均已更新
+
+**重要教训**：「同款 pattern 修复」必须列出**全部调用方清单**核对，PR #19 当时只查了 `operator_*` 系列，漏掉了 `tool_*` 系列里的共享 router。后续修复同类问题时 grep 范围要覆盖 `app/routers/` 全部，而非按命名前缀过滤。
 
 ### M2 工作项 — AI 多服务商切换不生效 + siliconflow list index out of range 修复 ✅ 完成（main，2026-07-03）
 
