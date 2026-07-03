@@ -27,6 +27,7 @@ from app.tools.qianchuan_preview.prompts import PROMPT_DEFAULT
 router = APIRouter(prefix="/tools/qianchuan-preview", tags=["qianchuan-preview"])
 
 DEFAULT_MODEL = "claude-sonnet-4-20250514"
+DEFAULT_PROVIDER = "yunwu"
 
 
 async def require_operator(current_user: User = Depends(get_current_user)) -> User:
@@ -115,12 +116,14 @@ async def generate(
     system_prompt = (config_row[0] if config_row and config_row[0] else PROMPT_DEFAULT)
 
     model_id = DEFAULT_MODEL
+    provider = DEFAULT_PROVIDER
     if config_row and config_row[1]:
         model_row = (await db.execute(sa_text(
-            "SELECT model_id FROM ai_models WHERE id = :id AND status = 'active'"
-        ), {"id": config_row[1]})).fetchone()
+            "SELECT model_id, COALESCE(provider, :default_p) FROM ai_models WHERE id = :id AND status = 'active'"
+        ), {"id": config_row[1], "default_p": DEFAULT_PROVIDER})).fetchone()
         if model_row:
             model_id = model_row[0]
+            provider = model_row[1]
 
     user_content = f"## 文案A\n{body.script_a}\n\n---\n\n## 文案B\n{body.script_b}"
     messages = [
@@ -134,6 +137,7 @@ async def generate(
                 messages=messages,
                 db=db,
                 model_id=model_id,
+                provider=provider,
                 user_id=current_user.id,
                 feature="qianchuan_preview_generate",
             ):

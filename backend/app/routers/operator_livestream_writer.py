@@ -221,6 +221,8 @@ async def chat(
     create_job = body.createJob
     job_context = body.jobContext or {}
     model_id = body.model or DEFAULT_MODEL
+    # 注：body.model 由前端传入，默认走 yunwu 网关。如需切换 provider，应走配置表（ai_models）
+    provider = "yunwu"
 
     # 流式生成时积累完整内容，供 BackgroundTask 写 outputs
     accumulated: list[str] = []
@@ -236,6 +238,7 @@ async def chat(
                         messages=messages,
                         db=stream_db,
                         model_id=model_id,
+                        provider=provider,
                         user_id=user_id,
                         feature="livestream_writer_chat",
                         max_tokens=8192,

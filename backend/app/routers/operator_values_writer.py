@@ -129,17 +129,18 @@ async def _get_config(db: AsyncSession) -> ValuesWriterConfig | None:
     )).scalar_one_or_none()
 
 
-async def _resolve_model_id(config: ValuesWriterConfig | None, db: AsyncSession) -> str:
-    """解析配置绑定的模型 ID，留空或失效则返回默认值。"""
+async def _resolve_model(config: ValuesWriterConfig | None, db: AsyncSession) -> tuple[str, str]:
+    """解析配置绑定的 (model_id, provider)，留空或失效则返回默认值。"""
     from sqlalchemy import text as sa_text
     default_model = "claude-haiku-4-5-20251001"
+    default_provider = "yunwu"
     if config is None or config.model_id is None:
-        return default_model
+        return default_model, default_provider
     row = (await db.execute(
-        sa_text("SELECT model_id FROM ai_models WHERE id = :id AND status = 'active'"),
-        {"id": config.model_id},
+        sa_text("SELECT model_id, COALESCE(provider, :default_p) FROM ai_models WHERE id = :id AND status = 'active'"),
+        {"id": config.model_id, "default_p": default_provider},
     )).fetchone()
-    return row[0] if row else default_model
+    return (row[0], row[1]) if row else (default_model, default_provider)
 
 
 def _sse_chunk(delta: str) -> str:
@@ -197,7 +198,7 @@ async def extract_values(
         )
 
     config = await _get_config(db)
-    model_id = await _resolve_model_id(config, db)
+    model_id, provider = await _resolve_model(config, db)
 
     prompt_template = (
         await resolve_prompt(body.kol_id, "values-writer", "extract_values_prompt", db)
@@ -215,6 +216,7 @@ async def extract_values(
                 messages=messages,
                 db=ai_db,
                 model_id=model_id,
+                provider=provider,
                 user_id=current_user.id,
                 feature="values_writer_extract",
             )
@@ -257,7 +259,7 @@ async def emotion_direction(
         )
 
     config = await _get_config(db)
-    model_id = await _resolve_model_id(config, db)
+    model_id, provider = await _resolve_model(config, db)
 
     prompt_template = (
         await resolve_prompt(body.kol_id, "values-writer", "emotion_direction_prompt", db)
@@ -279,6 +281,7 @@ async def emotion_direction(
                     messages=messages,
                     db=stream_db,
                     model_id=model_id,
+                    provider=provider,
                     user_id=user_id,
                     feature="values_writer_emotion",
                 ):
@@ -309,7 +312,7 @@ async def write(
         )
 
     config = await _get_config(db)
-    model_id = await _resolve_model_id(config, db)
+    model_id, provider = await _resolve_model(config, db)
 
     prompt_template = (
         await resolve_prompt(body.kol_id, "values-writer", "writing_prompt", db)
@@ -332,6 +335,7 @@ async def write(
                     messages=messages,
                     db=stream_db,
                     model_id=model_id,
+                    provider=provider,
                     user_id=user_id,
                     feature="values_writer_write",
                 ):
@@ -362,7 +366,7 @@ async def iterate(
         )
 
     config = await _get_config(db)
-    model_id = await _resolve_model_id(config, db)
+    model_id, provider = await _resolve_model(config, db)
 
     prompt_template = (
         await resolve_prompt(body.kol_id, "values-writer", "iteration_prompt", db)
@@ -383,6 +387,7 @@ async def iterate(
                     messages=messages,
                     db=stream_db,
                     model_id=model_id,
+                    provider=provider,
                     user_id=user_id,
                     feature="values_writer_iterate",
                 ):
