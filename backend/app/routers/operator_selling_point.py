@@ -8,6 +8,7 @@ app/routers/operator_selling_point.py
   POST   /api/tools/selling-point-extractor/history     — 保存（写 outputs 表）
   DELETE /api/tools/selling-point-extractor/history     — 软删除
 """
+import asyncio
 import time
 from datetime import datetime, timezone
 
@@ -36,6 +37,7 @@ TOOL_NAME = "产品卖点提取器"
 CONFIG_KEY = "extract"
 DEFAULT_MODEL = "claude-sonnet-4-6"
 DEFAULT_PROVIDER = "yunwu"
+_RETRY_DELAYS = [2, 4]  # 503/429 时的重试间隔（秒），共最多3次尝试
 
 
 def _get_ip(request: Request) -> str:
@@ -119,20 +121,30 @@ async def chat(
     role = current_user.role
 
     async def generate():
-        try:
-            async with AsyncSessionLocal() as stream_db:
-                async for chunk in yunwu_adapter.chat_stream(
-                    messages=messages,
-                    db=stream_db,
-                    model_id=model_id,
-                    provider=provider,
-                    user_id=user_id,
-                    feature="selling_point_chat",
-                    max_tokens=8192,
-                ):
-                    yield chunk
-        except Exception as e:
-            yield f"\n\n[ERROR] {str(e)}"
+        delays = [0] + _RETRY_DELAYS
+        for i, delay in enumerate(delays):
+            if delay:
+                await asyncio.sleep(delay)
+            try:
+                async with AsyncSessionLocal() as stream_db:
+                    async for chunk in yunwu_adapter.chat_stream(
+                        messages=messages,
+                        db=stream_db,
+                        model_id=model_id,
+                        provider=provider,
+                        user_id=user_id,
+                        feature="selling_point_chat",
+                        max_tokens=8192,
+                    ):
+                        yield chunk
+                return  # 成功，退出重试循环
+            except Exception as e:
+                err_str = str(e).lower()
+                is_retryable = any(x in err_str for x in ("503", "502", "429", "rate", "unavailable", "timeout"))
+                if is_retryable and i < len(delays) - 1:
+                    continue  # 可重试错误，等待后重试
+                yield f"\n\n[ERROR] {str(e)}"
+                return
 
     async def write_task_job():
         async with AsyncSessionLocal() as bg_db:
