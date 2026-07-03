@@ -41,6 +41,7 @@ router = APIRouter(prefix="/tools/qianchuan-writer", tags=["qianchuan-writer"])
 TOOL_CODE = "qianchuan-writer"
 TOOL_NAME = "千川文案写作"
 DEFAULT_MODEL = "claude-opus-4-6-thinking"
+DEFAULT_PROVIDER = "yunwu"
 _RETRY_DELAYS = [2, 4, 6]
 _PAGE_SIZE_ALLOWED = {10, 20, 50}
 _PERSONA_PREVIEW_CHARS = 400
@@ -90,15 +91,15 @@ async def _get_config(db: AsyncSession) -> QianchuanWriterConfig:
     return config
 
 
-async def _resolve_model_id(config: QianchuanWriterConfig, db: AsyncSession) -> str:
-    """解析配置绑定的模型 ID，留空或失效则返回默认值。"""
+async def _resolve_model(config: QianchuanWriterConfig, db: AsyncSession) -> tuple[str, str]:
+    """解析配置绑定的 (model_id, provider)，留空或失效则返回默认值。"""
     if not config.ai_model_id:
-        return DEFAULT_MODEL
+        return DEFAULT_MODEL, DEFAULT_PROVIDER
     row = (await db.execute(
-        sa_text("SELECT model_id FROM ai_models WHERE id = :id AND status = 'active'"),
-        {"id": config.ai_model_id},
+        sa_text("SELECT model_id, COALESCE(provider, :default_p) FROM ai_models WHERE id = :id AND status = 'active'"),
+        {"id": config.ai_model_id, "default_p": DEFAULT_PROVIDER},
     )).fetchone()
-    return row[0] if row else DEFAULT_MODEL
+    return (row[0], row[1]) if row else (DEFAULT_MODEL, DEFAULT_PROVIDER)
 
 
 # ---------------------------------------------------------------------------
@@ -217,7 +218,7 @@ async def chat(
         )
 
     config = await _get_config(db)
-    model_id = await _resolve_model_id(config, db)
+    model_id, provider = await _resolve_model(config, db)
 
     # 读达人人设
     kol_row = (await db.execute(
@@ -263,6 +264,7 @@ async def chat(
                         messages=messages,
                         db=stream_db,
                         model_id=model_id,
+                        provider=provider,
                         user_id=user_id,
                         feature="qianchuan_writer_chat",
                         max_tokens=8192,

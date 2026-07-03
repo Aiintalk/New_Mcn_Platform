@@ -65,6 +65,7 @@ TOOL_CODE = "seeding-writer"
 TOOL_NAME = "种草内容仿写"
 DEFAULT_LIGHT_MODEL = "claude-haiku-4-5-20251001"
 DEFAULT_HEAVY_MODEL = "claude-opus-4-6"
+DEFAULT_PROVIDER = "yunwu"
 _RETRY_DELAYS = [2, 4, 6]
 _PAGE_SIZE_ALLOWED = {10, 20, 50}
 _PERSONA_PREVIEW_CHARS = 400
@@ -115,17 +116,17 @@ async def _get_config(db: AsyncSession) -> SeedingWriterConfig:
     return config
 
 
-async def _resolve_model_id(config: SeedingWriterConfig, db: AsyncSession, *, is_heavy: bool) -> str:
-    """解析配置绑定的模型 ID，留空或失效则返回默认值。"""
+async def _resolve_model(config: SeedingWriterConfig, db: AsyncSession, *, is_heavy: bool) -> tuple[str, str]:
+    """解析配置绑定的 (model_id, provider)，留空或失效则返回默认值。"""
     model_db_id = config.heavy_model_id if is_heavy else config.light_model_id
     default_model = DEFAULT_HEAVY_MODEL if is_heavy else DEFAULT_LIGHT_MODEL
     if not model_db_id:
-        return default_model
+        return default_model, DEFAULT_PROVIDER
     row = (await db.execute(
-        sa_text("SELECT model_id FROM ai_models WHERE id = :id AND status = 'active'"),
-        {"id": model_db_id},
+        sa_text("SELECT model_id, COALESCE(provider, :default_p) FROM ai_models WHERE id = :id AND status = 'active'"),
+        {"id": model_db_id, "default_p": DEFAULT_PROVIDER},
     )).fetchone()
-    return row[0] if row else default_model
+    return (row[0], row[1]) if row else (default_model, DEFAULT_PROVIDER)
 
 
 async def _get_kol(db: AsyncSession, kol_id: int) -> tuple[str, str, str]:
@@ -709,7 +710,7 @@ async def parse_product_document(
         )
 
     config = await _get_config(db)
-    model_id = await _resolve_model_id(config, db, is_heavy=True)
+    model_id, provider = await _resolve_model(config, db, is_heavy=True)
     parse_prompt = config.parse_product_prompt or ""
 
     messages = [
@@ -724,6 +725,7 @@ async def parse_product_document(
             messages=messages,
             db=collect_db,
             model_id=model_id,
+            provider=provider,
             user_id=current_user.id,
             feature="seeding_writer_parse_product",
             max_tokens=4096,
@@ -774,7 +776,7 @@ async def extract_selling_points(
         )
 
     config = await _get_config(db)
-    model_id = await _resolve_model_id(config, db, is_heavy=True)
+    model_id, provider = await _resolve_model(config, db, is_heavy=True)
 
     template = config.sp_system_prompt or ""
     kol_prompt = await resolve_prompt(body.kol_id, "seeding-writer", "sp_system", db)
@@ -803,6 +805,7 @@ async def extract_selling_points(
                         messages=messages,
                         db=stream_db,
                         model_id=model_id,
+                        provider=provider,
                         user_id=user_id,
                         feature="seeding_writer_extract_sp",
                         max_tokens=4096,
@@ -989,7 +992,7 @@ async def analyze_structure(
         )
 
     config = await _get_config(db)
-    model_id = await _resolve_model_id(config, db, is_heavy=False)
+    model_id, provider = await _resolve_model(config, db, is_heavy=False)
 
     template = config.structure_analysis_prompt or ""
     kol_prompt = await resolve_prompt(body.kol_id, "seeding-writer", "structure_analysis", db)
@@ -1013,6 +1016,7 @@ async def analyze_structure(
                         messages=messages,
                         db=stream_db,
                         model_id=model_id,
+                        provider=provider,
                         user_id=user_id,
                         feature="seeding_writer_analyze",
                         max_tokens=4096,
@@ -1051,7 +1055,7 @@ async def ai_recommend(
 ):
     """AI 推荐种草角度（流式，light 模型）。"""
     config = await _get_config(db)
-    model_id = await _resolve_model_id(config, db, is_heavy=False)
+    model_id, provider = await _resolve_model(config, db, is_heavy=False)
 
     kol_name, kol_persona, kol_content_plan = await _get_kol(db, body.persona_id)
     product = await _get_product(db, body.product_id)
@@ -1089,6 +1093,7 @@ async def ai_recommend(
                         messages=messages,
                         db=stream_db,
                         model_id=model_id,
+                        provider=provider,
                         user_id=user_id,
                         feature="seeding_writer_ai_recommend",
                         max_tokens=4096,
@@ -1154,7 +1159,7 @@ async def chat(
         )
 
     config = await _get_config(db)
-    model_id = await _resolve_model_id(config, db, is_heavy=True)
+    model_id, provider = await _resolve_model(config, db, is_heavy=True)
 
     kol_name, kol_persona, kol_content_plan = await _get_kol(db, body.persona_id)
     product = await _get_product(db, body.product_id)
@@ -1201,6 +1206,7 @@ async def chat(
                         messages=messages,
                         db=stream_db,
                         model_id=model_id,
+                        provider=provider,
                         user_id=user_id,
                         feature=f"seeding_writer_{body.scene}",
                         max_tokens=8192,

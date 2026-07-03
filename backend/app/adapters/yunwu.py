@@ -176,7 +176,13 @@ async def chat(
             response.raise_for_status()
             data = response.json()
 
-        content = data["choices"][0]["message"]["content"]
+        # 部分服务商结尾返回 choices:[]（仅含 usage），需防御空数组
+        choices = data.get("choices") or []
+        if not choices:
+            raise RuntimeError(
+                f"chat failed [{provider}]: empty choices in response: {str(data)[:200]}"
+            )
+        content = choices[0].get("message", {}).get("content", "")
         usage         = data.get("usage") or {}
         input_tokens  = usage.get("prompt_tokens")
         output_tokens = usage.get("completion_tokens")
@@ -300,7 +306,11 @@ async def chat_stream(
                     if usage:
                         input_tokens = usage.get("prompt_tokens")
                         output_tokens = usage.get("completion_tokens")
-                    delta = chunk.get("choices", [{}])[0].get("delta", {})
+                    # 防御空 choices：siliconflow 等结尾帧 choices:[] 仅含 usage
+                    choices = chunk.get("choices") or []
+                    if not choices:
+                        continue
+                    delta = choices[0].get("delta", {})
                     content = delta.get("content", "")
                     if content:
                         yield content

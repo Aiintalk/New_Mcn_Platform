@@ -1,6 +1,6 @@
 # MCN_PM_Agent — 项目记忆与当前状态（M2）
 
-> 最后更新：2026-07-01（**管理端配置页 UX 完善**：`/admin/workspace` 工具列表操作列加「配置」按钮直达对应 Tab + 4 个预留 Tab 占位 + 修 selling-point-extractor 映射 bug；同日稍早完成 values-writer + script-review 补历史记录功能 P0 #2）。上一个：2026-06-30（**PR #13 红人工作台 Sprint 18-23 合并到 main**：merge commit `b9d50c6`，含 Sprint 22 复盘 + Sprint 21 千川脚本预审 + Sprint 23 工作台配置 + Sprint 18-20 工作台主体；feature/kol-workspace 分支保留持续开发。再上一个：2026-06-28 旧架构数据全量迁移到新架构 — 12 服务 260 文件 → 8 业务表，272 INSERT + 20 UPDATE + 32 KOL，迁移工具 `backend/scripts/migrate_legacy_data.py` + 迁移记录文档仍在工作区待提交）
+> 最后更新：2026-07-03（**AI 多服务商切换不生效 + siliconflow list index out of range 修复**：13 个 router 的 chat_stream 调用补传 `provider` 参数；yunwu.py 防御空 choices 数组；4 个新单测 + 253 个相关测试全过）。上一个：2026-07-01（**管理端配置页 UX 完善**：`/admin/workspace` 工具列表操作列加「配置」按钮直达对应 Tab + 4 个预留 Tab 占位 + 修 selling-point-extractor 映射 bug；同日稍早完成 values-writer + script-review 补历史记录功能 P0 #2）。再上一个：2026-06-30（**PR #13 红人工作台 Sprint 18-23 合并到 main**：merge commit `b9d50c6`，含 Sprint 22 复盘 + Sprint 21 千川脚本预审 + Sprint 23 工作台配置 + Sprint 18-20 工作台主体；feature/kol-workspace 分支保留持续开发。再上一个：2026-06-28 旧架构数据全量迁移到新架构 — 12 服务 260 文件 → 8 业务表，272 INSERT + 20 UPDATE + 32 KOL，迁移工具 `backend/scripts/migrate_legacy_data.py` + 迁移记录文档仍在工作区待提交）
 
 > **🚧 当前状态**：PR #13 红人工作台 Sprint 18-23 已合并到 main（merge commit `b9d50c6`，2026-06-30）。`feature/kol-workspace` 分支保留持续开发。下一步候选：legacy 迁移工具归档 / KolWorkspacePage 测试失败修复 / Sprint 17 backlog。
 
@@ -33,6 +33,37 @@
 ## 二、M2 阶段（当前）
 
 > **Sprint 编号说明**：main 与 feature/kol-workspace 两分支并行开发期间各自用了 Sprint 18/19 编号，内容不同（main = 素材库/字幕；feature = 红人工作台）。合并后按"保留双方记录、时间序"原则记录如下，最新在前。
+
+### M2 工作项 — AI 多服务商切换不生效 + siliconflow list index out of range 修复 ✅ 完成（main，2026-07-03）
+
+**用户反馈**：selling-point-extractor 在服务器上调用 yunwu 报 503，用户切换厂商到 siliconflow 不生效，强制切后报 `[siliconflow]: list index out of range`。本地正常。
+
+**根因**：
+1. **provider 传递缺失（架构缺陷）**：13 个 router 的 `chat_stream` 调用未传 `provider` 参数，adapter 默认 `provider="yunwu"`，导致管理端配置的厂商永不生效。
+2. **空 choices 防御缺失**：`yunwu.py` L303（流式）/ L179（非流式）当上游返回 `choices:[]`（siliconflow 等结尾帧仅含 usage）时，`[][0]` 抛 IndexError。
+
+**改动**：
+- **`backend/app/adapters/yunwu.py`**：先判空再取 `[0]`，空数组在流式场景 `continue`、非流式抛 `RuntimeError("chat failed [{provider}]: empty choices...")`。
+- **13 个 router 加 `_resolve_model` 返回 `(model_id, provider)` 二元组**，调用 chat/chat_stream 时传 `provider=provider`：
+  - `operator_selling_point.py`、`operator_retrospective.py`、`operator_qianchuan_writer.py`、`operator_qianchuan_preview.py`、`operator_tiktok_review.py`、`operator_benchmark.py`
+  - `operator_persona_writer.py`（3 处）、`operator_seeding_writer.py`（5 处）、`operator_values_writer.py`（4 处含非流式 chat）
+  - `operator_livestream_writer.py`、`operator_tiktok_writer.py`（用 body.model，默认 yunwu）
+- **新单测**：`tests/unit/services/test_yunwu_adapter.py`（流式+非流式空 choices 防御 2 用例）
+- **扩展单测**：`tests/integration/routers/test_operator_selling_point.py` 加 provider 路由 2 用例（默认 yunwu + 读 ai_models.provider）
+
+**验证**：
+- 后端单测 31 个相关用例全过（含 4 个新增）
+- 端到端 curl：默认 yunwu 配置流式输出正常，ai_call_logs 记录 `success` 8.2s
+- SQL 验证：`ai_models.provider` 字段可正确 JOIN 读取，`_pick_and_lock` 按 provider 过滤 credentials 工作正常
+
+**红线合规**：
+- ✅ #1 标准信封：未改
+- ✅ #2 写操作写 OperationLog：未改
+- ✅ #3 前端走 request.ts：未改
+- ✅ #4 改接口同步契约：本次未改接口契约（adapter 内部参数变化，对外契约不变）
+- ✅ #5 改后端更新 README：backend/docs/README.md 已加「最近改动」段
+
+**重要经验**：adapter 函数签名里 `provider` 是**默认参数**而非显式必传时，新调用点极易漏传。后续可考虑加 lint 检查或让 provider 成为必传参数（破坏性改动，待评估）。
 
 ### M2 工作项 — 管理端工具配置页 UX 完善（配置按钮 + 预留 Tab）✅ 完成（main，2026-07-01）
 
@@ -1211,6 +1242,15 @@
 3. 确认下一个待迁移工具（参考 `Ai_Toolbox_new/` 目录）
 4. 批量修复 antd `message` 静态方法 → `App.useApp()` hook（25 个文件）
 5. 测试服部署并验证并发测试
+
+### 产品 backlog（待开工，按需排期）
+
+| # | 需求 | 背景 | 倾向方案 | 影响面 |
+|---|------|------|---------|--------|
+| P1 | PDF 图片内容识别 | 卖点提取器等工具上传图文 PDF 时，`pdfplumber` 只提文本层，图片里的产品图/成分表/卖点图全部丢失，AI 拿不到完整 Brief | 多模态 AI 看图：`pdf2image` 把每页转图片（依赖 poppler）+ yunwu adapter 支持图片 messages（Claude Vision/GPT-4V）+ Prompt 调整 | **通用**：所有走 PDF 解析的工具都会受益（卖点提取 / 对标分析 / 千川脚本复盘 / 字幕提取等） |
+| P2 | 卖点提取器文件大小显示 | `SellingPointPage.tsx` 上传文件列表只显示文件名，没显示大小 | 前端 `handleFilesUpload` 保留 `f.size`，列表渲染加格式化大小 | 单页 |
+
+**记录**：2026-07-03（卖点提取器业务逻辑梳理时发现）
 
 ---
 

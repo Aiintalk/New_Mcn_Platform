@@ -205,6 +205,80 @@ class TestChat:
         assert resp.status_code == 200
         assert "[ERROR]" in resp.text
 
+    @pytest.mark.asyncio
+    async def test_chat_passes_default_provider_when_no_model(
+        self, test_client, operator_token, test_session
+    ):
+        """无 ai_model_id 时，chat_stream 调用应传 provider='yunwu'（默认）。"""
+        # 确保配置无 ai_model_id
+        await test_session.execute(
+            text("UPDATE selling_point_configs SET ai_model_id=NULL WHERE config_key='extract'")
+        )
+        await test_session.commit()
+
+        async def mock_stream(*args, **kwargs):
+            yield "test"
+
+        with patch(
+            "app.routers.operator_selling_point.yunwu_adapter.chat_stream",
+            side_effect=mock_stream,
+        ) as mock_fn, patch("app.routers.operator_selling_point.AsyncSessionLocal") as mock_sl:
+            mock_sess = AsyncMock()
+            mock_sess.__aenter__ = AsyncMock(return_value=mock_sess)
+            mock_sess.__aexit__ = AsyncMock(return_value=False)
+            mock_sess.add = MagicMock()
+            mock_sess.commit = AsyncMock()
+            mock_sl.return_value = mock_sess
+
+            await test_client.post(
+                "/api/tools/selling-point-extractor/chat",
+                json={"messages": [{"role": "user", "content": "分析"}]},
+                headers={"Authorization": f"Bearer {operator_token}"},
+            )
+        assert mock_fn.call_args.kwargs["provider"] == "yunwu"
+
+    @pytest.mark.asyncio
+    async def test_chat_passes_provider_from_ai_model(
+        self, test_client, operator_token, test_session
+    ):
+        """ai_models 表 provider=siliconflow 时，chat_stream 调用应传 provider='siliconflow'。"""
+        # 插入 siliconflow provider 的 ai_model
+        await test_session.execute(text(
+            "INSERT INTO ai_models (name, provider, model_id, status) "
+            "VALUES ('Qwen3-Omni', 'siliconflow', 'Qwen/Qwen3-Omni', 'active') "
+            "ON CONFLICT DO NOTHING"
+        ))
+        row = (await test_session.execute(text(
+            "SELECT id FROM ai_models WHERE model_id='Qwen/Qwen3-Omni' AND provider='siliconflow'"
+        ))).fetchone()
+        ai_model_id = row[0]
+        await test_session.execute(text(
+            "UPDATE selling_point_configs SET ai_model_id=:mid WHERE config_key='extract'"
+        ), {"mid": ai_model_id})
+        await test_session.commit()
+
+        async def mock_stream(*args, **kwargs):
+            yield "test"
+
+        with patch(
+            "app.routers.operator_selling_point.yunwu_adapter.chat_stream",
+            side_effect=mock_stream,
+        ) as mock_fn, patch("app.routers.operator_selling_point.AsyncSessionLocal") as mock_sl:
+            mock_sess = AsyncMock()
+            mock_sess.__aenter__ = AsyncMock(return_value=mock_sess)
+            mock_sess.__aexit__ = AsyncMock(return_value=False)
+            mock_sess.add = MagicMock()
+            mock_sess.commit = AsyncMock()
+            mock_sl.return_value = mock_sess
+
+            await test_client.post(
+                "/api/tools/selling-point-extractor/chat",
+                json={"messages": [{"role": "user", "content": "分析"}]},
+                headers={"Authorization": f"Bearer {operator_token}"},
+            )
+        assert mock_fn.call_args.kwargs["provider"] == "siliconflow"
+        assert mock_fn.call_args.kwargs["model_id"] == "Qwen/Qwen3-Omni"
+
 
 # ---------- Parse File ----------
 

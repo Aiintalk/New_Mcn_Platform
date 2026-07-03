@@ -14,7 +14,7 @@ backend/
 │   │   ├── tikhub.py                  #   TikHub API 适配器
 │   │   ├── oss.py                     #   阿里云 OSS 适配器（upload_file / get_download_url / delete_file，真实接通；finally 块写 oss_call_logs 日志）
 │   │   ├── asr.py                     #   阿里云 ISI 语音识别适配器（submit_transcription / query_transcription / transcribe，POP RPC + CommonRequest；finally 块写 asr_call_logs 日志）
-│   │   └── yunwu.py                   #   云雾服务适配器
+│   │   └── yunwu.py                   #   多服务商 AI 适配器（yunwu/siliconflow/glm，按 provider 切换；防御空 choices 数组）
 │   ├── core/                          # 核心基础设施
 │   │   ├── config.py                  #   环境配置（读取 .env）
 │   │   ├── database.py                #   数据库连接 + Base ORM 类
@@ -242,3 +242,34 @@ BugFix：      BugFix_{序号}_{描述}.md
 | values-writer | 价值观仿写（4步向导 + save-output 历史） | operator_values_writer.py / admin_values_writer.py | Sprint 20；历史功能 2026-07-01 补齐 |
 | qianchuan-script-review | 千川脚本预审（直销/价值观双模式 + save-output 历史） | operator_script_review.py / admin_script_review.py | Sprint 21；历史功能 2026-07-01 补齐 |
 | retrospective | 复盘（工作台子模块，多维材料+AI分析+导出） | operator_retrospective.py / admin_retrospective.py | Sprint 22 |
+
+---
+
+## 最近改动
+
+### 2026-07-03 修复 AI 多服务商切换不生效 + siliconflow list index out of range
+
+**背景**：管理端切换厂商模型后调用 AI 不生效（仍走默认 yunwu 网关）；用户切到 siliconflow 后报 `[siliconflow]: list index out of range`。
+
+**根因**：
+1. **provider 传递缺失（架构缺陷）**：13 个 router 的 `chat_stream` 调用未传 `provider` 参数，adapter 默认 `provider="yunwu"`，导致配置的厂商永不生效。
+2. **空 choices 防御缺失**：`yunwu.py:303/179` 当上游返回 `choices:[]`（siliconflow 等结尾帧仅含 usage）时，`[][0]` 抛 IndexError。
+
+**修复内容**：
+- `app/adapters/yunwu.py` L303（流式）+ L179（非流式）：先判空再取 `[0]`
+- 13 个 router 加 `_resolve_model` 返回 `(model_id, provider)` 二元组，调用 chat/chat_stream 时传 `provider=provider`：
+  - `operator_selling_point.py`、`operator_retrospective.py`
+  - `operator_persona_writer.py`（3处）、`operator_seeding_writer.py`（5处）
+  - `operator_values_writer.py`（4处，含非流式 chat）
+  - `operator_qianchuan_writer.py`、`operator_qianchuan_preview.py`
+  - `operator_tiktok_review.py`、`operator_benchmark.py`
+  - `operator_livestream_writer.py`、`operator_tiktok_writer`（body.model 默认 yunwu）
+- 新增单测：`tests/unit/services/test_yunwu_adapter.py`（空 choices 防御 2 用例）
+- 扩展单测：`test_operator_selling_point.py` 加 provider 路由 2 用例
+
+**验证**：
+- 后端单测 31 个相关用例全过
+- 端到端 curl：默认 yunwu 配置流式输出正常，ai_call_logs 记录 success
+- SQL 验证：DB `ai_models.provider` 字段可正确 JOIN 读取，`_pick_and_lock` 按 provider 过滤 credentials 工作正常
+
+**使用方法**：管理员在「工具配置 → 卖点提取（或其他工具）」选择不同厂商的模型后，请求会路由到对应服务商的凭证池（credentials 表 `provider` 字段过滤）。

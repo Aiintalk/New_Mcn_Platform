@@ -145,6 +145,7 @@ async def analyze(
         raise HTTPException(status_code=500, detail={"code": "CONFIG_MISSING", "message": "对标分析 Prompt 未配置"})
 
     model_id = "claude-sonnet-4-6"
+    provider = "yunwu"
     if config.ai_model_id:
         from app.models.credential import AiModel
         ai_model = (await db.execute(
@@ -152,6 +153,7 @@ async def analyze(
         )).scalar_one_or_none()
         if ai_model:
             model_id = ai_model.model_id
+            provider = ai_model.provider or provider
 
     analysis = BenchmarkAnalysis(
         account_name=body.account_name,
@@ -204,6 +206,7 @@ async def analyze(
                     messages=messages,
                     db=stream_db,
                     model_id=model_id,
+                    provider=provider,
                     user_id=current_user.id,
                     feature="benchmark_analyze",
                     max_tokens=8192,

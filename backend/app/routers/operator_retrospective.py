@@ -35,6 +35,7 @@ from app.services.workspace_prompt import resolve_prompt
 router = APIRouter(prefix="/operator/workspace", tags=["operator-retrospective"])
 
 _PAGE_SIZE_ALLOWED = {10, 20, 50}
+_DEFAULT_PROVIDER = "yunwu"
 
 _DEFAULT_SYSTEM_PROMPT = (
     "你是一位专业的 MCN 复盘分析师。"
@@ -95,16 +96,16 @@ def _session_to_dict(s: RetrospectiveSession) -> dict:
     }
 
 
-async def _resolve_model_id(config: RetrospectiveConfig | None, db: AsyncSession) -> str:
+async def _resolve_model(config: RetrospectiveConfig | None, db: AsyncSession) -> tuple[str, str]:
     default_model = "claude-sonnet-4-6"
     if config is None or config.ai_model_id is None:
-        return default_model
+        return default_model, _DEFAULT_PROVIDER
     from sqlalchemy import text as sa_text
     row = (await db.execute(
-        sa_text("SELECT model_id FROM ai_models WHERE id = :id AND status = 'active'"),
-        {"id": config.ai_model_id},
+        sa_text("SELECT model_id, COALESCE(provider, :default_p) FROM ai_models WHERE id = :id AND status = 'active'"),
+        {"id": config.ai_model_id, "default_p": _DEFAULT_PROVIDER},
     )).fetchone()
-    return row[0] if row else default_model
+    return (row[0], row[1]) if row else (default_model, _DEFAULT_PROVIDER)
 
 
 def _sse_chunk(delta: str) -> str:
@@ -349,7 +350,7 @@ async def analyze_stream(
         await resolve_prompt(kol_id, "retrospective", "system_prompt", db)
         or (config.system_prompt if config and config.system_prompt else _DEFAULT_SYSTEM_PROMPT)
     )
-    model_id = await _resolve_model_id(config, db)
+    model_id, provider = await _resolve_model(config, db)
 
     # 拼 prompt
     material_parts = []
@@ -388,6 +389,7 @@ async def analyze_stream(
                     messages=messages,
                     db=stream_db,
                     model_id=model_id,
+                    provider=provider,
                     user_id=user_id,
                     feature="retrospective_analyze",
                 ):
