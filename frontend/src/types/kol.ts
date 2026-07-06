@@ -1,4 +1,4 @@
-export type KolStatus = 'signed' | 'pending_renewal' | 'terminated';
+export type KolStatus = 'pending_onboarding' | 'persona_done' | 'content_done' | 'onboarded';
 
 export interface Kol {
   id: number;
@@ -87,7 +87,6 @@ export interface UpdateKolRequest {
   douyin_id?: string;
   sec_uid?: string;
   owner?: string;
-  status?: KolStatus;
   persona?: string;
   content_plan?: string;
   style_note?: string;

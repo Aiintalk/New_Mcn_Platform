@@ -68,6 +68,19 @@ async def require_admin(current_user: User = Depends(get_current_user)) -> User:
     return current_user
 
 
+async def require_admin_or_operator(current_user: User = Depends(get_current_user)) -> User:
+    """Allow admin and operator roles (used for shared read endpoints)."""
+    if current_user.password_changed_at is None:
+        raise _http_err(
+            ErrorCode.AUTH_FORCE_CHANGE_PASSWORD,
+            "请先修改初始密码",
+            status.HTTP_403_FORBIDDEN,
+        )
+    if current_user.role not in ("admin", "operator"):
+        raise _http_err(ErrorCode.PERMISSION_DENIED, "无权限访问", status.HTTP_403_FORBIDDEN)
+    return current_user
+
+
 async def get_current_user_optional(token: str | None = Depends(oauth2_scheme)) -> User | None:
     """有 token 则解析返回 User，无 token 或 token 无效均返回 None，不抛异常。"""
     if not token:

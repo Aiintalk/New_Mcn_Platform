@@ -1,10 +1,11 @@
 import { useEffect, useState, useCallback } from 'react';
 import type { ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Modal, Drawer, Form, Input, Select, Tabs, Tag, Popconfirm, message } from 'antd';
-import { getKols, createKol, getKol, updateKol, deleteKol, fetchTikhub } from '../../api/kols';
-import type { Kol, KolDetail, KolListParams, CreateKolRequest, UpdateKolRequest, KolStatus, TikhubFansData } from '../../types/kol';
+import { Drawer, Tabs, Tag } from 'antd';
+import { getKols, getKol, fetchTikhub } from '../../api/kols';
+import type { Kol, KolDetail, KolListParams, KolStatus, TikhubFansData } from '../../types/kol';
 import type { PagedData } from '../../types/api';
+import { message } from 'antd';
 
 const PAGE_SIZE = 20;
 
@@ -33,7 +34,7 @@ function KolAvatar({ url, name }: { url?: string; name: string }) {
       src={url || '/default-avatar.svg'}
       alt={name}
       onError={(e) => {
-        e.currentTarget.onerror = null;          // 防止 default-avatar 也失败时死循环
+        e.currentTarget.onerror = null;
         e.currentTarget.src = '/default-avatar.svg';
       }}
       style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover', display: 'inline-block' }}
@@ -41,7 +42,6 @@ function KolAvatar({ url, name }: { url?: string; name: string }) {
   );
 }
 
-// 进度条行：标签 + 条 + 百分比
 function BarRow({ label, pct, color, maxPct = 100 }: {
   label: string; pct: number; color: string; maxPct?: number;
 }) {
@@ -65,7 +65,6 @@ function BarRow({ label, pct, color, maxPct = 100 }: {
 
 interface FansItem { name: string; value: number; }
 
-// JSON.parse 兜底：解析失败返回空数组，不白屏
 function parseFansField(raw: string | undefined): FansItem[] {
   if (!raw) return [];
   try {
@@ -93,7 +92,7 @@ function FansPanel({ data, onFetch, fetching, updatedAt }: {
     return (
       <div style={{ textAlign: 'center', padding: '48px 0' }}>
         <div style={{ fontSize: 13, color: 'var(--gray-400)', marginBottom: 16 }}>
-          暂无粉丝画像数据，请点击立即抓取
+          暂无粉丝画像数据
         </div>
         <button className="btn btn-primary btn-sm" onClick={onFetch} disabled={fetching}>
           {fetching ? '抓取中...' : '立即抓取'}
@@ -117,17 +116,13 @@ function FansPanel({ data, onFetch, fetching, updatedAt }: {
       border: '1px solid var(--gray-100)', borderRadius: 10,
       background: '#fff',
     }}>
-      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--gray-700)', marginBottom: 12 }}>
-        {title}
-      </div>
+      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--gray-700)', marginBottom: 12 }}>{title}</div>
       {children}
     </div>
   );
 
   return (
     <div style={{ paddingTop: 4 }}>
-
-      {/* 性别占比 */}
       {block('性别占比',
         genderList.length > 0 ? (
           <>
@@ -136,17 +131,11 @@ function FansPanel({ data, onFetch, fetching, updatedAt }: {
           </>
         ) : <div style={{ fontSize: 12, color: 'var(--gray-400)' }}>暂无数据</div>
       )}
-
-      {/* 年龄分布（按占比从高到低） */}
       {block('年龄分布',
         ageList.length > 0 ? (
-          ageList.map(a => (
-            <BarRow key={a.name} label={a.name} pct={a.value * 100} color="#F59A23" />
-          ))
+          ageList.map(a => <BarRow key={a.name} label={a.name} pct={a.value * 100} color="#F59A23" />)
         ) : <div style={{ fontSize: 12, color: 'var(--gray-400)' }}>暂无数据</div>
       )}
-
-      {/* 省份 TOP 5 */}
       {block('省份 TOP 5',
         provinceList.length > 0 ? (
           provinceList.map(p => (
@@ -154,23 +143,14 @@ function FansPanel({ data, onFetch, fetching, updatedAt }: {
           ))
         ) : <div style={{ fontSize: 12, color: 'var(--gray-400)' }}>暂无数据</div>
       )}
-
-      {/* 粉丝标签 */}
       {block('粉丝标签',
         tagList.length > 0 ? (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {tagList.map(t => (
-              <Tag key={t} color="orange" style={{ margin: 0, borderRadius: 4 }}>{t}</Tag>
-            ))}
+            {tagList.map(t => <Tag key={t} color="orange" style={{ margin: 0, borderRadius: 4 }}>{t}</Tag>)}
           </div>
         ) : <div style={{ fontSize: 12, color: 'var(--gray-400)' }}>暂无标签</div>
       )}
-
-      {/* 底部数据来源 */}
-      <div style={{
-        paddingTop: 8, fontSize: 11, color: 'var(--gray-400)',
-        display: 'flex', justifyContent: 'space-between',
-      }}>
+      <div style={{ paddingTop: 8, fontSize: 11, color: 'var(--gray-400)', display: 'flex', justifyContent: 'space-between' }}>
         <span>数据来源：TikHub</span>
         {updatedAt && (
           <span>最后更新：{new Date(updatedAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
@@ -182,28 +162,16 @@ function FansPanel({ data, onFetch, fetching, updatedAt }: {
 
 const PLATFORMS = ['抖音', '快手', '小红书', 'B站'];
 
-export default function KolsPage() {
+export default function KolHubPage() {
   const navigate = useNavigate();
   const [data, setData] = useState<PagedData<Kol> | null>(null);
   const [filters, setFilters] = useState<KolListParams>({ page: 1, page_size: PAGE_SIZE });
   const [loading, setLoading] = useState(false);
 
-  const [createOpen, setCreateOpen] = useState(false);
-  const [createLoading, setCreateLoading] = useState(false);
-  const [createForm] = Form.useForm<CreateKolRequest>();
-
-  const [editKol, setEditKol] = useState<Kol | null>(null);
-  const [editLoading, setEditLoading] = useState(false);
-  const [editForm] = Form.useForm<UpdateKolRequest>();
-
   const [detailId, setDetailId] = useState<number | null>(null);
   const [detail, setDetail] = useState<KolDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [fetchLoading, setFetchLoading] = useState(false);
-  const [personaSaving, setPersonaSaving] = useState(false);
-  const [personaValue, setPersonaValue] = useState('');
-  const [contentPlanSaving, setContentPlanSaving] = useState(false);
-  const [contentPlanValue, setContentPlanValue] = useState('');
 
   const load = useCallback(() => {
     setLoading(true);
@@ -220,10 +188,7 @@ export default function KolsPage() {
     setDetail(null);
     setDetailLoading(true);
     try {
-      const d = await getKol(id);
-      setDetail(d);
-      setPersonaValue(d.persona ?? '');
-      setContentPlanValue(d.content_plan ?? '');
+      setDetail(await getKol(id));
     } catch {
       message.error('加载详情失败');
     } finally {
@@ -236,10 +201,7 @@ export default function KolsPage() {
     setFetchLoading(true);
     try {
       await fetchTikhub(detailId);
-      const d = await getKol(detailId);
-      setDetail(d);
-      setPersonaValue(d.persona ?? '');
-      setContentPlanValue(d.content_plan ?? '');
+      setDetail(await getKol(detailId));
       message.success('抓取成功');
     } catch {
       message.error('抓取失败');
@@ -248,78 +210,10 @@ export default function KolsPage() {
     }
   }
 
-  async function handleSavePersona() {
-    if (!detailId) return;
-    setPersonaSaving(true);
-    try {
-      await updateKol(detailId, { persona: personaValue });
-      message.success('人格档案已保存');
-      if (detail) setDetail({ ...detail, persona: personaValue });
-    } catch {
-      message.error('保存失败');
-    } finally {
-      setPersonaSaving(false);
-    }
-  }
-
-  async function handleSaveContentPlan() {
-    if (!detailId) return;
-    setContentPlanSaving(true);
-    try {
-      await updateKol(detailId, { content_plan: contentPlanValue });
-      message.success('内容规划已保存');
-      if (detail) setDetail({ ...detail, content_plan: contentPlanValue });
-    } catch {
-      message.error('保存失败');
-    } finally {
-      setContentPlanSaving(false);
-    }
-  }
-
-  async function handleCreate(values: CreateKolRequest) {
-    if (!values.douyin_id && !values.sec_uid) {
-      message.warning('抖音号与安全ID至少填一个');
-      return;
-    }
-    setCreateLoading(true);
-    try {
-      await createKol(values);
-      message.success('红人已添加');
-      setCreateOpen(false);
-      createForm.resetFields();
-      load();
-    } catch (e: unknown) {
-      message.error(e instanceof Error ? e.message : '创建失败');
-    } finally {
-      setCreateLoading(false);
-    }
-  }
-
-  async function handleUpdate(values: UpdateKolRequest) {
-    if (!editKol) return;
-    setEditLoading(true);
-    try {
-      await updateKol(editKol.id, values);
-      message.success('更新成功');
-      setEditKol(null);
-      editForm.resetFields();
-      load();
-      if (detailId === editKol.id) loadDetail(editKol.id);
-    } catch (e: unknown) {
-      message.error(e instanceof Error ? e.message : '更新失败');
-    } finally {
-      setEditLoading(false);
-    }
-  }
-
-  async function handleDelete(id: number) {
-    try {
-      await deleteKol(id);
-      message.success('已删除');
-      load();
-    } catch {
-      message.error('删除失败');
-    }
+  function openWorkspace(kolId: number, kolName: string) {
+    const url = `/kol-workspace/${kolId}`;
+    const tab = window.open(url, '_blank');
+    if (tab) tab.document.title = `红人工作台 · ${kolName}`;
   }
 
   const total = data?.pagination.total ?? 0;
@@ -330,11 +224,13 @@ export default function KolsPage() {
     <>
       <div className="page-header">
         <div>
-          <h1 className="page-title">红人管理</h1>
-          <p className="page-desc">管理平台合作红人信息</p>
+          <h1 className="page-title">红人工作台</h1>
+          <p className="page-desc">查看平台合作红人信息，进入工作台开始创作</p>
         </div>
         <div className="page-actions">
-          <button className="btn btn-primary" onClick={() => setCreateOpen(true)}>+ 新增红人</button>
+          <button className="btn btn-primary" onClick={() => navigate('/workspace/persona-positioning')}>
+            + 新增红人
+          </button>
         </div>
       </div>
 
@@ -383,10 +279,10 @@ export default function KolsPage() {
                   <th style={{ width: 160 }}>账号ID</th>
                   <th style={{ width: 95 }}>粉丝数量</th>
                   <th style={{ width: 85 }}>作品数量</th>
-                  <th style={{ width: 85 }}>状态</th>
+                  <th style={{ width: 120 }}>状态</th>
                   <th style={{ width: 90 }}>负责人</th>
                   <th style={{ width: 100 }}>添加时间</th>
-                  <th className="col-actions" style={{ width: 160 }}>操作</th>
+                  <th className="col-actions" style={{ width: 120 }}>操作</th>
                 </tr>
               </thead>
               <tbody>
@@ -410,40 +306,10 @@ export default function KolsPage() {
                       <button className="btn btn-ghost btn-sm" onClick={() => loadDetail(k.id)}>详情</button>
                       <button
                         className="btn btn-primary btn-sm"
-                        onClick={() => navigate(`/kol-workspace/${k.id}`)}
+                        onClick={() => openWorkspace(k.id, k.name)}
                       >
                         进入工作台
                       </button>
-                      <button
-                        className="btn btn-ghost btn-sm"
-                        onClick={() => navigate(`/admin/kols/${k.id}/workspace-config`)}
-                      >
-                        工作台配置
-                      </button>
-                      <button
-                        className="btn btn-ghost btn-sm"
-                        onClick={() => {
-                          setEditKol(k);
-                          editForm.setFieldsValue({
-                            name: k.name, platform: k.platform,
-                            douyin_id: k.douyin_id, sec_uid: k.sec_uid,
-                            owner: k.owner,
-                            persona: k.persona, style_note: k.style_note,
-                          });
-                        }}
-                      >
-                        编辑
-                      </button>
-                      <Popconfirm
-                        title={`确认删除红人「${k.name}」？`}
-                        description="删除后数据不可恢复。"
-                        okText="确认删除"
-                        cancelText="取消"
-                        okButtonProps={{ danger: true }}
-                        onConfirm={() => handleDelete(k.id)}
-                      >
-                        <button className="btn btn-danger-ghost btn-sm">删除</button>
-                      </Popconfirm>
                     </td>
                   </tr>
                 ))}
@@ -464,74 +330,6 @@ export default function KolsPage() {
           </>
         )}
       </div>
-
-      {/* 新增红人弹窗 */}
-      <Modal
-        title="新增红人"
-        open={createOpen}
-        onCancel={() => { setCreateOpen(false); createForm.resetFields(); }}
-        onOk={() => createForm.submit()}
-        okText="添加"
-        cancelText="取消"
-        confirmLoading={createLoading}
-      >
-        <Form form={createForm} layout="vertical" onFinish={handleCreate} style={{ marginTop: 16 }}>
-          <Form.Item label="姓名" name="name" rules={[{ required: true, message: '请输入姓名' }]}>
-            <Input placeholder="请输入红人姓名" />
-          </Form.Item>
-          <Form.Item label="平台" name="platform" initialValue="抖音" rules={[{ required: true }]}>
-            <Select>
-              {PLATFORMS.map(p => <Select.Option key={p} value={p}>{p}</Select.Option>)}
-            </Select>
-          </Form.Item>
-          <Form.Item label="抖音号" name="douyin_id">
-            <Input placeholder="请输入抖音号" />
-          </Form.Item>
-          <Form.Item label="安全ID (sec_uid)" name="sec_uid">
-            <Input placeholder="请输入 sec_uid" />
-          </Form.Item>
-          <div style={{ fontSize: 12, color: 'var(--gray-400)', marginTop: -8, marginBottom: 16 }}>
-            抖音号与安全ID至少填一个
-          </div>
-          <Form.Item label="负责人" name="owner">
-            <Input placeholder="请输入负责人姓名" />
-          </Form.Item>
-        </Form>
-      </Modal>
-
-      {/* 编辑红人弹窗 */}
-      <Modal
-        title={`编辑红人：${editKol?.name ?? ''}`}
-        open={!!editKol}
-        onCancel={() => { setEditKol(null); editForm.resetFields(); }}
-        onOk={() => editForm.submit()}
-        okText="保存"
-        cancelText="取消"
-        confirmLoading={editLoading}
-      >
-        <Form form={editForm} layout="vertical" onFinish={handleUpdate} style={{ marginTop: 16 }}>
-          <Form.Item label="姓名" name="name" rules={[{ required: true, message: '请输入姓名' }]}>
-            <Input />
-          </Form.Item>
-          <Form.Item label="平台" name="platform" rules={[{ required: true }]}>
-            <Select>
-              {PLATFORMS.map(p => <Select.Option key={p} value={p}>{p}</Select.Option>)}
-            </Select>
-          </Form.Item>
-          <Form.Item label="抖音号" name="douyin_id"><Input /></Form.Item>
-          <Form.Item label="安全ID (sec_uid)" name="sec_uid"><Input /></Form.Item>
-          <Form.Item label="负责人" name="owner"><Input /></Form.Item>
-          <Form.Item label="人格档案" name="persona">
-            <Input.TextArea rows={3} placeholder="请输入人格档案" />
-          </Form.Item>
-          <Form.Item label="内容规划" name="content_plan">
-            <Input.TextArea rows={3} placeholder="请输入内容规划" />
-          </Form.Item>
-          <Form.Item label="风格备注" name="style_note">
-            <Input.TextArea rows={2} placeholder="请输入风格备注" />
-          </Form.Item>
-        </Form>
-      </Modal>
 
       {/* 详情抽屉 */}
       <Drawer
@@ -582,47 +380,28 @@ export default function KolsPage() {
                         </div>
                       ))}
                     </div>
-                    {/* 签名/简介 */}
                     <div style={{ marginBottom: 24 }}>
                       <div style={{ fontSize: 11, color: 'var(--gray-400)', marginBottom: 6 }}>个人简介</div>
                       <div style={{ fontSize: 13, color: 'var(--gray-600)', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>
                         {detail.signature || '—'}
                       </div>
                     </div>
-                    <div style={{ marginBottom: 16 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--gray-700)', marginBottom: 8 }}>人格档案</div>
-                      <Input.TextArea
-                        rows={5}
-                        value={personaValue}
-                        onChange={e => setPersonaValue(e.target.value)}
-                        placeholder="暂无人格档案，输入后点击保存"
-                      />
-                      <button
-                        className="btn btn-primary btn-sm"
-                        style={{ marginTop: 8 }}
-                        disabled={personaSaving}
-                        onClick={handleSavePersona}
-                      >
-                        {personaSaving ? '保存中...' : '保存人格档案'}
-                      </button>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--gray-700)', marginBottom: 8 }}>内容规划</div>
-                      <Input.TextArea
-                        rows={5}
-                        value={contentPlanValue}
-                        onChange={e => setContentPlanValue(e.target.value)}
-                        placeholder="暂无内容规划，输入后点击保存"
-                      />
-                      <button
-                        className="btn btn-primary btn-sm"
-                        style={{ marginTop: 8 }}
-                        disabled={contentPlanSaving}
-                        onClick={handleSaveContentPlan}
-                      >
-                        {contentPlanSaving ? '保存中...' : '保存内容规划'}
-                      </button>
-                    </div>
+                    {detail.persona && (
+                      <div style={{ marginBottom: 16 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--gray-700)', marginBottom: 8 }}>人格档案</div>
+                        <div style={{ fontSize: 13, color: 'var(--gray-600)', lineHeight: 1.7, whiteSpace: 'pre-wrap', padding: '10px 12px', background: 'var(--gray-50)', borderRadius: 8 }}>
+                          {detail.persona}
+                        </div>
+                      </div>
+                    )}
+                    {detail.content_plan && (
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--gray-700)', marginBottom: 8 }}>内容规划</div>
+                        <div style={{ fontSize: 13, color: 'var(--gray-600)', lineHeight: 1.7, whiteSpace: 'pre-wrap', padding: '10px 12px', background: 'var(--gray-50)', borderRadius: 8 }}>
+                          {detail.content_plan}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ),
               },

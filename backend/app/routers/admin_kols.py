@@ -16,11 +16,11 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
-from sqlalchemy import select, update
+from sqlalchemy import and_, or_, select, update
 
 from app.core.database import AsyncSessionLocal, get_db
 from app.core.response import ApiResponse, ErrorCode, error_response, success_response
-from app.middlewares.auth import get_current_user, require_admin
+from app.middlewares.auth import get_current_user, require_admin, require_admin_or_operator
 from app.models.kol import Kol
 from app.models.log import OperationLog
 from app.models.user import User
@@ -47,6 +47,18 @@ def _get_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
+def _compute_status(persona: str | None, content_plan: str | None) -> str:
+    has_persona = bool(persona and persona.strip())
+    has_content = bool(content_plan and content_plan.strip())
+    if has_persona and has_content:
+        return "onboarded"
+    if has_persona:
+        return "persona_done"
+    if has_content:
+        return "content_done"
+    return "pending_onboarding"
+
+
 def _kol_to_dict(k: Kol, include_raw: bool = False) -> dict:
     d = {
         "id": k.id,
@@ -60,10 +72,11 @@ def _kol_to_dict(k: Kol, include_raw: bool = False) -> dict:
         "followers_count": k.follower_count,   # 前端字段名
         "works_count": k.video_count,           # 前端字段名
         "persona": k.persona,
+        "content_plan": k.content_plan,
         "style_note": k.style_notes,            # 前端字段名
         "owner": k.owner,                       # 负责人姓名（自由文本）
         "owner_id": k.owner_id,
-        "status": k.status,
+        "status": _compute_status(k.persona, k.content_plan),
         "tikhub_fetched": k.tikhub_raw is not None,
         "created_by": k.created_by,
         "created_at": _ts(k.created_at),
@@ -110,7 +123,6 @@ class UpdateKolRequest(BaseModel):
     style_note: str | None = None   # 前端字段名
     owner: str | None = None         # 负责人姓名
     owner_id: int | None = None
-    status: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -123,7 +135,7 @@ async def list_kols(
     page_size: int = 20,
     keyword: str = "",
     status: str = "",
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_admin_or_operator),
 ):
     if page_size not in _PAGE_SIZE_ALLOWED:
         page_size = 20
@@ -137,7 +149,18 @@ async def list_kols(
                 | Kol.douyin_id.ilike(f"%{keyword}%")
             )
         if status:
-            q = q.where(Kol.status == status)
+            _has_p = and_(Kol.persona.isnot(None), Kol.persona != '')
+            _no_p  = or_(Kol.persona.is_(None), Kol.persona == '')
+            _has_c = and_(Kol.content_plan.isnot(None), Kol.content_plan != '')
+            _no_c  = or_(Kol.content_plan.is_(None), Kol.content_plan == '')
+            status_filter = {
+                "onboarded":          and_(_has_p, _has_c),
+                "persona_done":       and_(_has_p, _no_c),
+                "content_done":       and_(_no_p, _has_c),
+                "pending_onboarding": and_(_no_p, _no_c),
+            }.get(status)
+            if status_filter is not None:
+                q = q.where(status_filter)
 
         total = len((await session.execute(q)).scalars().all())
         rows = (await session.execute(
@@ -234,7 +257,7 @@ async def create_kol(
 @router.get("/{kol_id}", response_model=ApiResponse)
 async def get_kol(
     kol_id: int,
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_admin_or_operator),
 ):
     async with AsyncSessionLocal() as session:
         kol = (await session.execute(
@@ -271,7 +294,7 @@ async def update_kol(
             "douyin_id", "sec_uid", "avatar_url",
             "follower_count", "video_count",
             "persona", "content_plan",
-            "owner", "owner_id", "status",
+            "owner", "owner_id",
         ):
             v = getattr(body, field)
             if v is not None:
