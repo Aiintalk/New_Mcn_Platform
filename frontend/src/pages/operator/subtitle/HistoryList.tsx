@@ -434,10 +434,32 @@ export default function HistoryList({ refreshSignal = 0 }: HistoryListProps) {
                                     {item.original_url}
                                   </Text>
                                   {item.status === 'success' && item.transcript && (
-                                    <Text style={{ fontSize: 12 }}>
-                                      {item.transcript.slice(0, 120)}
-                                      {item.transcript.length > 120 ? '...' : ''}
-                                    </Text>
+                                    <div>
+                                      <div
+                                        style={{
+                                          padding: '8px 10px',
+                                          background: '#fff',
+                                          border: '1px solid var(--gray-100)',
+                                          borderRadius: 6,
+                                          maxHeight: 200,
+                                          overflowY: 'auto',
+                                          fontSize: 12,
+                                          lineHeight: 1.7,
+                                          whiteSpace: 'pre-wrap',
+                                          wordBreak: 'break-word',
+                                          marginBottom: 6,
+                                        }}
+                                      >
+                                        {item.transcript}
+                                      </div>
+                                      <Button
+                                        size="small"
+                                        icon={<CopyOutlined />}
+                                        onClick={() => handleCopy(item.transcript)}
+                                      >
+                                        复制文本
+                                      </Button>
+                                    </div>
                                   )}
                                   {item.status === 'failed' && item.error && (
                                     <Alert type="error" message={item.error} banner />

@@ -865,9 +865,26 @@ function SeedingWriterInner({ initKolId }: { initKolId?: number }) {
 
           {/* 产品库选择 */}
           <div style={{ marginBottom: 'var(--sp-3)' }}>
-            <label style={{ display: 'block', marginBottom: 4, fontWeight: 500 }}>
-              从团队产品库选已有产品（公司共享）
-            </label>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+              <label style={{ fontWeight: 500 }}>
+                从团队产品库选已有产品（公司共享）
+              </label>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Button
+                  size="small"
+                  onClick={loadProducts}
+                >
+                  刷新列表
+                </Button>
+                <Button
+                  size="small"
+                  type="primary"
+                  onClick={() => window.open('https://www.aiintalk.cn/workspace/selling-point-extractor', '_blank')}
+                >
+                  + 新建商品
+                </Button>
+              </div>
+            </div>
             <Select
               style={{ width: '100%' }}
               placeholder="选择已有产品..."
