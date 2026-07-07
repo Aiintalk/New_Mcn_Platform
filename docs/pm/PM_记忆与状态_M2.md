@@ -1,8 +1,8 @@
 # MCN_PM_Agent — 项目记忆与当前状态（M2）
 
-> 最后更新：2026-07-07（**PR #18 合并到 main**：外部贡献者 chongzhang258-star 修复 Bug #12-17（字幕历史/工作台对标账号 uid fallback/人设评估错误/千川卖点截断/直播仿写错误）+ selling-point 503 重试。PM 本地 rebase main 解决 `operator_selling_point.py` 冲突——保留 PR #19 的 provider 修复 + 叠加 PR #18 重试逻辑；后端 50 passed + 前端 16 passed，12+1 预存失败已确认非回归；补 backend README + 本记忆文档落地）。上一个：2026-07-03 qianchuan-edit-review provider 切换 + ai_model_id 解析彻底修复（PR #20 已合并 main）。再上一个：同日稍早完成 AI 多服务商切换不生效修复（13 个 router 的 chat_stream 调用补传 `provider` 参数 + yunwu.py 防御空 choices 数组，PR #19）。再上一个：2026-07-01（**管理端配置页 UX 完善**：`/admin/workspace` 工具列表操作列加「配置」按钮直达对应 Tab + 4 个预留 Tab 占位 + 修 selling-point-extractor 映射 bug；同日稍早完成 values-writer + script-review 补历史记录功能 P0 #2）。再上一个：2026-06-30（**PR #13 红人工作台 Sprint 18-23 合并到 main**：merge commit `b9d50c6`，含 Sprint 22 复盘 + Sprint 21 千川脚本预审 + Sprint 23 工作台配置 + Sprint 18-20 工作台主体；feature/kol-workspace 分支保留持续开发。再上一个：2026-06-28 旧架构数据全量迁移到新架构 — 12 服务 260 文件 → 8 业务表，272 INSERT + 20 UPDATE + 32 KOL，迁移工具 `backend/scripts/migrate_legacy_data.py` + 迁移记录文档仍在工作区待提交）
+> 最后更新：2026-07-07（**PR #18 测试补漏 PR**：分支 `test/pr18-followup-tests`，PM 审计 PR #18 合并后发现 4 处改动完全无测试 + tikhub adapter 12 个预存失败（mock 路径 `report_failure` vs `_report_failure`）+ 2 处前端断言不完整，开 followup PR 单独补漏。补漏：tikhub fallback 测试 2 个 + tikhub 12 个失败全修 + operator_selling_point 503 重试测试 2 个 + personaWriter.test.ts 6 个 + SellingPointPage.test.tsx 2 个 + HistoryList 复制按钮断言 + QianchuanWriterPage 长 Brief 不截断；后端 1123 passed、前端 265 passed，2+2 失败均为预存非回归；不动生产代码，仅补测试 + 文档。上一个：同日稍早 PR #18 合并到 main（Bug #12-17 修复）。再上一个：2026-07-03 qianchuan-edit-review provider 切换 + ai_model_id 解析彻底修复（PR #20 已合并 main）。再上一个：同日稍早完成 AI 多服务商切换不生效修复（13 个 router 的 chat_stream 调用补传 `provider` 参数 + yunwu.py 防御空 choices 数组，PR #19）。再上一个：2026-07-01（**管理端配置页 UX 完善**：`/admin/workspace` 工具列表操作列加「配置」按钮直达对应 Tab + 4 个预留 Tab 占位 + 修 selling-point-extractor 映射 bug；同日稍早完成 values-writer + script-review 补历史记录功能 P0 #2）。再上一个：2026-06-30（**PR #13 红人工作台 Sprint 18-23 合并到 main**：merge commit `b9d50c6`，含 Sprint 22 复盘 + Sprint 21 千川脚本预审 + Sprint 23 工作台配置 + Sprint 18-20 工作台主体；feature/kol-workspace 分支保留持续开发。再上一个：2026-06-28 旧架构数据全量迁移到新架构 — 12 服务 260 文件 → 8 业务表，272 INSERT + 20 UPDATE + 32 KOL，迁移工具 `backend/scripts/migrate_legacy_data.py` + 迁移记录文档仍在工作区待提交）
 
-> **🚧 当前状态**：main 上最新合并 = PR #18（Bug #12-17 系统反馈问题，2026-07-07）+ PR #20（qianchuan-edit-review provider 修复，2026-07-03）+ PR #19（AI 多服务商切换，2026-07-03）。`feature/kol-workspace` 分支保留持续开发。下一步候选：legacy 迁移工具归档（4 个 untracked 文件）/ KolWorkspacePage 测试失败修复 / Sprint 17 backlog / tikhub adapter 12 个预存测试失败修复（mock 路径 `report_failure`→`_report_failure`）。
+> **🚧 当前状态**：main 上最新合并 = PR #18（Bug #12-17 系统反馈问题，2026-07-07）+ PR #20（qianchuan-edit-review provider 修复，2026-07-03）+ PR #19（AI 多服务商切换，2026-07-03）。`test/pr18-followup-tests` 分支待开 PR（PR #18 测试补漏 + tikhub adapter 12 预存失败修复）。`feature/kol-workspace` 分支保留持续开发。下一步候选：legacy 迁移工具归档（4 个 untracked 文件）/ KolWorkspacePage 测试失败修复 / Sprint 17 backlog。
 
 > **📋 Sprint 17 backlog**（已写需求文档，待开工）：管理端调用日志扩展（用户列 + 功能列）—— `docs/pm/M2_Sprint17_管理端调用日志扩展_需求文档.md`
 
@@ -79,6 +79,41 @@
 - 代码：7 文件 +143/-52
 - 文档：backend/docs/README.md "最近改动"段 + 本节
 - 待补（untracked，合并后补）：docs/pm/BUG修复登记.md BUG-033~038
+
+---
+
+### M2 工作项 — PR #18 测试补漏 + tikhub adapter 修复 🚧 进行中（分支 `test/pr18-followup-tests`，待发 PR）
+
+**背景**：PR #18 合并后 PM 审计发现：4 处关键改动完全无测试覆盖 + tikhub adapter 12 个预存失败（mock 路径与实际函数名不一致）+ 2 处前端测试断言不完整。开 followup PR 单独补漏，**不动生产代码**（仅测试代码本身）。
+
+**补漏清单**：
+
+| # | 改动点 | 补漏前状态 | 补漏后 |
+|---|--------|-----------|--------|
+| 1 | `tikhub.resolve_sec_user_id` 纯数字 fallback | 无 fallback 路径测试 | +2 个：纯数字 uid 命中走快捷路径 + uid 无果 fallback 到 unique_id（patch `_get_key_and_url`/`get_user_profile`） |
+| 2 | tikhub adapter 12 预存失败 | mock 路径 `report_failure`（无下划线）不存在 | 全改 `_report_success`/`_report_failure`，重写 douyin_id 测试（原测试与代码语义已脱节），12/12 通过 |
+| 3 | `operator_selling_point` 503 重试 | 仅 1 个 error marker 测试 | +2 个：503 重试后成功（1 次失败 + 1 次成功）+ 重试耗尽仍 yield [ERROR]（patch asyncio.sleep 跳过真实等待，验证 call_count=3） |
+| 4 | `personaWriter.ts` 3 处错误消息提取 | 完全无测试 | 新建 `__tests__/unit/api/personaWriter.test.ts`：6 个（3 函数主路径 throw err.message + 3 状态码回退 throw `失败: ${status}`） |
+| 5 | `SellingPointPage.tsx` [ERROR] 标记处理 | 完全无测试 | 新建 `__tests__/components/pages/SellingPointPage.test.tsx`：2 个（标记清理 + 友好提示 / 健康流） |
+| 6 | `HistoryList.tsx` 批量任务复制按钮 | 展开测试无复制按钮断言 | +1 行：`expect(screen.getByText('复制文本')).toBeInTheDocument()` |
+| 7 | `QianchuanWriterPage.tsx` 长 Brief 不截断 | 完全无测试 | +1 个：500 字 Brief 含尾部唯一标记，验证标记完整展示（旧逻辑 `slice(0, 400)` 会丢失） |
+
+**全量回归**：
+- 后端 1123 passed / 1 skipped / 2 failed（`test_livestream_writer_file_parser` Pages 解析，预存）/ 8 errors（`tests/concurrent` 并发测试，需特殊基础设施）
+- 前端 265 passed / 2 failed（KolWorkspacePage Test benchmark modal + QianchuanWriterPage Test 2 人物预览，均为预存）
+
+**红线合规**：
+- ✅ 测试 PR 不改契约、不改 router 结构、不改前端业务代码
+- ✅ #5 改后端 README：backend/docs/README.md "最近改动" 段加测试补漏子段
+- ✅ 全量回归通过，覆盖率不退化（66.47% 后端）
+
+**重要教训**：
+1. **PR 合并后审计 ≠ 跑通测试就过**：必须 diff 检查 PR 的每个改动点是否都有对应测试覆盖，4 处漏测在 PR review 时未被发现。
+2. **预存失败不能忽视**：12 个 tikhub adapter 失败虽是预存，但根因是测试代码与生产代码脱节（mock 路径错 + 测试语义错），既然在改这个文件就一并修掉，不能让"预存失败"成为永久借口。
+
+**产物**：
+- 测试代码：4 文件新增（personaWriter.test.ts / SellingPointPage.test.tsx）+ 修改 + 3 文件修改（test_tikhub_adapter / test_operator_selling_point / HistoryList.test / QianchuanWriterPage.test）
+- 文档：backend/docs/README.md "最近改动"段加测试补漏子段 + 本节
 
 ---
 

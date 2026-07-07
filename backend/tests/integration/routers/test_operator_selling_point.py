@@ -206,6 +206,83 @@ class TestChat:
         assert "[ERROR]" in resp.text
 
     @pytest.mark.asyncio
+    async def test_chat_retries_on_503_then_succeeds(self, test_client, operator_token):
+        """PR #18: 503/502/429/timeout 时自动重试，最多 3 次。第一次 503，第二次成功。"""
+        call_count = 0
+
+        def chat_stream_factory(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                async def raising():
+                    raise RuntimeError("503 Service Unavailable")
+                    yield
+                return raising()
+            else:
+                async def ok():
+                    yield "重试后成功"
+                return ok()
+
+        with patch(
+            "app.routers.operator_selling_point.yunwu_adapter.chat_stream",
+            side_effect=chat_stream_factory,
+        ), patch("app.routers.operator_selling_point.AsyncSessionLocal") as mock_sl, \
+           patch("app.routers.operator_selling_point.asyncio.sleep", new_callable=AsyncMock):
+            mock_sess = AsyncMock()
+            mock_sess.__aenter__ = AsyncMock(return_value=mock_sess)
+            mock_sess.__aexit__ = AsyncMock(return_value=False)
+            mock_sess.add = MagicMock()
+            mock_sess.commit = AsyncMock()
+            mock_sl.return_value = mock_sess
+
+            resp = await test_client.post(
+                "/api/tools/selling-point-extractor/chat",
+                json={"messages": [{"role": "user", "content": "分析"}]},
+                headers={"Authorization": f"Bearer {operator_token}"},
+            )
+        assert resp.status_code == 200
+        assert "重试后成功" in resp.text
+        assert "[ERROR]" not in resp.text
+        # 第一次失败 + 第二次成功 = 2 次调用
+        assert call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_chat_yields_error_after_max_retries(self, test_client, operator_token):
+        """PR #18: 持续可重试错误（503）超过最大重试次数后 yield [ERROR]。"""
+        call_count = 0
+
+        def chat_stream_factory(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            async def raising():
+                raise RuntimeError("503 Service Unavailable")
+                yield
+            return raising()
+
+        with patch(
+            "app.routers.operator_selling_point.yunwu_adapter.chat_stream",
+            side_effect=chat_stream_factory,
+        ), patch("app.routers.operator_selling_point.AsyncSessionLocal") as mock_sl, \
+           patch("app.routers.operator_selling_point.asyncio.sleep", new_callable=AsyncMock):
+            mock_sess = AsyncMock()
+            mock_sess.__aenter__ = AsyncMock(return_value=mock_sess)
+            mock_sess.__aexit__ = AsyncMock(return_value=False)
+            mock_sess.add = MagicMock()
+            mock_sess.commit = AsyncMock()
+            mock_sl.return_value = mock_sess
+
+            resp = await test_client.post(
+                "/api/tools/selling-point-extractor/chat",
+                json={"messages": [{"role": "user", "content": "分析"}]},
+                headers={"Authorization": f"Bearer {operator_token}"},
+            )
+        assert resp.status_code == 200
+        assert "[ERROR]" in resp.text
+        assert "503" in resp.text
+        # _RETRY_DELAYS = [2, 4] → delays = [0, 2, 4] → 共 3 次尝试
+        assert call_count == 3
+
+    @pytest.mark.asyncio
     async def test_chat_passes_default_provider_when_no_model(
         self, test_client, operator_token, test_session
     ):
