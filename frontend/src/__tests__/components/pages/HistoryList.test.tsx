@@ -240,5 +240,9 @@ describe('HistoryList', () => {
       expect(screen.getByText('视频 A')).toBeInTheDocument();
       expect(screen.getByText('ASR 失败')).toBeInTheDocument();
     });
+
+    // PR #18: 成功 item 应展示「复制文本」按钮（批量任务同样适用）
+    // 失败 item（无 transcript）不应展示该按钮，由于只有 1 个成功 item，getByText 不会歧义
+    expect(screen.getByText('复制文本')).toBeInTheDocument();
   });
 });
