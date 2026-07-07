@@ -247,6 +247,37 @@ BugFix：      BugFix_{序号}_{描述}.md
 
 ## 最近改动
 
+### 2026-07-07 PR #18 修复 Bug #12-17 系统反馈问题
+
+**背景**：飞书 wiki 集中反馈的 6 个用户体验 Bug，由外部贡献者 `chongzhang258-star` 提交 PR，PM 本地 rebase main 解决冲突后合并（保留 PR #19 的 provider 修复 + 叠加 PR #18 的重试逻辑）。
+
+**修复内容**（按 Bug 编号）：
+
+| Bug # | 模块 | 问题 | 修复 |
+|-------|------|------|------|
+| #12 | 字幕提取 - 批量历史 | transcript 截断 120 字 + 缺「复制文本」按钮 | `subtitle/HistoryList.tsx`：完整展示（滚动 200px）+ 复制按钮 |
+| #13 | 红人工作台 - 对标账号 | 纯数字抖音号报「uid 找不到」 | `adapters/tikhub.py` `resolve_sec_user_id`：纯数字输入优先按 uid 查，无结果自动 fallback 到 unique_id |
+| #14 | 人设仿写 - 开始评估 | 报错无法进入下一步 | `api/personaWriter.ts`：错误消息提取 `err.detail.message` → `err.message`（根因同 Bug #2，依赖 migration 048）|
+| #15 | 千川仿写 - 产品卖点 | 截断 400 字 | `QianchuanWriterPage.tsx`：完整展示（滚动 300px）|
+| #16/#17 | 直播仿写 / 直播复盘 | 无法生成 / 报错 | 根因同 Bug #2（migration 048 已在 main），前端错误消息提取修正 |
+
+**额外改进**（commit 2，selling-point 容错）：
+- `routers/operator_selling_point.py`：`_RETRY_DELAYS=[2,4]` 503/502/429/timeout 自动重试最多 3 次（**保留 PR #19 的 `provider=provider` 不变**）
+- `pages/operator/SellingPointPage.tsx`：流结束后检测 `[ERROR]` 标记，转为友好提示，错误文本不再污染分析报告区域
+- `tests/integration/routers/test_tool_extract_frames.py`：补 `shutil.which` ffmpeg mock + 新增 503 测试用例
+
+**测试**：
+- 后端核心 50 passed（含 selling_point + workspace + extract_frames）
+- 后端 tikhub adapter 12 failed（**预存失败**，main 同样失败，mock 路径 `report_failure` vs `_report_failure`，与本次改动无关）
+- 前端 HistoryList 6/6 + QianchuanWriterPage 10/11（1 失败为预存，main 同样失败）
+
+**依赖**：Bug #14/#16/#17 依赖 migration 048（`048_external_service_logs_tokens_used.sql`，PR #17 已合并到 main，2026-07-02 起）。
+
+**关键不变量验证**（rebase 后保留）：
+- ✅ `provider=provider` 在 `chat_stream` 调用（line 134，PR #19 修复）
+- ✅ `_resolve_model` 返回 `(model_id, provider)` 二元组（PR #19）
+- ✅ `_RETRY_DELAYS` 重试循环结构（PR #18）
+
 ### 2026-07-03 修复 AI 多服务商切换不生效 + siliconflow list index out of range
 
 **背景**：管理端切换厂商模型后调用 AI 不生效（仍走默认 yunwu 网关）；用户切到 siliconflow 后报 `[siliconflow]: list index out of range`。
