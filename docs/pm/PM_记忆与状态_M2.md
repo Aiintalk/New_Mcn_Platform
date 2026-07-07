@@ -1,8 +1,8 @@
 # MCN_PM_Agent — 项目记忆与当前状态（M2）
 
-> 最后更新：2026-07-03（**qianchuan-edit-review provider 切换 + ai_model_id 解析彻底修复**：补修补 `tool_chat_stream.py` 漏传 provider + qianchuan-edit-review 前端硬编码 'gpt-4o' 导致 admin 配模型无效；2 个新单测，6/6 全过）。上一个：同日稍早完成 AI 多服务商切换不生效修复（13 个 router 的 chat_stream 调用补传 `provider` 参数 + yunwu.py 防御空 choices 数组）。再上一个：2026-07-01（**管理端配置页 UX 完善**：`/admin/workspace` 工具列表操作列加「配置」按钮直达对应 Tab + 4 个预留 Tab 占位 + 修 selling-point-extractor 映射 bug；同日稍早完成 values-writer + script-review 补历史记录功能 P0 #2）。再上一个：2026-06-30（**PR #13 红人工作台 Sprint 18-23 合并到 main**：merge commit `b9d50c6`，含 Sprint 22 复盘 + Sprint 21 千川脚本预审 + Sprint 23 工作台配置 + Sprint 18-20 工作台主体；feature/kol-workspace 分支保留持续开发。再上一个：2026-06-28 旧架构数据全量迁移到新架构 — 12 服务 260 文件 → 8 业务表，272 INSERT + 20 UPDATE + 32 KOL，迁移工具 `backend/scripts/migrate_legacy_data.py` + 迁移记录文档仍在工作区待提交）
+> 最后更新：2026-07-07（**PR #18 合并到 main**：外部贡献者 chongzhang258-star 修复 Bug #12-17（字幕历史/工作台对标账号 uid fallback/人设评估错误/千川卖点截断/直播仿写错误）+ selling-point 503 重试。PM 本地 rebase main 解决 `operator_selling_point.py` 冲突——保留 PR #19 的 provider 修复 + 叠加 PR #18 重试逻辑；后端 50 passed + 前端 16 passed，12+1 预存失败已确认非回归；补 backend README + 本记忆文档落地）。上一个：2026-07-03 qianchuan-edit-review provider 切换 + ai_model_id 解析彻底修复（PR #20 已合并 main）。再上一个：同日稍早完成 AI 多服务商切换不生效修复（13 个 router 的 chat_stream 调用补传 `provider` 参数 + yunwu.py 防御空 choices 数组，PR #19）。再上一个：2026-07-01（**管理端配置页 UX 完善**：`/admin/workspace` 工具列表操作列加「配置」按钮直达对应 Tab + 4 个预留 Tab 占位 + 修 selling-point-extractor 映射 bug；同日稍早完成 values-writer + script-review 补历史记录功能 P0 #2）。再上一个：2026-06-30（**PR #13 红人工作台 Sprint 18-23 合并到 main**：merge commit `b9d50c6`，含 Sprint 22 复盘 + Sprint 21 千川脚本预审 + Sprint 23 工作台配置 + Sprint 18-20 工作台主体；feature/kol-workspace 分支保留持续开发。再上一个：2026-06-28 旧架构数据全量迁移到新架构 — 12 服务 260 文件 → 8 业务表，272 INSERT + 20 UPDATE + 32 KOL，迁移工具 `backend/scripts/migrate_legacy_data.py` + 迁移记录文档仍在工作区待提交）
 
-> **🚧 当前状态**：PR #13 红人工作台 Sprint 18-23 已合并到 main（merge commit `b9d50c6`，2026-06-30）。`feature/kol-workspace` 分支保留持续开发。下一步候选：legacy 迁移工具归档 / KolWorkspacePage 测试失败修复 / Sprint 17 backlog。
+> **🚧 当前状态**：main 上最新合并 = PR #18（Bug #12-17 系统反馈问题，2026-07-07）+ PR #20（qianchuan-edit-review provider 修复，2026-07-03）+ PR #19（AI 多服务商切换，2026-07-03）。`feature/kol-workspace` 分支保留持续开发。下一步候选：legacy 迁移工具归档（4 个 untracked 文件）/ KolWorkspacePage 测试失败修复 / Sprint 17 backlog / tikhub adapter 12 个预存测试失败修复（mock 路径 `report_failure`→`_report_failure`）。
 
 > **📋 Sprint 17 backlog**（已写需求文档，待开工）：管理端调用日志扩展（用户列 + 功能列）—— `docs/pm/M2_Sprint17_管理端调用日志扩展_需求文档.md`
 
@@ -34,7 +34,55 @@
 
 > **Sprint 编号说明**：main 与 feature/kol-workspace 两分支并行开发期间各自用了 Sprint 18/19 编号，内容不同（main = 素材库/字幕；feature = 红人工作台）。合并后按"保留双方记录、时间序"原则记录如下，最新在前。
 
-### M2 工作项 — qianchuan-edit-review provider 切换 + ai_model_id 解析彻底修复 🔄 进行中（main，2026-07-03）
+### M2 工作项 — PR #18 修复 Bug #12-17 系统反馈问题 ✅ 完成（main，2026-07-07）
+
+**背景**：飞书 wiki 集中反馈的 6 个用户体验 Bug，由外部贡献者 `chongzhang258-star`（2026-07-02 提交 PR）。PR 创建后 main 又合并了 PR #19（AI 多服务商切换，2026-07-03）+ PR #20（qianchuan-edit-review provider 修复，2026-07-03），导致 `operator_selling_point.py` 冲突。PM 本地 rebase main 解决冲突 + 跑回归测试 + 补文档落地后合并。
+
+**修复的 6 个 Bug**（飞书 wiki 编号 #12-17）：
+
+| # | 模块 | 问题 | 修复 |
+|---|------|------|------|
+| 12 | 字幕提取 - 批量历史 | transcript 截断 120 字 + 缺「复制文本」按钮 | `subtitle/HistoryList.tsx` 完整展示（滚动 200px）+ 复制按钮 |
+| 13 | 红人工作台 - 对标账号 | 纯数字抖音号报"uid 找不到" | `tikhub.py resolve_sec_user_id` uid 查无果自动 fallback 到 unique_id |
+| 14 | 人设仿写 - 开始评估 | 报错无法继续 | `personaWriter.ts` 错误消息提取 `err.detail.message` → `err.message`（根因同 Bug #2，依赖 migration 048）|
+| 15 | 千川仿写 - 产品卖点 | 截断 400 字 | `QianchuanWriterPage.tsx` 完整展示（滚动 300px）|
+| 16/17 | 直播仿写 / 直播复盘 | 无法生成 / 报错 | 根因同 Bug #2（migration 048 已在 main），前端错误消息提取修正 |
+
+**额外改进**（commit 2，selling-point 容错）：
+- `operator_selling_point.py` `_RETRY_DELAYS=[2,4]`：503/502/429/timeout 自动重试最多 3 次（**保留 PR #19 的 `provider=provider` 不变**）
+- `SellingPointPage.tsx`：流结束后检测 `[ERROR]` 标记转友好提示，错误文本不再污染分析报告
+- `test_tool_extract_frames.py`：补 `shutil.which` ffmpeg mock + 503 测试用例
+
+**冲突解决**（`operator_selling_point.py` 单文件冲突）：
+- 冲突 1（常量区）：保留 PR #19 的 `DEFAULT_PROVIDER="yunwu"` + PR #18 的 `_RETRY_DELAYS=[2,4]`
+- 冲突 2（generate 函数）：采用 PR #18 重试循环结构 + 保留 PR #19 的 `provider=provider` 参数
+- 关键不变量验证：`provider=provider` 在 line 134、`_resolve_model` 返回二元组、`_RETRY_DELAYS` 全部保留
+
+**验证**：
+- 后端核心 50 passed（operator_selling_point + operator_workspace + tool_extract_frames）
+- 后端 tikhub adapter 12 failed（**预存失败**，main 同样失败，mock 路径 `report_failure` vs `_report_failure`，与本次改动无关）
+- 前端 HistoryList 6/6 通过 + QianchuanWriterPage 10/11（1 失败预存，main 同样失败）
+
+**依赖**：Bug #14/#16/#17 依赖 migration 048（`048_external_service_logs_tokens_used.sql`，PR #17 已合并 main，2026-07-02 起）。
+
+**红线合规**：
+- ✅ #1 标准信封：未改 router 返回结构
+- ✅ #3 前端走 request.ts：personaWriter.ts 是 SSE 流式（readPlainStream），属例外
+- ✅ #4 契约同步：纯 bugfix，无契约变更
+- ✅ #5 改后端 README：本 PR 自带 backend/docs/README.md "最近改动"段更新
+
+**重要教训**：
+1. **外部贡献者 PR 合并前必须 rebase main + 跑回归测试**：PR 创建后 main 合并的新 PR（本例 PR #19）可能改了同一文件，直接 merge 会丢失关键修复（本例 PR #19 的 provider 修复）。AI review 必须列出冲突文件 + 验证关键不变量保留。
+2. **预存失败测试要区分**：tikhub adapter 12 个 + QianchuanWriterPage 1 个失败都是 main 上预存的（与 MEMORY.md 记录一致），不算 PR #18 回归。合并前要切 main baseline 跑同样测试确认。
+
+**产物**（PR #18 自带）：
+- 代码：7 文件 +143/-52
+- 文档：backend/docs/README.md "最近改动"段 + 本节
+- 待补（untracked，合并后补）：docs/pm/BUG修复登记.md BUG-033~038
+
+---
+
+### M2 工作项 — qianchuan-edit-review provider 切换 + ai_model_id 解析彻底修复 ✅ 完成（main，2026-07-03，PR #20 已合并）
 
 **背景**：用户问「qianchuan-edit-review 功能逻辑」，梳理时发现两个 bug：(1) PR #19 漏修了共享 router `tool_chat_stream.py`（同样漏传 `provider=`）；(2) 前端 `QianChuanEditReviewPage` 的 `useEffect` 拿到 `ai_model_id` 后完全没用，`analyze()` 硬编码 `'gpt-4o'`，admin 配模型等于白配。
 
