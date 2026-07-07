@@ -1,8 +1,8 @@
 # MCN_PM_Agent — 项目记忆与当前状态（M2）
 
-> 最后更新：2026-07-07（**PR #18 测试补漏 PR**：分支 `test/pr18-followup-tests`，PM 审计 PR #18 合并后发现 4 处改动完全无测试 + tikhub adapter 12 个预存失败（mock 路径 `report_failure` vs `_report_failure`）+ 2 处前端断言不完整，开 followup PR 单独补漏。补漏：tikhub fallback 测试 2 个 + tikhub 12 个失败全修 + operator_selling_point 503 重试测试 2 个 + personaWriter.test.ts 6 个 + SellingPointPage.test.tsx 2 个 + HistoryList 复制按钮断言 + QianchuanWriterPage 长 Brief 不截断；后端 1123 passed、前端 265 passed，2+2 失败均为预存非回归；不动生产代码，仅补测试 + 文档。上一个：同日稍早 PR #18 合并到 main（Bug #12-17 修复）。再上一个：2026-07-03 qianchuan-edit-review provider 切换 + ai_model_id 解析彻底修复（PR #20 已合并 main）。再上一个：同日稍早完成 AI 多服务商切换不生效修复（13 个 router 的 chat_stream 调用补传 `provider` 参数 + yunwu.py 防御空 choices 数组，PR #19）。再上一个：2026-07-01（**管理端配置页 UX 完善**：`/admin/workspace` 工具列表操作列加「配置」按钮直达对应 Tab + 4 个预留 Tab 占位 + 修 selling-point-extractor 映射 bug；同日稍早完成 values-writer + script-review 补历史记录功能 P0 #2）。再上一个：2026-06-30（**PR #13 红人工作台 Sprint 18-23 合并到 main**：merge commit `b9d50c6`，含 Sprint 22 复盘 + Sprint 21 千川脚本预审 + Sprint 23 工作台配置 + Sprint 18-20 工作台主体；feature/kol-workspace 分支保留持续开发。再上一个：2026-06-28 旧架构数据全量迁移到新架构 — 12 服务 260 文件 → 8 业务表，272 INSERT + 20 UPDATE + 32 KOL，迁移工具 `backend/scripts/migrate_legacy_data.py` + 迁移记录文档仍在工作区待提交）
+> 最后更新：2026-07-07（**PR #21 合并到 main**：PR #18 测试补漏 + tikhub adapter 12 预存失败修复，merge commit `06e3fcd1`，分支 `test/pr18-followup-tests`。审计 PR #18 后发现 4 处关键改动完全无测试 + tikhub adapter 12 个预存失败（mock 路径 `report_failure` vs `_report_failure`）+ 2 处前端断言不完整，开 followup PR 单独补漏。补漏：tikhub fallback 测试 2 个 + tikhub 12 个失败全修 + operator_selling_point 503 重试测试 2 个 + personaWriter.test.ts 6 个 + SellingPointPage.test.tsx 2 个 + HistoryList 复制按钮断言 + QianchuanWriterPage 长 Brief 不截断；后端 1123 passed、前端 265 passed，2+2 失败均为预存非回归；不动生产代码，仅补测试 + 文档。上一个：同日稍早 PR #18 合并到 main（Bug #12-17 修复）。再上一个：2026-07-03 qianchuan-edit-review provider 切换 + ai_model_id 解析彻底修复（PR #20 已合并 main）。再上一个：同日稍早完成 AI 多服务商切换不生效修复（13 个 router 的 chat_stream 调用补传 `provider` 参数 + yunwu.py 防御空 choices 数组，PR #19）。再上一个：2026-07-01（**管理端配置页 UX 完善**：`/admin/workspace` 工具列表操作列加「配置」按钮直达对应 Tab + 4 个预留 Tab 占位 + 修 selling-point-extractor 映射 bug；同日稍早完成 values-writer + script-review 补历史记录功能 P0 #2）。再上一个：2026-06-30（**PR #13 红人工作台 Sprint 18-23 合并到 main**：merge commit `b9d50c6`，含 Sprint 22 复盘 + Sprint 21 千川脚本预审 + Sprint 23 工作台配置 + Sprint 18-20 工作台主体；feature/kol-workspace 分支保留持续开发。再上一个：2026-06-28 旧架构数据全量迁移到新架构 — 12 服务 260 文件 → 8 业务表，272 INSERT + 20 UPDATE + 32 KOL，迁移工具 `backend/scripts/migrate_legacy_data.py` + 迁移记录文档仍在工作区待提交）
 
-> **🚧 当前状态**：main 上最新合并 = PR #18（Bug #12-17 系统反馈问题，2026-07-07）+ PR #20（qianchuan-edit-review provider 修复，2026-07-03）+ PR #19（AI 多服务商切换，2026-07-03）。`test/pr18-followup-tests` 分支待开 PR（PR #18 测试补漏 + tikhub adapter 12 预存失败修复）。`feature/kol-workspace` 分支保留持续开发。下一步候选：legacy 迁移工具归档（4 个 untracked 文件）/ KolWorkspacePage 测试失败修复 / Sprint 17 backlog。
+> **🚧 当前状态**：main 上最新合并 = PR #21（PR #18 测试补漏 + tikhub adapter 修复，2026-07-07）+ PR #18（Bug #12-17 系统反馈问题，2026-07-07）+ PR #20（qianchuan-edit-review provider 修复，2026-07-03）+ PR #19（AI 多服务商切换，2026-07-03）。`feature/kol-workspace` 分支保留持续开发。下一步候选：legacy 迁移工具归档（4 个 untracked 文件）/ KolWorkspacePage 测试失败修复 / Sprint 17 backlog。
 
 > **📋 Sprint 17 backlog**（已写需求文档，待开工）：管理端调用日志扩展（用户列 + 功能列）—— `docs/pm/M2_Sprint17_管理端调用日志扩展_需求文档.md`
 
@@ -82,7 +82,7 @@
 
 ---
 
-### M2 工作项 — PR #18 测试补漏 + tikhub adapter 修复 🚧 进行中（分支 `test/pr18-followup-tests`，待发 PR）
+### M2 工作项 — PR #18 测试补漏 + tikhub adapter 修复 ✅ 完成（main，2026-07-07，PR #21 merge `06e3fcd1`）
 
 **背景**：PR #18 合并后 PM 审计发现：4 处关键改动完全无测试覆盖 + tikhub adapter 12 个预存失败（mock 路径与实际函数名不一致）+ 2 处前端测试断言不完整。开 followup PR 单独补漏，**不动生产代码**（仅测试代码本身）。
 
