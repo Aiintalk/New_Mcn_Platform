@@ -37,6 +37,10 @@ jobs:
     env:
       PYTHONUTF8: "1"
       TEST_DB_URL: postgresql+asyncpg://postgres:postgres2026@localhost:5432/mcn_test
+      # pydantic_settings Settings 需要这些必填字段；这里只为过 import-time 校验，
+      # 实际 DB 连接由 conftest.py 的 AsyncSessionLocal patch 重定向到 TEST_DB_URL
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres2026@localhost:5432/mcn_test
+      JWT_SECRET: ci-test-jwt-secret-not-for-production
       DB_HOST: localhost
       DB_PORT: 5432
       DB_USER: postgres
