@@ -381,7 +381,10 @@ function PersonaWriterInner({ initKolId }: { initKolId?: number }) {
   const referenceOpening = firstSentences(transcript, TRANSCRIPT_PREVIEW_SENTENCES);
 
   return (
-    <div style={{ maxWidth: 900, margin: '0 auto', padding: 'var(--sp-6)' }}>
+    <div
+      className={isModule ? 'workspace-tool-module' : undefined}
+      style={isModule ? undefined : { maxWidth: 900, margin: '0 auto', padding: 'var(--sp-6)' }}
+    >
       <div className="page-header">
         <div>
           <h1 className="page-title">人设脚本仿写</h1>
@@ -400,7 +403,7 @@ function PersonaWriterInner({ initKolId }: { initKolId?: number }) {
 
       {/* Step 1 · 加载风格（仅独立页面模式） */}
       {!isModule && currentStep >= 1 && (
-        <div className="card" style={{ marginBottom: 'var(--sp-4)' }}>
+        <div className="card workspace-step-card" style={{ marginBottom: 'var(--sp-4)' }}>
           <h3 style={{ marginBottom: 'var(--sp-3)' }}>Step 1 · 选择达人</h3>
           <div style={{ marginBottom: 'var(--sp-3)' }}>
             <label style={{ display: 'block', marginBottom: 4, fontWeight: 500 }}>达人人设</label>
@@ -462,7 +465,7 @@ function PersonaWriterInner({ initKolId }: { initKolId?: number }) {
 
       {/* Step 2 · 对标验证 */}
       {currentStep >= 2 && (
-        <div className="card" style={{ marginBottom: 'var(--sp-4)' }}>
+        <div className="card workspace-step-card" style={{ marginBottom: 'var(--sp-4)' }}>
           <h3 style={{ marginBottom: 'var(--sp-3)' }}>Step 2 · 对标验证</h3>
 
           {/* 2.1 粘贴抖音链接 */}
@@ -613,7 +616,7 @@ function PersonaWriterInner({ initKolId }: { initKolId?: number }) {
 
       {/* Step 3 · 仿写创作 */}
       {currentStep >= 3 && (
-        <div className="card">
+        <div className="card workspace-step-card">
           <h3 style={{ marginBottom: 'var(--sp-3)' }}>Step 3 · 仿写创作</h3>
 
           {/* 3.1 AI 结构拆解 */}

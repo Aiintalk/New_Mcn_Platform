@@ -1,6 +1,6 @@
 # MCN_PM_Agent — 项目记忆与当前状态（M2）
 
-> 最后更新：2026-07-03（**qianchuan-edit-review provider 切换 + ai_model_id 解析彻底修复**：补修补 `tool_chat_stream.py` 漏传 provider + qianchuan-edit-review 前端硬编码 'gpt-4o' 导致 admin 配模型无效；2 个新单测，6/6 全过）。上一个：同日稍早完成 AI 多服务商切换不生效修复（13 个 router 的 chat_stream 调用补传 `provider` 参数 + yunwu.py 防御空 choices 数组）。再上一个：2026-07-01（**管理端配置页 UX 完善**：`/admin/workspace` 工具列表操作列加「配置」按钮直达对应 Tab + 4 个预留 Tab 占位 + 修 selling-point-extractor 映射 bug；同日稍早完成 values-writer + script-review 补历史记录功能 P0 #2）。再上一个：2026-06-30（**PR #13 红人工作台 Sprint 18-23 合并到 main**：merge commit `b9d50c6`，含 Sprint 22 复盘 + Sprint 21 千川脚本预审 + Sprint 23 工作台配置 + Sprint 18-20 工作台主体；feature/kol-workspace 分支保留持续开发。再上一个：2026-06-28 旧架构数据全量迁移到新架构 — 12 服务 260 文件 → 8 业务表，272 INSERT + 20 UPDATE + 32 KOL，迁移工具 `backend/scripts/migrate_legacy_data.py` + 迁移记录文档仍在工作区待提交）
+> 最后更新：2026-07-12（**红人工作台 UI 一致性优化**：`/kol-workspace/:kol_id` 左侧导航对齐全站 190px 深色侧栏 + 橙色 active；人设仿写/种草仿写 Module 模式启用 `workspace-tool-module` 左对齐紧凑布局；新增 `workspace-step-card` 修复人设/种草/千川/TikTok 写作步骤卡片输入框贴边；新增 3 个工作台视觉一致性回归断言，KolWorkspacePage 21/21 通过）。上一个：2026-07-03 qianchuan-edit-review provider 切换 + ai_model_id 解析彻底修复。再上一个：同日稍早完成 AI 多服务商切换不生效修复（13 个 router 的 chat_stream 调用补传 `provider` 参数 + yunwu.py 防御空 choices 数组）。再上一个：2026-07-01（**管理端配置页 UX 完善**：`/admin/workspace` 工具列表操作列加「配置」按钮直达对应 Tab + 4 个预留 Tab 占位 + 修 selling-point-extractor 映射 bug；同日稍早完成 values-writer + script-review 补历史记录功能 P0 #2）。再上一个：2026-06-30（**PR #13 红人工作台 Sprint 18-23 合并到 main**：merge commit `b9d50c6`，含 Sprint 22 复盘 + Sprint 21 千川脚本预审 + Sprint 23 工作台配置 + Sprint 18-20 工作台主体；feature/kol-workspace 分支保留持续开发。再上一个：2026-06-28 旧架构数据全量迁移到新架构 — 12 服务 260 文件 → 8 业务表，272 INSERT + 20 UPDATE + 32 KOL，迁移工具 `backend/scripts/migrate_legacy_data.py` + 迁移记录文档仍在工作区待提交）
 
 > **🚧 当前状态**：PR #13 红人工作台 Sprint 18-23 已合并到 main（merge commit `b9d50c6`，2026-06-30）。`feature/kol-workspace` 分支保留持续开发。下一步候选：legacy 迁移工具归档 / KolWorkspacePage 测试失败修复 / Sprint 17 backlog。
 
@@ -33,6 +33,23 @@
 ## 二、M2 阶段（当前）
 
 > **Sprint 编号说明**：main 与 feature/kol-workspace 两分支并行开发期间各自用了 Sprint 18/19 编号，内容不同（main = 素材库/字幕；feature = 红人工作台）。合并后按"保留双方记录、时间序"原则记录如下，最新在前。
+
+### M2 工作项 — 红人工作台 UI 一致性优化 ✅ 完成（fix/ui-and-interaction，2026-07-12）
+
+**背景**：用户反馈 `/kol-workspace/` 红人工作台页面存在明显 UI 问题，重点是左侧 tab、人设仿写和种草仿写在工作台内的样式不协调。澄清后确认实际路由需要 `/kol-workspace/:kol_id`，本次按 `/kol-workspace/1` 做本地验证。
+
+**改动**：
+- `KolWorkspacePage`：抽出 `workspace-shell` / `workspace-sidebar` / `workspace-nav-item` 等 class，左侧导航从 160px 调整为 190px，对齐全站 Operator/Admin 侧栏；active 状态改为全站同款橙色块。
+- `PersonaWriterPage` / `SeedingWriterPage`：仅 Module 模式启用 `workspace-tool-module`，工作台内左对齐、最大宽度 960px；独立页面入口不受影响。
+- `PersonaWriterPage` / `SeedingWriterPage` / `QianchuanWriterPage` / `TiktokWriterPage`：步骤卡片统一增加 `workspace-step-card`，补齐 20px 内边距，修复输入框/文本框贴住卡片边框的问题。
+- `admin.css`：新增红人工作台外壳、导航、内嵌工具容器、写作步骤卡片留白样式，继续使用现有 token，不引入新主题/字体/品牌色。
+- 文档：更新 `frontend/docs/前端规范.md`、`frontend/docs/README.md`，新增 Sprint 24 前端任务与开发验收文档。
+
+**验证**：
+- `npx vitest run src/__tests__/components/pages/KolWorkspacePage.test.tsx`：21/21 通过（新增工作台 shell class + writer module 紧凑布局 + writer step card 留白 3 个断言；顺手修正对标账号弹窗旧文案断言）。
+- Chrome 真实页面预览：`/kol-workspace/1` 首页、人设仿写、种草仿写均正常；侧栏宽度 190px，内嵌工具最大宽度 960px；种草仿写步骤卡片测得 `padding: 20px`，输入框距卡片左边约 21px。
+
+**红线合规**：未改接口/表/权限/后端；未改 JSON API 调用；仅前端 UI 与测试/文档更新。
 
 ### M2 工作项 — qianchuan-edit-review provider 切换 + ai_model_id 解析彻底修复 🔄 进行中（main，2026-07-03）
 

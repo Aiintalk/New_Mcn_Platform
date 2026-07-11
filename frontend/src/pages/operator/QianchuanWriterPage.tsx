@@ -267,7 +267,7 @@ export function QianchuanWriterModule({ kolId }: { kolId: number }) {
 
       {/* Step 2 · 加载产品 */}
       {currentStep >= 2 && (
-        <div className="card" style={{ marginBottom: 'var(--sp-4)' }}>
+        <div className="card workspace-step-card" style={{ marginBottom: 'var(--sp-4)' }}>
           <h3 style={{ marginBottom: 'var(--sp-3)' }}>Step 2 · 加载产品卖点</h3>
 
           {!productText && !pasteMode && (
@@ -398,7 +398,7 @@ export function QianchuanWriterModule({ kolId }: { kolId: number }) {
 
       {/* Step 3 · 输入脚本 */}
       {currentStep >= 3 && (
-        <div className="card" style={{ marginBottom: 'var(--sp-4)' }}>
+        <div className="card workspace-step-card" style={{ marginBottom: 'var(--sp-4)' }}>
           <h3 style={{ marginBottom: 'var(--sp-3)' }}>Step 3 · 输入原版脚本</h3>
           <TextArea
             rows={8}
@@ -426,7 +426,7 @@ export function QianchuanWriterModule({ kolId }: { kolId: number }) {
 
       {/* Step 4 · 生成仿写 */}
       {currentStep >= 4 && (
-        <div className="card">
+        <div className="card workspace-step-card">
           <h3 style={{ marginBottom: 'var(--sp-3)' }}>Step 4 · 生成仿写</h3>
 
           {/* 消息列表 */}
@@ -566,7 +566,7 @@ export default function QianchuanWriterPage() {
       />
 
       {/* Step 1 · 选达人 */}
-      <div className="card" style={{ marginBottom: 'var(--sp-4)' }}>
+      <div className="card workspace-step-card" style={{ marginBottom: 'var(--sp-4)' }}>
         <h3 style={{ marginBottom: 'var(--sp-3)' }}>Step 1 · 选择达人</h3>
         <div style={{ marginBottom: 'var(--sp-3)' }}>
           <label style={{ display: 'block', marginBottom: 4, fontWeight: 500 }}>达人人设</label>

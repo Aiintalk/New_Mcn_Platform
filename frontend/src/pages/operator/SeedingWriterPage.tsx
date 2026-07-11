@@ -24,7 +24,6 @@ import {
   importReferenceFromDouyin,
   deleteReference,
   getProducts,
-  createProduct,
   parseProductDocument,
   extractSellingPointsStream,
   fetchVideo,
@@ -124,7 +123,7 @@ function SeedingWriterInner({ initKolId }: { initKolId?: number }) {
   } | null>(null);
   const [transcript, setTranscript] = useState('');
   const [transcriptConfirmed, setTranscriptConfirmed] = useState(false);
-  const [asrTaskId, setAsrTaskId] = useState('');
+  const [, setAsrTaskId] = useState('');
   const [asrPolling, setAsrPolling] = useState(false);
   const [structureAnalysis, setStructureAnalysis] = useState('');
   const [analyzing, setAnalyzing] = useState(false);
@@ -631,7 +630,10 @@ function SeedingWriterInner({ initKolId }: { initKolId?: number }) {
   const hasResult = chatMessages.some((m) => m.role === 'assistant');
 
   return (
-    <div style={{ maxWidth: 900, margin: '0 auto', padding: 'var(--sp-6)' }}>
+    <div
+      className={isModule ? 'workspace-tool-module' : undefined}
+      style={isModule ? undefined : { maxWidth: 900, margin: '0 auto', padding: 'var(--sp-6)' }}
+    >
       <div className="page-header">
         <div>
           <h1 className="page-title">种草内容仿写</h1>
@@ -650,7 +652,7 @@ function SeedingWriterInner({ initKolId }: { initKolId?: number }) {
 
       {/* Step 1 · 选达人 + 素材库（仅独立页面模式） */}
       {!isModule && step >= 1 && (
-        <div className="card" style={{ marginBottom: 'var(--sp-4)' }}>
+        <div className="card workspace-step-card" style={{ marginBottom: 'var(--sp-4)' }}>
           <h3 style={{ marginBottom: 'var(--sp-3)' }}>Step 1 · 选择达人</h3>
           <div style={{ marginBottom: 'var(--sp-3)' }}>
             <label style={{ display: 'block', marginBottom: 4, fontWeight: 500 }}>达人人设</label>
@@ -860,7 +862,7 @@ function SeedingWriterInner({ initKolId }: { initKolId?: number }) {
 
       {/* Step 2 · 产品信息 */}
       {step >= 2 && (
-        <div className="card" style={{ marginBottom: 'var(--sp-4)' }}>
+        <div className="card workspace-step-card" style={{ marginBottom: 'var(--sp-4)' }}>
           <h3 style={{ marginBottom: 'var(--sp-3)' }}>Step 2 · 产品信息</h3>
 
           {/* 产品库选择 */}
@@ -1056,7 +1058,7 @@ function SeedingWriterInner({ initKolId }: { initKolId?: number }) {
 
       {/* Step 3 · 对标验证 */}
       {step >= 3 && (
-        <div className="card" style={{ marginBottom: 'var(--sp-4)' }}>
+        <div className="card workspace-step-card" style={{ marginBottom: 'var(--sp-4)' }}>
           <h3 style={{ marginBottom: 'var(--sp-3)' }}>Step 3 · 对标验证</h3>
 
           {/* 3.1 抖音链接解析 */}
@@ -1214,7 +1216,7 @@ function SeedingWriterInner({ initKolId }: { initKolId?: number }) {
 
       {/* Step 4 · 种草仿写 */}
       {step >= 4 && (
-        <div className="card">
+        <div className="card workspace-step-card">
           <h3 style={{ marginBottom: 'var(--sp-3)' }}>Step 4 · 种草仿写</h3>
 
           {/* 4.1 选题模式 */}

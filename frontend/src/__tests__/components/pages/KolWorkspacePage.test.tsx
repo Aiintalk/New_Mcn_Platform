@@ -191,6 +191,16 @@ describe('KolWorkspacePage', () => {
     expect(screen.getByText('人物档案')).toBeInTheDocument();
   });
 
+  it('uses workspace-specific shell classes for visual consistency', async () => {
+    renderWorkspacePage();
+    await waitFor(() => {
+      expect(screen.getByTestId('workspace-sidebar')).toBeInTheDocument();
+    });
+    expect(screen.getByTestId('workspace-sidebar')).toHaveClass('workspace-sidebar');
+    expect(screen.getByTestId('nav-item-dashboard')).toHaveClass('workspace-nav-item');
+    expect(screen.getByTestId('nav-item-dashboard')).toHaveClass('active');
+  });
+
   // Test 2: 默认展示 Dashboard（activeTab='dashboard'）
   it('shows WorkspaceDashboard by default', async () => {
     renderWorkspacePage();
@@ -336,7 +346,7 @@ describe('KolWorkspacePage', () => {
     });
     await user.click(screen.getByText('添加对标账号'));
     await waitFor(() => {
-      expect(screen.getByText('账号名')).toBeInTheDocument();
+      expect(screen.getByText('抖音账号')).toBeInTheDocument();
     });
   });
 
@@ -352,6 +362,46 @@ describe('KolWorkspacePage', () => {
     await waitFor(() => {
       expect(screen.getByText('千川文案写作')).toBeInTheDocument();
     });
+  });
+
+  it('uses compact workspace layout for writer modules', async () => {
+    const user = userEvent.setup();
+    renderWorkspacePage();
+    await waitFor(() => {
+      expect(screen.getByTestId('nav-item-persona-writer')).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByTestId('nav-item-persona-writer'));
+    await waitFor(() => {
+      expect(screen.getByText('人设脚本仿写')).toBeInTheDocument();
+    });
+    expect(document.querySelector('.workspace-tool-module')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('nav-item-seeding-writer'));
+    await waitFor(() => {
+      expect(screen.getByText('种草内容仿写')).toBeInTheDocument();
+    });
+    expect(document.querySelector('.workspace-tool-module')).toBeInTheDocument();
+  });
+
+  it('uses padded step cards for writer modules', async () => {
+    const user = userEvent.setup();
+    renderWorkspacePage();
+    await waitFor(() => {
+      expect(screen.getByTestId('nav-item-seeding-writer')).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByTestId('nav-item-seeding-writer'));
+    await waitFor(() => {
+      expect(screen.getByText('种草内容仿写')).toBeInTheDocument();
+    });
+    expect(document.querySelector('.workspace-step-card')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('nav-item-persona-writer'));
+    await waitFor(() => {
+      expect(screen.getByText('人设脚本仿写')).toBeInTheDocument();
+    });
+    expect(document.querySelector('.workspace-step-card')).toBeInTheDocument();
   });
 
   // Test 14: 点击「返回红人列表」导航到 /admin/kols
@@ -392,7 +442,7 @@ describe('QianchuanProductsModule', () => {
     vi.clearAllMocks();
     mockGetWorkspaceDashboard.mockResolvedValue(sampleDashboard);
     mockGetQianchuanProducts.mockResolvedValue(sampleProducts);
-    mockCreateQianchuanProduct.mockResolvedValue({ id: 99, nickname: '新产品', ...sampleProducts.items[0] });
+    mockCreateQianchuanProduct.mockResolvedValue({ ...sampleProducts.items[0], id: 99, nickname: '新产品' });
     mockUpdateQianchuanProduct.mockResolvedValue(sampleProducts.items[0]);
     mockDeleteQianchuanProduct.mockResolvedValue({ id: 10 });
   });

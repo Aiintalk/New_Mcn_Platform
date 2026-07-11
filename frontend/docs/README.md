@@ -100,13 +100,13 @@ frontend/
 │   │   │   ├── LivestreamWriterPage.tsx #   直播脚本仿写
 │   │   │   ├── LivestreamReviewPage.tsx #   直播间脚本复盘
 │   │   │   ├── PersonaReviewPage.tsx  #     人设脚本复盘
-│   │   │   ├── KolWorkspacePage.tsx   #     红人工作台 Shell（Sprint 18-20）路由 /kol-workspace/:kol_id，10 个激活导航项
+│   │   │   ├── KolWorkspacePage.tsx   #     红人工作台 Shell（Sprint 18-20）路由 /kol-workspace/:kol_id，10 个激活导航项；2026-07-12 对齐全站侧栏 UI（190px 深色导航 + 橙色 active）并优化写作工具页布局
 │   │   │   └── workspace/             #     工作台子模块（Sprint 18-19）
 │   │   │       ├── WorkspaceDashboard.tsx      #  工作台首页（对标账号 + 在售商品）
 │   │   │       ├── WorkspacePersona.tsx        #  人物档案 5 分区 inline 编辑器（Sprint 19）
 │   │   │       ├── WorkspaceReferences.tsx     #  素材库 6 类管理（Sprint 19）
 │   │   │       └── QianchuanProductsModule.tsx #  千川产品库 CRUD
-│   │   │   （QianchuanWriterPage/SeedingWriterPage/PersonaWriterPage/LivestreamWriterPage/LivestreamReviewPage 均已拆出 XxxModule 组件供工作台内嵌，Sprint 19）
+│   │   │   （QianchuanWriterPage/SeedingWriterPage/PersonaWriterPage/LivestreamWriterPage/LivestreamReviewPage 均已拆出 XxxModule 组件供工作台内嵌，Sprint 19；2026-07-12 PersonaWriterModule/SeedingWriterModule 在工作台内启用 workspace-tool-module 紧凑布局，Persona/Seeding/Qianchuan/TikTok 写作步骤卡片统一补 workspace-step-card 内边距）
 │   │   │   （另有 ValuesWriterPage.tsx — 价值观仿写，Sprint 20 新增：4 步向导=选价值观+情绪方向+生成内容+迭代优化，同时导出 ValuesWriterModule 供工作台内嵌；2026-07-01 加「保存到历史」按钮 + 历史抽屉，复用 components/OutputHistoryDrawer）
 │   │   │   （另有 QianchuanScriptReviewPage.tsx — 千川脚本预审，Sprint 21 新增：直销/价值观双模式，结构化评分（rating/must_fix/suggestions/passed）；2026-07-01 加「保存到历史」按钮 + 历史抽屉（自定义 renderItem 渲染评分 Tag））
 │   │   │   （另有 QianchuanWriterPage.tsx — 千川文案写作，Sprint 14 新增）
@@ -167,7 +167,7 @@ frontend/
 │   ├── tests/                         #   测试报告
 │   │   ├── MCN_Frontend_Test_Task_M1M2.md              #  前端测试任务单
 │   │   └── MCN_Frontend_Test_Fix_Report_2026-06-11.md  #  前端测试修复报告
-│   └── tasks/                         #   任务单 + 验收文档（44 个）
+│   └── tasks/                         #   任务单 + 验收文档（46 个）
 │       ├── M1_Sprint0.md ~ Sprint4.md           #  M1 各 Sprint
 │       ├── M1_Sprint5_TikHub_独立池化.md         #  TikHub 独立池化
 │       ├── M2_Sprint1_kol_intake.md             #  入驻问卷主任务
@@ -181,6 +181,8 @@ frontend/
 │       ├── M2_Sprint07_前端任务_qianchuan-edit-review_v1.md  #  千川剪辑预审
 │       └── M2_Sprint07_前端_开发验收_qianchuan-edit-review_v1.md  #  千川剪辑预审验收
 │       └── M2_Sprint16_前端任务_seeding-writer.md  #  种草内容仿写（Sprint 16）
+│       └── M2_Sprint24_前端任务_红人工作台UI一致性优化_v1.md  #  红人工作台 UI 一致性优化
+│       └── M2_Sprint24_前端任务_开发验收_红人工作台UI一致性优化_v1.md  #  红人工作台 UI 一致性优化验收
 │
 ├── vitest.config.ts                   # Vitest 测试配置
 ├── vite.config.ts                     # Vite 构建配置
