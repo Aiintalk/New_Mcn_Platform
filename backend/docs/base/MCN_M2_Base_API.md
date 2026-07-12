@@ -355,6 +355,176 @@ Response:
 
 ---
 
+## 6A. 红人管理接口（admin/kols）
+
+> 路由文件：`backend/app/routers/admin_kols.py`
+>
+> 路由前缀：`/api/admin/kols`
+>
+> 权限（2026-07-12 PR #25 起调整）：
+> - **读路径**（GET 列表 / GET 详情）：`require_admin_or_operator` — admin + operator 可读
+> - **写路径**（POST / PATCH / DELETE / fetch-tikhub）：`require_admin` — 仅 admin
+
+### 6A.1 接口总览
+
+| 方法 | 路径 | 说明 | 权限 |
+|------|------|------|------|
+| GET | `/api/admin/kols` | 红人列表（分页 + 关键词 + 状态筛选） | admin / operator |
+| POST | `/api/admin/kols` | 新建红人 | admin |
+| GET | `/api/admin/kols/{kol_id}` | 红人详情（含 tikhub_raw） | admin / operator |
+| PATCH | `/api/admin/kols/{kol_id}` | 更新红人字段 | admin |
+| DELETE | `/api/admin/kols/{kol_id}` | 软删红人（写 deleted_at） | admin |
+| POST | `/api/admin/kols/{kol_id}/fetch-tikhub` | 手动触发 TikHub 拉取 | admin |
+
+### 6A.2 GET `/api/admin/kols` — 红人列表
+
+**Query 参数**：
+
+| 参数 | 类型 | 默认 | 说明 |
+|------|------|------|------|
+| `page` | int | 1 | 页码（从 1 开始） |
+| `page_size` | int | 20 | 每页条数（只接受 10/20/50；其他值回退到 20） |
+| `keyword` | str | "" | 关键词，模糊匹配 name / account_name / douyin_id |
+| `status` | str | "" | 计算状态筛选（4 种合法值，见 §6A.8；非法值静默忽略 = 不过滤） |
+
+**Response**（标准信封）：
+```json
+{
+  "success": true,
+  "code": "OK",
+  "message": "success",
+  "data": {
+    "items": [
+      {
+        "id": 1,
+        "name": "测试红人",
+        "account_name": "kol_a",
+        "category": "美妆",
+        "platform": "douyin",
+        "douyin_id": "xxx",
+        "sec_uid": "yyy",
+        "avatar_url": "https://...",
+        "followers_count": 12345,
+        "works_count": 30,
+        "persona": "...",
+        "content_plan": "...",
+        "style_note": "...",
+        "owner": "张三",
+        "owner_id": 2,
+        "status": "onboarded",
+        "tikhub_fetched": true,
+        "created_by": 1,
+        "created_at": "2026-07-12T08:00:00",
+        "updated_at": "2026-07-12T08:00:00"
+      }
+    ],
+    "pagination": {
+      "page": 1,
+      "page_size": 20,
+      "total": 1,
+      "total_pages": 1
+    }
+  }
+}
+```
+
+> 列表接口不返回 `tikhub_raw`（仅在详情接口返回）。
+> `status` 为计算字段（非 DB 列），见 §6A.8。
+
+### 6A.3 POST `/api/admin/kols` — 新建红人
+
+**Request Body**：`CreateKolRequest`
+
+| 字段 | 类型 | 必填 | 默认 | 说明 |
+|------|------|------|------|------|
+| `name` | str | 是 | — | 红人姓名 |
+| `account_name` | str | 否 | null | 抖音账号名 |
+| `category` | str | 否 | null | 分类 |
+| `platform` | str | 否 | "douyin" | 平台 |
+| `douyin_id` | str | 否 | null | 抖音号（在 `deleted_at IS NULL` 范围内唯一） |
+| `sec_uid` | str | 否 | null | sec_uid（在 `deleted_at IS NULL` 范围内唯一） |
+| `avatar_url` | str | 否 | null | 头像 URL |
+| `follower_count` | int | 否 | null | 粉丝数 |
+| `video_count` | int | 否 | null | 作品数 |
+| `persona` | str | 否 | null | 人格档案 |
+| `content_plan` | str | 否 | null | 内容规划 |
+| `style_note` | str | 否 | null | 风格备注（**前端字段名**，映射到 DB `style_notes`） |
+| `owner` | str | 否 | null | 负责人姓名 |
+| `owner_id` | int | 否 | null | 负责人 user_id |
+
+**Response**：`success_response(data=_kol_to_dict(kol), message="红人创建成功")`
+
+**错误码**：
+- `RESOURCE_ALREADY_EXISTS` — douyin_id 或 sec_uid 已存在（未软删）
+
+**写 OperationLog**：action=`create_kol`，target_type=`kol`。
+
+### 6A.4 GET `/api/admin/kols/{kol_id}` — 红人详情
+
+返回单个红人完整字段，**含 `tikhub_raw` 原始数据**（列表接口不返回此字段）。
+
+**错误码**：
+- `RESOURCE_NOT_FOUND` — 红人不存在或已软删
+
+### 6A.5 PATCH `/api/admin/kols/{kol_id}` — 更新红人
+
+**Request Body**：`UpdateKolRequest`（所有字段均可选，与 CreateKolRequest 字段集相同）
+
+> ⚠️ **2026-07-12 起**：`UpdateKolRequest` **删除了 `status` 字段**。`status` 改为根据 persona + content_plan 动态计算（见 §6A.8）。客户端若仍传 `status` 字段，会被 Pydantic 静默忽略（不报错但不生效）。
+
+**写 OperationLog**：action=`update_kol`，target_type=`kol`，target_id=kol_id，detail=变更字段（除 `updated_at` 外）的 KV 字典；无变更时 detail=null。
+
+**错误码**：
+- `RESOURCE_NOT_FOUND` — 红人不存在或已软删
+
+### 6A.6 DELETE `/api/admin/kols/{kol_id}` — 软删
+
+设置 `deleted_at = now()`，**不物理删除**。GET 列表 / 详情均排除已软删记录。`douyin_id` / `sec_uid` 的唯一约束基于 `deleted_at IS NULL` 的部分唯一索引，软删后可重建同号红人。
+
+**写 OperationLog**：action=`delete_kol`。
+
+**错误码**：
+- `RESOURCE_NOT_FOUND` — 红人不存在或已软删
+
+### 6A.7 POST `/api/admin/kols/{kol_id}/fetch-tikhub` — TikHub 拉取
+
+手动触发 TikHub 数据抓取：优先用 sec_uid，为空时用 douyin_id。无论成功失败都写 `external_service_logs`（详见 TikHub 章节日志约定）。返回拉取结果 + 更新后的 kol 字段。
+
+**Response**：
+```json
+{
+  "success": true,
+  "data": {
+    "tikhub": { "sec_uid": "...", "follower_count": 12345, ... },
+    "kol": { "id": 1, ... }
+  }
+}
+```
+
+**错误码**：
+- `RESOURCE_NOT_FOUND` — 红人不存在或已软删
+
+### 6A.8 字段说明：`status` 计算字段（2026-07-12 重构）
+
+**重要变更**：`status` 从手动管理的 DB 字段改为**计算字段**，基于 `persona` 和 `content_plan` 是否非空动态计算。原 DB 列 `kols.status` **已 deprecated**（仍保留，但代码不再读写；未来通过 migration 删除该列）。
+
+4 种计算状态：
+
+| status 值 | 触发条件 | 含义 |
+|-----------|----------|------|
+| `pending_onboarding` | persona 空 + content_plan 空 | 待入驻 |
+| `persona_done` | persona 有 + content_plan 空 | 人格档案已填 |
+| `content_done` | persona 空 + content_plan 有 | 内容规划已填 |
+| `onboarded` | persona 有 + content_plan 有 | 入驻完成 |
+
+**"空"判定逻辑**：`bool(value and value.strip())`（None、空字符串、纯空白字符串 — 含空格/Tab/换行 — 均视为空）。
+
+**GET 列表的 `status` 查询参数**：传入上述 4 种合法值之一时，按相同的 persona / content_plan 组合条件过滤；传入其他值时静默忽略（不应用任何过滤）。
+
+**代码位置**：`app/routers/admin_kols.py::_compute_status(persona, content_plan)`。
+
+---
+
 ## 7. M2 错误码补充
 
 | HTTP 状态 | code | 含义 |
