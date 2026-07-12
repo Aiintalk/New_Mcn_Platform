@@ -377,14 +377,13 @@ export function QianchuanWriterModule({ kolId }: { kolId: number }) {
                   borderRadius: 'var(--radius-md)',
                   fontSize: 13,
                   color: 'var(--gray-600)',
-                  maxHeight: 120,
+                  maxHeight: 300,
                   overflowY: 'auto',
                   whiteSpace: 'pre-wrap',
                   marginBottom: 'var(--sp-3)',
                 }}
               >
-                {productText.slice(0, 400)}
-                {productText.length > 400 ? '...' : ''}
+                {productText}
               </div>
               {currentStep === 2 && (
                 <Button type="primary" disabled={!step2Ok} onClick={() => setCurrentStep(3)}>

@@ -434,23 +434,29 @@ export default function HistoryList({ refreshSignal = 0 }: HistoryListProps) {
                                     {item.original_url}
                                   </Text>
                                   {item.status === 'success' && item.transcript && (
-                                    <div>
+                                    <Space direction="vertical" size={4} style={{ width: '100%' }}>
                                       <div
                                         style={{
                                           padding: '8px 10px',
-                                          background: '#fff',
+                                          backgroundColor: '#fff',
                                           border: '1px solid var(--gray-100)',
                                           borderRadius: 6,
                                           maxHeight: 200,
                                           overflowY: 'auto',
-                                          fontSize: 12,
-                                          lineHeight: 1.7,
-                                          whiteSpace: 'pre-wrap',
-                                          wordBreak: 'break-word',
-                                          marginBottom: 6,
                                         }}
                                       >
-                                        {item.transcript}
+                                        <pre
+                                          style={{
+                                            margin: 0,
+                                            fontSize: 12,
+                                            lineHeight: 1.7,
+                                            whiteSpace: 'pre-wrap',
+                                            wordBreak: 'break-word',
+                                            fontFamily: 'var(--font-sans)',
+                                          }}
+                                        >
+                                          {item.transcript}
+                                        </pre>
                                       </div>
                                       <Button
                                         size="small"
@@ -459,7 +465,7 @@ export default function HistoryList({ refreshSignal = 0 }: HistoryListProps) {
                                       >
                                         复制文本
                                       </Button>
-                                    </div>
+                                    </Space>
                                   )}
                                   {item.status === 'failed' && item.error && (
                                     <Alert type="error" message={item.error} banner />

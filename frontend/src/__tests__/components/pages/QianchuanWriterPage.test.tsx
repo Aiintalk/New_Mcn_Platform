@@ -280,6 +280,38 @@ describe('QianchuanWriterPage', () => {
       );
     });
   });
+
+  // Test 10 (PR #18 Bug #15): 长 Brief（>400 字）完整展示，不截断
+  it('displays full product text without truncation when Brief exceeds 400 chars', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<QianchuanWriterPage />);
+
+    await openSelectAndPick(user, /孙知羽/);
+    await user.click(screen.getByRole('button', { name: '确认，去加载产品 →' }));
+
+    // 切换到粘贴模式
+    await waitFor(() => screen.getByText('直接粘贴文本'));
+    await user.click(screen.getByText('直接粘贴文本'));
+
+    // 构造 500 字 Brief，含唯一的尾部标记（旧逻辑会截断到 400 字从而丢失此标记）
+    const longBrief = '产品卖点'.repeat(20) + 'TAIL_MARKER_UNIQUE_XYZ';
+    const textarea = await waitFor(() =>
+      screen.getByPlaceholderText(/把产品卖点卡粘贴到这里/),
+    );
+    // 用 fireEvent.change 一次性灌入长文本，避开 user.type 逐字符 500 次的慢路径
+    fireEvent.change(textarea, { target: { value: longBrief } });
+
+    await waitFor(() => {
+      const btn = screen.getByRole('button', { name: /确\s*认/ });
+      expect(btn).not.toBeDisabled();
+    });
+    await user.click(screen.getByRole('button', { name: /确\s*认/ }));
+
+    // 断言：尾部标记完整出现在展示区，证明未走旧的 slice(0, 400) 截断
+    await waitFor(() => {
+      expect(screen.getByText(/TAIL_MARKER_UNIQUE_XYZ/)).toBeInTheDocument();
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -171,26 +171,44 @@ def test_format_videos_text_empty():
 
 @pytest.mark.asyncio
 @patch("app.adapters.tikhub._get_key_and_url")
-@patch("app.adapters.tikhub.report_success", new_callable=AsyncMock)
-@patch("app.adapters.tikhub.report_failure", new_callable=AsyncMock)
-@patch("app.adapters.tikhub.get_user_profile", new_callable=AsyncMock)
-async def test_resolve_sec_user_id_with_douyin_id(mock_profile, mock_failure, mock_success, mock_get_key):
-    """纯抖音号解析：输入直接作为 sec_uid，通过 get_user_profile 获取 nickname。"""
+@patch("app.adapters.tikhub._report_success", new_callable=AsyncMock)
+@patch("app.adapters.tikhub._report_failure", new_callable=AsyncMock)
+async def test_resolve_sec_user_id_with_douyin_id(mock_failure, mock_success, mock_get_key):
+    """抖音号（unique_id）解析：走 handler_user_profile_v2 端点，返回 sec_uid + nickname + avatar。"""
     mock_get_key.return_value = (1, "test_key", "https://api.tikhub.io")
-    mock_profile.return_value = {"nickname": "测试达人"}
     mock_db = AsyncMock()
 
-    from app.adapters.tikhub import resolve_sec_user_id
-    result = await resolve_sec_user_id("testuser123", mock_db)
+    with patch("httpx.AsyncClient") as MockClient:
+        client_instance = AsyncMock()
+        MockClient.return_value.__aenter__.return_value = client_instance
 
-    assert result["sec_user_id"] == "testuser123"
+        profile_resp = MagicMock()
+        profile_resp.status_code = 200
+        profile_resp.raise_for_status = MagicMock()
+        profile_resp.json.return_value = {
+            "data": {
+                "status_code": 0,
+                "user_info": {
+                    "sec_uid": "SEC_FROM_UNIQUE_ID",
+                    "nickname": "测试达人",
+                    "avatar_thumb": {"url_list": ["https://example.com/a.jpg"]},
+                },
+            }
+        }
+        client_instance.get.return_value = profile_resp
+
+        from app.adapters.tikhub import resolve_sec_user_id
+        result = await resolve_sec_user_id("testuser123", mock_db)
+
+    assert result["sec_user_id"] == "SEC_FROM_UNIQUE_ID"
     assert result["nickname"] == "测试达人"
+    assert result["_avatar_url"] == "https://example.com/a.jpg"
 
 
 @pytest.mark.asyncio
 @patch("app.adapters.tikhub._get_key_and_url")
-@patch("app.adapters.tikhub.report_success", new_callable=AsyncMock)
-@patch("app.adapters.tikhub.report_failure", new_callable=AsyncMock)
+@patch("app.adapters.tikhub._report_success", new_callable=AsyncMock)
+@patch("app.adapters.tikhub._report_failure", new_callable=AsyncMock)
 async def test_resolve_sec_user_id_with_url(mock_failure, mock_success, mock_get_key):
     """链接解析：先通过 get_sec_user_id 获取 sec_uid，再查 profile。"""
     mock_get_key.return_value = (1, "test_key", "https://api.tikhub.io")
@@ -225,7 +243,7 @@ async def test_resolve_sec_user_id_with_url(mock_failure, mock_success, mock_get
 
 @pytest.mark.asyncio
 @patch("app.adapters.tikhub._get_key_and_url")
-@patch("app.adapters.tikhub.report_failure", new_callable=AsyncMock)
+@patch("app.adapters.tikhub._report_failure", new_callable=AsyncMock)
 async def test_resolve_sec_user_id_api_error(mock_failure, mock_get_key):
     """API 调用失败应抛出 RuntimeError。"""
     mock_get_key.return_value = (1, "test_key", "https://api.tikhub.io")
@@ -249,8 +267,8 @@ async def test_resolve_sec_user_id_api_error(mock_failure, mock_get_key):
 
 @pytest.mark.asyncio
 @patch("app.adapters.tikhub._get_key_and_url")
-@patch("app.adapters.tikhub.report_success", new_callable=AsyncMock)
-@patch("app.adapters.tikhub.report_failure", new_callable=AsyncMock)
+@patch("app.adapters.tikhub._report_success", new_callable=AsyncMock)
+@patch("app.adapters.tikhub._report_failure", new_callable=AsyncMock)
 async def test_fetch_user_videos_single_page(mock_failure, mock_success, mock_get_key):
     """单页返回。"""
     mock_get_key.return_value = (1, "test_key", "https://api.tikhub.io")
@@ -285,8 +303,8 @@ async def test_fetch_user_videos_single_page(mock_failure, mock_success, mock_ge
 
 @pytest.mark.asyncio
 @patch("app.adapters.tikhub._get_key_and_url")
-@patch("app.adapters.tikhub.report_success", new_callable=AsyncMock)
-@patch("app.adapters.tikhub.report_failure", new_callable=AsyncMock)
+@patch("app.adapters.tikhub._report_success", new_callable=AsyncMock)
+@patch("app.adapters.tikhub._report_failure", new_callable=AsyncMock)
 async def test_fetch_user_videos_pagination(mock_failure, mock_success, mock_get_key):
     """多页翻页。"""
     mock_get_key.return_value = (1, "test_key", "https://api.tikhub.io")
@@ -330,8 +348,8 @@ async def test_fetch_user_videos_pagination(mock_failure, mock_success, mock_get
 
 @pytest.mark.asyncio
 @patch("app.adapters.tikhub._get_key_and_url")
-@patch("app.adapters.tikhub.report_success", new_callable=AsyncMock)
-@patch("app.adapters.tikhub.report_failure", new_callable=AsyncMock)
+@patch("app.adapters.tikhub._report_success", new_callable=AsyncMock)
+@patch("app.adapters.tikhub._report_failure", new_callable=AsyncMock)
 async def test_fetch_user_videos_empty(mock_failure, mock_success, mock_get_key):
     """无视频返回空列表。"""
     mock_get_key.return_value = (1, "test_key", "https://api.tikhub.io")
@@ -355,7 +373,7 @@ async def test_fetch_user_videos_empty(mock_failure, mock_success, mock_get_key)
 
 @pytest.mark.asyncio
 @patch("app.adapters.tikhub._get_key_and_url")
-@patch("app.adapters.tikhub.report_failure", new_callable=AsyncMock)
+@patch("app.adapters.tikhub._report_failure", new_callable=AsyncMock)
 async def test_fetch_user_videos_api_error(mock_failure, mock_get_key):
     """API 异常应抛出 RuntimeError。"""
     mock_get_key.return_value = (1, "test_key", "https://api.tikhub.io")
@@ -420,8 +438,8 @@ def test_clean_share_url_preserves_https_scheme():
 
 @pytest.mark.asyncio
 @patch("app.adapters.tikhub._get_key_and_url")
-@patch("app.adapters.tikhub.report_success", new_callable=AsyncMock)
-@patch("app.adapters.tikhub.report_failure", new_callable=AsyncMock)
+@patch("app.adapters.tikhub._report_success", new_callable=AsyncMock)
+@patch("app.adapters.tikhub._report_failure", new_callable=AsyncMock)
 @patch("app.adapters.tikhub._resolve_short_url", new_callable=AsyncMock)
 async def test_fetch_video_by_share_url_success(mock_resolve, mock_failure, mock_success, mock_get_key):
     """成功解析分享链接获取视频信息。"""
@@ -473,8 +491,8 @@ async def test_fetch_video_by_share_url_success(mock_resolve, mock_failure, mock
 
 @pytest.mark.asyncio
 @patch("app.adapters.tikhub._get_key_and_url")
-@patch("app.adapters.tikhub.report_success", new_callable=AsyncMock)
-@patch("app.adapters.tikhub.report_failure", new_callable=AsyncMock)
+@patch("app.adapters.tikhub._report_success", new_callable=AsyncMock)
+@patch("app.adapters.tikhub._report_failure", new_callable=AsyncMock)
 @patch("app.adapters.tikhub._resolve_short_url", new_callable=AsyncMock)
 async def test_fetch_video_by_share_url_audio_empty_when_no_music(
     mock_resolve, mock_failure, mock_success, mock_get_key
@@ -519,7 +537,7 @@ async def test_fetch_video_by_share_url_audio_empty_when_no_music(
 
 @pytest.mark.asyncio
 @patch("app.adapters.tikhub._get_key_and_url")
-@patch("app.adapters.tikhub.report_failure", new_callable=AsyncMock)
+@patch("app.adapters.tikhub._report_failure", new_callable=AsyncMock)
 async def test_fetch_video_by_share_url_api_error(mock_failure, mock_get_key):
     """API 异常应抛出 RuntimeError。"""
     mock_get_key.return_value = (1, "test_key", "https://api.tikhub.io")
@@ -541,7 +559,7 @@ async def test_fetch_video_by_share_url_api_error(mock_failure, mock_get_key):
 
 @pytest.mark.asyncio
 @patch("app.adapters.tikhub._get_key_and_url")
-@patch("app.adapters.tikhub.report_failure", new_callable=AsyncMock)
+@patch("app.adapters.tikhub._report_failure", new_callable=AsyncMock)
 async def test_fetch_video_by_share_url_no_url_in_input(mock_failure, mock_get_key):
     """输入不含 URL 时应抛出 RuntimeError。"""
     mock_get_key.return_value = (1, "test_key", "https://api.tikhub.io")
@@ -556,8 +574,8 @@ async def test_fetch_video_by_share_url_no_url_in_input(mock_failure, mock_get_k
 
 @pytest.mark.asyncio
 @patch("app.adapters.tikhub._get_key_and_url")
-@patch("app.adapters.tikhub.report_success", new_callable=AsyncMock)
-@patch("app.adapters.tikhub.report_failure", new_callable=AsyncMock)
+@patch("app.adapters.tikhub._report_success", new_callable=AsyncMock)
+@patch("app.adapters.tikhub._report_failure", new_callable=AsyncMock)
 @patch("app.adapters.tikhub._resolve_short_url", new_callable=AsyncMock)
 async def test_fetch_video_by_share_url_cleans_dirty_redirect(
     mock_resolve, mock_failure, mock_success, mock_get_key
@@ -613,3 +631,96 @@ async def test_fetch_video_by_share_url_cleans_dirty_redirect(
     )
     assert "share_sign" not in captured_params["share_url"]
     assert "from_aid" not in captured_params["share_url"]
+
+
+# ── PR #18 新增逻辑：纯数字 uid → unique_id fallback ────────────────
+
+
+@pytest.mark.asyncio
+@patch("app.adapters.tikhub._get_key_and_url")
+@patch("app.adapters.tikhub._report_success", new_callable=AsyncMock)
+@patch("app.adapters.tikhub._report_failure", new_callable=AsyncMock)
+@patch("app.adapters.tikhub.get_user_profile", new_callable=AsyncMock)
+async def test_resolve_sec_user_id_pure_numeric_uid_found_returns_directly(
+    mock_profile, mock_failure, mock_success, mock_get_key
+):
+    """纯数字输入：uid 路径命中时直接返回，不 fallback 到 unique_id。"""
+    mock_get_key.return_value = (1, "test_key", "https://api.tikhub.io")
+    mock_profile.return_value = {"nickname": "UID 达人"}
+    mock_db = AsyncMock()
+
+    with patch("httpx.AsyncClient") as MockClient:
+        client_instance = AsyncMock()
+        MockClient.return_value.__aenter__.return_value = client_instance
+
+        uid_resp = MagicMock()
+        uid_resp.status_code = 200
+        uid_resp.raise_for_status = MagicMock()
+        uid_resp.json.return_value = {
+            "data": {
+                "status_code": 0,
+                "data": {"user_info": {"sec_uid": "SEC_FROM_UID", "nickname": "UID 达人"}},
+            }
+        }
+        client_instance.get.return_value = uid_resp
+
+        from app.adapters.tikhub import resolve_sec_user_id
+        result = await resolve_sec_user_id("7634905327011499316", mock_db)
+
+    # 关键断言：HTTP 只调一次（uid 路径成功，不 fallback）
+    assert client_instance.get.call_count == 1
+    called_url = client_instance.get.call_args[0][0]
+    assert "fetch_user_profile_by_uid" in called_url
+    assert result["sec_user_id"] == "SEC_FROM_UID"
+    assert result["nickname"] == "UID 达人"
+
+
+@pytest.mark.asyncio
+@patch("app.adapters.tikhub._get_key_and_url")
+@patch("app.adapters.tikhub._report_success", new_callable=AsyncMock)
+@patch("app.adapters.tikhub._report_failure", new_callable=AsyncMock)
+async def test_resolve_sec_user_id_pure_numeric_uid_falls_back_to_unique_id(
+    mock_failure, mock_success, mock_get_key
+):
+    """纯数字输入：uid 查无结果时自动 fallback 到抖音号（unique_id）查询。"""
+    mock_get_key.return_value = (1, "test_key", "https://api.tikhub.io")
+    mock_db = AsyncMock()
+
+    with patch("httpx.AsyncClient") as MockClient:
+        client_instance = AsyncMock()
+        MockClient.return_value.__aenter__.return_value = client_instance
+
+        # 第 1 次：uid 路径返回成功但 user_info 为空（status_code != 0 视为无果）
+        uid_resp = MagicMock()
+        uid_resp.status_code = 200
+        uid_resp.raise_for_status = MagicMock()
+        uid_resp.json.return_value = {"data": {"status_code": 1, "user_info": None}}
+
+        # 第 2 次：unique_id 路径返回成功
+        unique_resp = MagicMock()
+        unique_resp.status_code = 200
+        unique_resp.raise_for_status = MagicMock()
+        unique_resp.json.return_value = {
+            "data": {
+                "status_code": 0,
+                "user_info": {
+                    "sec_uid": "SEC_FROM_UNIQUE_ID",
+                    "nickname": "数字抖音号达人",
+                    "avatar_thumb": {"url_list": ["https://example.com/avatar.jpg"]},
+                },
+            }
+        }
+        client_instance.get.side_effect = [uid_resp, unique_resp]
+
+        from app.adapters.tikhub import resolve_sec_user_id
+        result = await resolve_sec_user_id("8888888888", mock_db)
+
+    # 关键断言：HTTP 调 2 次（uid + unique_id fallback）
+    assert client_instance.get.call_count == 2
+    first_url = client_instance.get.call_args_list[0][0][0]
+    second_url = client_instance.get.call_args_list[1][0][0]
+    assert "fetch_user_profile_by_uid" in first_url
+    assert "handler_user_profile_v2" in second_url
+    assert result["sec_user_id"] == "SEC_FROM_UNIQUE_ID"
+    assert result["nickname"] == "数字抖音号达人"
+    assert result["_avatar_url"] == "https://example.com/avatar.jpg"

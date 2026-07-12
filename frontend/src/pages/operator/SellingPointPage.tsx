@@ -141,7 +141,16 @@ export default function SellingPointPage() {
         const { done, value } = await reader.read();
         if (done) break;
         full += decoder.decode(value, { stream: true });
-        setResult(full);
+        // 实时展示时先去掉末尾可能的 [ERROR] 行（防止闪烁）
+        setResult(full.replace(/\n\n\[ERROR\][\s\S]*$/, ''));
+      }
+      // 流结束后检测 [ERROR]，转为错误提示
+      const errorMatch = full.match(/\n\n\[ERROR\]([\s\S]*)$/);
+      if (errorMatch) {
+        const cleanResult = full.replace(/\n\n\[ERROR\][\s\S]*$/, '').trim();
+        setResult(cleanResult);
+        setError(`AI 服务暂时不可用，请稍后重试（${errorMatch[1].trim().slice(0, 80)}）`);
+        return;
       }
       const finalHistory: ChatMsg[] = [{ role: 'user', content: userMsg }, { role: 'assistant', content: full }];
       setChatHistory(finalHistory);

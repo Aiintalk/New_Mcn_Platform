@@ -247,6 +247,57 @@ BugFix：      BugFix_{序号}_{描述}.md
 
 ## 最近改动
 
+### 2026-07-07 PR #18 修复 Bug #12-17 系统反馈问题
+
+**背景**：飞书 wiki 集中反馈的 6 个用户体验 Bug，由外部贡献者 `chongzhang258-star` 提交 PR，PM 本地 rebase main 解决冲突后合并（保留 PR #19 的 provider 修复 + 叠加 PR #18 的重试逻辑）。
+
+**修复内容**（按 Bug 编号）：
+
+| Bug # | 模块 | 问题 | 修复 |
+|-------|------|------|------|
+| #12 | 字幕提取 - 批量历史 | transcript 截断 120 字 + 缺「复制文本」按钮 | `subtitle/HistoryList.tsx`：完整展示（滚动 200px）+ 复制按钮 |
+| #13 | 红人工作台 - 对标账号 | 纯数字抖音号报「uid 找不到」 | `adapters/tikhub.py` `resolve_sec_user_id`：纯数字输入优先按 uid 查，无结果自动 fallback 到 unique_id |
+| #14 | 人设仿写 - 开始评估 | 报错无法进入下一步 | `api/personaWriter.ts`：错误消息提取 `err.detail.message` → `err.message`（根因同 Bug #2，依赖 migration 048）|
+| #15 | 千川仿写 - 产品卖点 | 截断 400 字 | `QianchuanWriterPage.tsx`：完整展示（滚动 300px）|
+| #16/#17 | 直播仿写 / 直播复盘 | 无法生成 / 报错 | 根因同 Bug #2（migration 048 已在 main），前端错误消息提取修正 |
+
+**额外改进**（commit 2，selling-point 容错）：
+- `routers/operator_selling_point.py`：`_RETRY_DELAYS=[2,4]` 503/502/429/timeout 自动重试最多 3 次（**保留 PR #19 的 `provider=provider` 不变**）
+- `pages/operator/SellingPointPage.tsx`：流结束后检测 `[ERROR]` 标记，转为友好提示，错误文本不再污染分析报告区域
+- `tests/integration/routers/test_tool_extract_frames.py`：补 `shutil.which` ffmpeg mock + 新增 503 测试用例
+
+**测试**：
+- 后端核心 50 passed（含 selling_point + workspace + extract_frames）
+- 后端 tikhub adapter 12 failed（**预存失败**，main 同样失败，mock 路径 `report_failure` vs `_report_failure`，与本次改动无关）
+- 前端 HistoryList 6/6 + QianchuanWriterPage 10/11（1 失败为预存，main 同样失败）
+
+**依赖**：Bug #14/#16/#17 依赖 migration 048（`048_external_service_logs_tokens_used.sql`，PR #17 已合并到 main，2026-07-02 起）。
+
+**关键不变量验证**（rebase 后保留）：
+- ✅ `provider=provider` 在 `chat_stream` 调用（line 134，PR #19 修复）
+- ✅ `_resolve_model` 返回 `(model_id, provider)` 二元组（PR #19）
+- ✅ `_RETRY_DELAYS` 重试循环结构（PR #18）
+
+### 2026-07-07 PR #18 测试补漏 + tikhub adapter 预存失败修复
+
+**背景**：PR #18 合并后审计发现 — 4 处关键改动完全无测试覆盖 + tikhub adapter 12 个预存失败（mock 路径 `report_failure` 与实际 `_report_failure` 不一致）+ 2 处前端测试断言不完整。本 PR 单独成支补漏，不动生产代码。
+
+**补漏内容**（按 PR #18 改动点）：
+
+| 改动点 | 补漏前 | 补漏后 |
+|-------|--------|--------|
+| `tikhub.resolve_sec_user_id` 纯数字 fallback | 无 fallback 测试 | 2 个：纯数字 uid 命中走快捷路径 + uid 无果 fallback 到 unique_id |
+| tikhub adapter 12 预存失败 | mock 路径错误 | 全部改为 `_report_success`/`_report_failure`，重写 douyin_id 测试，12/12 通过 |
+| `operator_selling_point` 503 重试 | 仅 1 个 error marker 测试 | +2 个：503 重试后成功 + 重试耗尽仍 yield [ERROR]（patch asyncio.sleep 跳过真实等待） |
+| `personaWriter.ts` 3 处错误消息提取 | 完全无测试 | 新建 `__tests__/unit/api/personaWriter.test.ts`（6 个：3 函数主路径 + 3 状态码回退） |
+| `SellingPointPage.tsx` [ERROR] 标记处理 | 完全无测试 | 新建 `__tests__/components/pages/SellingPointPage.test.tsx`（2 个：标记清理 + 友好提示 / 健康流） |
+| `HistoryList.tsx` 批量任务复制按钮 | 展开测试无复制按钮断言 | 加 `expect(screen.getByText('复制文本'))` |
+| `QianchuanWriterPage.tsx` 长 Brief 不截断 | 完全无测试 | +1 个：500 字 Brief 含尾部标记，验证标记完整展示（不走旧 `slice(0, 400)` 截断） |
+
+**全量回归**：后端 1123 passed / 1 skipped / 2 failed（livestream Pages 解析，预存）/ 8 errors（concurrent 并发测试，需特殊基础设施）；前端 265 passed / 2 failed（KolWorkspace / QianchuanWriterPage 各 1，均为预存）。
+
+**测试原则贯彻**：本 PR 不修改任何生产代码，纯补漏 + 修测试代码本身。生产代码全量回归通过，覆盖率不退化。
+
 ### 2026-07-03 修复 AI 多服务商切换不生效 + siliconflow list index out of range
 
 **背景**：管理端切换厂商模型后调用 AI 不生效（仍走默认 yunwu 网关）；用户切到 siliconflow 后报 `[siliconflow]: list index out of range`。
