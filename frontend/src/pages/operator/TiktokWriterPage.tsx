@@ -360,7 +360,7 @@ export default function TiktokWriterPage() {
 
       {/* Step 1 */}
       {state.currentStep >= 1 && (
-        <div className="card" style={{ marginBottom: 'var(--sp-4)' }}>
+        <div className="card workspace-step-card" style={{ marginBottom: 'var(--sp-4)' }}>
           <h3 style={{ marginBottom: 'var(--sp-3)' }}>Step 1 · Source</h3>
           <div style={{ marginBottom: 'var(--sp-3)' }}>
             <label style={{ display: 'block', marginBottom: 4, fontWeight: 500 }}>TikTok 视频链接</label>
@@ -393,7 +393,7 @@ export default function TiktokWriterPage() {
 
       {/* Step 2 */}
       {state.currentStep >= 2 && (
-        <div className="card" style={{ marginBottom: 'var(--sp-4)' }}>
+        <div className="card workspace-step-card" style={{ marginBottom: 'var(--sp-4)' }}>
           <h3 style={{ marginBottom: 'var(--sp-3)' }}>Step 2 · Validate Opening Hook</h3>
           <Button type="primary" loading={state.isStreaming} onClick={handleEvaluateHook}
             style={{ marginBottom: 'var(--sp-3)' }}>
@@ -424,7 +424,7 @@ export default function TiktokWriterPage() {
 
       {/* Step 3 */}
       {state.currentStep >= 3 && (
-        <div className="card" style={{ marginBottom: 'var(--sp-4)' }}>
+        <div className="card workspace-step-card" style={{ marginBottom: 'var(--sp-4)' }}>
           <h3 style={{ marginBottom: 'var(--sp-3)' }}>Step 3 · Analyze Structure</h3>
           <Button type="primary" loading={state.isStreaming} onClick={handleAnalyzeStructure}
             style={{ marginBottom: 'var(--sp-3)' }}>
@@ -446,7 +446,7 @@ export default function TiktokWriterPage() {
 
       {/* Step 4 */}
       {state.currentStep >= 4 && (
-        <div className="card" style={{ marginBottom: 'var(--sp-4)' }}>
+        <div className="card workspace-step-card" style={{ marginBottom: 'var(--sp-4)' }}>
           <h3 style={{ marginBottom: 'var(--sp-3)' }}>Step 4 · Rewrite Body</h3>
           <Radio.Group value={state.rewriteMode}
             onChange={e => update({ rewriteMode: e.target.value })}
@@ -488,7 +488,7 @@ export default function TiktokWriterPage() {
 
       {/* Step 5 */}
       {state.currentStep >= 5 && (
-        <div className="card">
+        <div className="card workspace-step-card">
           <h3 style={{ marginBottom: 'var(--sp-3)' }}>Step 5 · Export</h3>
           <div style={{ marginBottom: 'var(--sp-3)' }}>
             <label style={{ display: 'block', marginBottom: 4, fontWeight: 500 }}>Final Body（可直接编辑）</label>

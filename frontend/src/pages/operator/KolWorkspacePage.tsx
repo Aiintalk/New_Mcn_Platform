@@ -89,112 +89,75 @@ export default function KolWorkspacePage() {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: 'var(--bg-page)' }}>
+    <div className="workspace-shell">
       {/* 顶部栏 */}
       <div
         data-testid="workspace-topbar"
-        style={{
-          height: 52,
-          background: 'var(--bg-card)',
-          borderBottom: '1px solid var(--border)',
-          display: 'flex',
-          alignItems: 'center',
-          padding: '0 var(--sp-6)',
-          gap: 'var(--sp-4)',
-          flexShrink: 0,
-        }}
+        className="workspace-topbar"
       >
         <button
-          className="btn btn-ghost btn-sm"
+          className="btn btn-ghost btn-sm workspace-back-btn"
           onClick={() => navigate('/admin/kols')}
-          style={{ display: 'flex', alignItems: 'center', gap: 4 }}
         >
           <ArrowLeftOutlined />
           返回红人列表
         </button>
 
-        <div style={{ width: 1, height: 20, background: 'var(--border)' }} />
+        <div className="workspace-topbar-divider" />
 
         {/* 红人头像 + 姓名 */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
+        <div className="workspace-kol-meta">
           <img
             src={kolAvatar || '/default-avatar.svg'}
             alt={kolName || '红人'}
             onError={(e) => { e.currentTarget.src = '/default-avatar.svg'; }}
-            style={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover' }}
+            className="workspace-kol-avatar"
           />
-          <span style={{ fontWeight: 600, fontSize: 14, color: 'var(--gray-800)' }}>
+          <span className="workspace-kol-name">
             {kolName || '加载中...'}
           </span>
-          <span style={{ fontSize: 12, color: 'var(--gray-400)' }}>工作台</span>
+          <span className="workspace-kol-label">工作台</span>
         </div>
 
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span
-            style={{
-              display: 'inline-block',
-              width: 8, height: 8, borderRadius: '50%',
-              background: 'var(--success)',
-            }}
-          />
-          <span style={{ fontSize: 12, color: 'var(--gray-400)' }}>系统运行中</span>
+        <div className="workspace-status">
+          <span className="workspace-status-dot" />
+          <span>系统运行中</span>
         </div>
       </div>
 
       {/* 主体区：左侧导航 + 右侧内容 */}
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+      <div className="workspace-body">
         {/* 左侧导航 */}
         <aside
           data-testid="workspace-sidebar"
-          style={{
-            width: 160,
-            background: 'var(--bg-sidebar)',
-            borderRight: '1px solid rgba(255,255,255,0.05)',
-            display: 'flex',
-            flexDirection: 'column',
-            padding: 'var(--sp-4) 0',
-            flexShrink: 0,
-          }}
+          className="workspace-sidebar"
         >
           {NAV_ITEMS.filter(item =>
             !enabledTabs || enabledTabs.includes(item.tab as WorkspaceTabCode)
           ).map((item) => {
             const isActive = activeTab === item.tab;
+            const navClassName = [
+              'workspace-nav-item',
+              isActive ? 'active' : '',
+              item.disabled ? 'disabled' : '',
+            ].filter(Boolean).join(' ');
             return (
               <div
                 key={item.tab}
                 data-testid={`nav-item-${item.tab}`}
                 onClick={() => handleNavClick(item)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 'var(--sp-2)',
-                  padding: '10px var(--sp-4)',
-                  fontSize: 13,
-                  cursor: item.disabled ? 'not-allowed' : 'pointer',
-                  opacity: item.disabled ? 0.4 : 1,
-                  color: isActive ? 'var(--sidebar-active)' : 'var(--sidebar-text)',
-                  background: isActive ? 'rgba(245,149,35,0.12)' : 'transparent',
-                  borderLeft: isActive ? '3px solid var(--brand)' : '3px solid transparent',
-                  transition: 'all 0.15s',
-                  userSelect: 'none',
-                }}
+                className={navClassName}
+                aria-current={isActive ? 'page' : undefined}
               >
-                <span style={{ fontSize: 14 }}>{item.icon}</span>
-                <span>{item.label}</span>
+                <span className="workspace-nav-icon">{item.icon}</span>
+                <span className="workspace-nav-label">{item.label}</span>
               </div>
             );
           })}
         </aside>
 
         {/* 主内容区 */}
-        <main
-          style={{
-            flex: 1,
-            overflow: 'auto',
-            padding: 'var(--sp-6)',
-          }}
-        >
+        <main className="workspace-main">
           {activeTab === 'dashboard' && (
             <WorkspaceDashboard
               kolId={kolId}

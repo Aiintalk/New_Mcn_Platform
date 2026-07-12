@@ -5,7 +5,8 @@ import { message } from 'antd';
 
 const MENU = [
   { path: '/',          label: '概览',     icon: '⊞' },
-  { path: '/workspace', label: '创作中心', icon: '✦' },
+  { path: '/workspace', label: 'AI工具箱', icon: '✦' },
+  { path: '/kol-hub',   label: '红人工作台', icon: '★' },
   { path: '/tasks',     label: '任务中心', icon: '☑' },
   { path: '/outputs',   label: '产出中心', icon: '⬇' },
 ];

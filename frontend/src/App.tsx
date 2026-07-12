@@ -47,6 +47,7 @@ const SubtitleExtractorPage = lazy(() => import('./pages/operator/SubtitleExtrac
 const ValuesWriterPage = lazy(() => import('./pages/operator/ValuesWriterPage'));
 const QianchuanScriptReviewPage = lazy(() => import('./pages/operator/QianchuanScriptReviewPage'));
 const KolWorkspacePage = lazy(() => import('./pages/operator/KolWorkspacePage'));
+const KolHubPage = lazy(() => import('./pages/operator/KolHubPage'));
 const KolWorkspaceConfigPage = lazy(() => import('./pages/admin/KolWorkspaceConfigPage'));
 
 function Page403() {
@@ -129,6 +130,7 @@ export default function App() {
               <Route path="/workspace/kol-intake/chat" element={<OperatorIntakeChatPage />} />
               <Route path="/tasks" element={<TasksPage />} />
               <Route path="/outputs" element={<OutputsPage />} />
+              <Route path="/kol-hub" element={<KolHubPage />} />
             </Route>
           </Route>
 
