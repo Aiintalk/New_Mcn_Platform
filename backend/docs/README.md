@@ -247,6 +247,31 @@ BugFix：      BugFix_{序号}_{描述}.md
 
 ## 最近改动
 
+### 2026-07-12 PR #25 红人入驻状态重构 + 运营端红人工作台入口
+
+**背景**：红人 status 从手动管理的 DB 字段改为根据 persona + content_plan 动态计算；运营端新增红人工作台统一入口。
+
+**改动**：
+
+| 模块 | 文件 | 变更 |
+|------|------|------|
+| 后端 - 路由 | `admin_kols.py` | 新增 `_compute_status(persona, content_plan)`：4 种状态（pending_onboarding / persona_done / content_done / onboarded）动态计算 |
+| 后端 - 路由 | `admin_kols.py` | `_kol_to_dict` 的 status 字段改为 `_compute_status(...)`；`UpdateKolRequest` 删除 `status` 字段；GET 列表的 status 查询参数改用 persona / content_plan 组合条件 |
+| 后端 - 中间件 | `middlewares/auth.py` | 新增 `require_admin_or_operator` 权限函数（admin + operator 可读，含强制改密检查） |
+| 后端 - 路由 | `admin_kols.py` | `list_kols` / `get_kol` 权限从 `require_admin` 放宽为 `require_admin_or_operator`；写操作仍为 `require_admin` |
+| 前端 - 页面 | `KolHubPage.tsx`（新增） | 运营端红人工作台入口 `/kol-hub`（426 行）|
+| 前端 - 菜单 | 菜单结构 | 「创作中心」改名为「AI工具箱」+ 新增一级菜单「红人工作台」 |
+| 前端 - 种草文 | `SeedingWriterPage.tsx` | 产品库选择加「刷新列表」+「+新建商品」按钮 |
+| 前端 - 字幕 | `subtitle/HistoryList.tsx` | 批量任务 transcript 全文展示 + 复制文本按钮（与 PR #18 Bug #12 同一件事，rebase 时保留 main 版本） |
+
+**已 deprecated**：DB 列 `kols.status`（仍保留，代码不再读写，未来通过 migration 删除）。
+
+**契约文档**：本次同步在 `Base_API` 补「6A. 红人管理接口」章节（含 6 端点 + status 计算字段说明）。
+
+**测试**：补 `_compute_status` 单元测试（6 用例）+ `require_admin_or_operator` 权限测试（5 用例），覆盖 4 种状态计算 + admin/operator/viewer/未认证/未改密 5 种权限场景。
+
+---
+
 ### 2026-07-07 PR #18 修复 Bug #12-17 系统反馈问题
 
 **背景**：飞书 wiki 集中反馈的 6 个用户体验 Bug，由外部贡献者 `chongzhang258-star` 提交 PR，PM 本地 rebase main 解决冲突后合并（保留 PR #19 的 provider 修复 + 叠加 PR #18 的重试逻辑）。
