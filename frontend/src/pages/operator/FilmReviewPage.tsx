@@ -83,7 +83,7 @@ export function FilmReviewModule({ kolId: _kolId }: { kolId: number }) {
     setAnalysisStatus('正在上传两条完整视频');
     setAnalysisSteps(['正在上传两条完整视频']);
     try {
-      const response = await analyzeFilm(original.file, edited.file);
+      const response = await analyzeFilm(_kolId, original.file, edited.file);
       if (!response.ok) {
         const body = await response.json().catch(() => null) as { message?: string; detail?: string } | null;
         throw new Error(body?.message || body?.detail || '完整视频分析请求失败');
@@ -99,25 +99,25 @@ export function FilmReviewModule({ kolId: _kolId }: { kolId: number }) {
       const decoder = new TextDecoder();
       let buffer = '';
       let streamedReport = '';
+      const consumeLine = (line: string) => {
+        if (line.startsWith('__STATUS__')) {
+          const status = line.slice('__STATUS__'.length).trim();
+          if (status) {
+            setAnalysisStatus(status);
+            setAnalysisSteps((steps) => [...steps, status]);
+          }
+          return;
+        }
+        if (!streamedReport && !line) return;
+        streamedReport = streamedReport ? `${streamedReport}\n${line}` : line;
+        setReport(streamedReport);
+      };
       while (true) {
         const { done, value } = await reader.read();
         buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
-        const statusMarker = '__STATUS__';
-        const markerIndex = buffer.lastIndexOf(statusMarker);
-        if (markerIndex >= 0) {
-          const statusEnd = buffer.indexOf('\n', markerIndex);
-          if (statusEnd >= 0) {
-            const status = buffer.slice(markerIndex + statusMarker.length, statusEnd).trim();
-            setAnalysisStatus(status);
-            if (status) setAnalysisSteps((steps) => [...steps, status]);
-            buffer = buffer.slice(0, markerIndex) + buffer.slice(statusEnd + 1);
-          }
-        }
-        if (buffer) {
-          streamedReport += buffer;
-          setReport(streamedReport);
-          buffer = '';
-        }
+        const lines = buffer.split(/\r?\n/);
+        buffer = done ? '' : (lines.pop() || '');
+        lines.forEach(consumeLine);
         if (done) break;
       }
       setOriginal((current) => ({ ...current, status: 'completed' }));

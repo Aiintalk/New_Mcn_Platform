@@ -19,8 +19,9 @@ function getAuthHeaders(): Record<string, string> {
  * 后端在同一次请求中接收两条完整视频并开始分析。
  * 这是 FormData 例外：临时文件由后端和对象存储负责清理。
  */
-export function analyzeFilm(original: File, edited: File): Promise<Response> {
+export function analyzeFilm(kolId: number, original: File, edited: File): Promise<Response> {
   const form = new FormData();
+  form.append('kol_id', String(kolId));
   form.append('original', original);
   form.append('edited', edited);
   return fetch(`${BASE_URL}/api/tools/qianchuan-preview/analyze-video`, {
