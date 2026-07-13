@@ -56,6 +56,7 @@ export interface QianchuanChatRequest {
   create_job?: boolean;
   job_context?: {
     original_script_length?: number;
+    feature?: string;
   };
 }
 
