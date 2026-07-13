@@ -2018,28 +2018,31 @@ Request Body：
 
 | # | 方法 | 路径 | 用途 | 信封 | OperationLog |
 |---|------|------|------|------|-------------|
-| 1 | GET | `/kols?search=` | 红人列表（搜索+聚合）| 标准 | 否 |
+| 1 | GET | `/kols?search=&page=&page_size=` | 红人列表（搜索+聚合+分页）| 标准 | 否 |
 | 2 | GET | `/kols/{kol_id}` | 红人详情（persona + plan + references 按类型分组）| 标准 | 否 |
 | 3 | PUT | `/kols/{kol_id}/profile` | 更新 persona 和/或 content_plan | 标准 | 是 |
 | 4 | POST | `/kols/{kol_id}/references` | 新增参考素材 | 标准 | 是 |
 | 5 | DELETE | `/kols/{kol_id}/references/{ref_id}` | 软删参考素材 | 标准 | 是 |
 | 6 | GET | `/kols/{kol_id}/intake` | 红人最新入驻问卷数据 | 标准 | 否 |
-| 7 | POST | `/kols/{kol_id}/generate-soul` | AI 生成 soul.md 初稿（不自动保存）| 标准 | 否 |
+| 7 | POST | `/kols/{kol_id}/generate-soul` | AI 生成 soul.md 初稿（不自动保存）| 标准 | 是 |
 | 8 | PUT | `/kols/{kol_id}/references/{ref_id}` | 编辑标题、数据说明和正文 | 标准 | 是 |
 | 9 | POST | `/kols/{kol_id}/references/parse-document` | 解析脚本文档，返回可编辑正文和文档元数据 | 标准 | 是 |
 | 10 | POST | `/kols/{kol_id}/references/{ref_id}/video` | 上传或明确替换视频原片 | 标准 | 是 + OSS 调用日志 |
 | 11 | GET | `/kols/{kol_id}/references/{ref_id}/video/playback` | 鉴权后返回短时视频播放地址 | 标准 | OSS 调用日志 |
 
-#### GET /kols?search=
-Response.data：`KolListItem[]`
+#### GET /kols?search=&page=&page_size=
+`page` 默认 1，`page_size` 默认 20，最大 100。Response.data：`{ items: KolListItem[], pagination }`
 ```json
-[{
-  "id": 3, "name": "孙静", "account_name": "sunjing", "category": "美妆",
-  "follower_count": 1200000,
-  "has_persona": true, "has_content_plan": false,
-  "reference_count": 3, "has_intake": true,
-  "updated_at": "2026-06-20T10:00:00+08:00"
-}]
+{
+  "items": [{
+    "id": 3, "name": "孙静", "account_name": "sunjing", "category": "美妆",
+    "follower_count": 1200000,
+    "has_persona": true, "has_content_plan": false,
+    "reference_count": 3, "has_intake": true,
+    "updated_at": "2026-06-20T10:00:00+08:00"
+  }],
+  "pagination": { "page": 1, "page_size": 20, "total": 1 }
+}
 ```
 
 #### GET /kols/{kol_id}
@@ -2066,8 +2069,8 @@ Request Body（两个字段都可选，至少传一个）：
 ```json
 { "persona": "新的人格档案文本", "content_plan": "新的内容规划文本" }
 ```
-Response.data：`{ "success": true }`
-写 OperationLog（action=`update_kol_profile`，target_type=`kols`，target_id=kol_id）。
+Response.data：`{ "kol_id": 3, "updated_fields": ["persona"] }`
+写 OperationLog（action=`material_library_update_profile`，target_type=`kol`，target_id=kol_id）。
 
 #### POST /kols/{kol_id}/references
 Request Body：
@@ -2081,26 +2084,27 @@ Request Body：
 }
 ```
 `type` 必须是 6 类之一：`红人爆款文案 / 红人喜欢的内容 / 风格参考 / 千川爆款文案 / 千川喜欢的内容 / 千川风格参考`
-Response.data：`{ "id": 456 }`
-写 OperationLog（action=`create_kol_reference`）。
+Response.data：完整素材对象（包含 `id`、标题、正文、文档元数据和视频状态；不含私有对象键或播放地址）。
+写 OperationLog（action=`material_library_create_reference`）。
 
 `data_description`、`document_name`、`document_type`、`document_size` 均为可选字段。文档内容解析后由前端在此接口提交，服务端只保存解析结果与元数据，不保存文档的本地永久路径。
 
 #### PUT /kols/{kol_id}/references/{ref_id}
 Request Body 可更新 `title`、`data_description`、`content`；不传的视频字段保持原视频不变。`ref_id` 必须属于路径中的 `kol_id`，否则按不存在处理。
+写 OperationLog（action=`material_library_update_reference`）。
 
 #### POST /kols/{kol_id}/references/parse-document
-`multipart/form-data`，字段名 `file`。支持平台既有文档解析格式，返回 `{ text, document_name, document_type, document_size }`，用于运营在保存素材前修改正文。红人不存在或已删除时不可解析。
+`multipart/form-data`，字段名 `file`。支持平台既有文档解析格式，返回 `{ text, document_name, document_type, document_size }`，用于运营在保存素材前修改正文。红人不存在或已删除时不可解析。写 OperationLog（action=`material_library_parse_document`）。
 
 #### POST /kols/{kol_id}/references/{ref_id}/video
-`multipart/form-data`，字段名 `file`。仅接受 `video/*` 文件；先上传新对象，成功后替换素材的视频元数据，再删除旧对象。数据库只保存私有对象键与文件元数据，不返回或保存长期公开地址。
+`multipart/form-data`，字段名 `file`。仅接受 `video/*` 文件，最大 500MB；服务端按块读取并在超限时停止读取。上传对象强制设置为私有，再替换素材的视频元数据，成功后删除旧对象。数据库只保存私有对象键与文件元数据，不返回或保存长期公开地址。写 OperationLog（action=`material_library_upload_video` 或 `material_library_replace_video`）；对象存储调用另写服务调用日志。
 
 #### GET /kols/{kol_id}/references/{ref_id}/video/playback
 仅当素材属于该红人且未软删、存在视频对象键时返回短时签名地址：`{ "url": "...", "expires_in": 900 }`。地址由后端生成，不写入素材详情或数据库。
 
 #### DELETE /kols/{kol_id}/references/{ref_id}
-软删（`deleted_at = NOW()`）；若有关联视频对象，软删后调用平台对象存储适配层删除对象并自动写服务调用日志。Response.data：`{ "success": true }`
-写 OperationLog（action=`delete_kol_reference`）。
+软删（`deleted_at = NOW()`）；若有关联视频对象，软删后调用平台对象存储适配层删除对象并自动写服务调用日志。Response.data 为空，删除结果在标准信封的 `message` 返回。
+写 OperationLog（action=`material_library_delete_reference`）；若视频对象清理失败，额外写 `material_library_delete_video_cleanup_failed`。
 
 #### GET /kols/{kol_id}/intake
 查询 kol 最新入驻问卷数据（先查 KolIntakeSubmission，再查 KolIntakeOperatorSession）。
@@ -2119,6 +2123,7 @@ Response.data：`IntakeData | null`
 读取 `material_library_configs` 中 `soul_generator` 配置，渲染占位符（`{{kol_name}} {{intake_answers}} {{intake_report}}`），
 调用 yunwu_adapter.chat() 生成初稿。**不自动保存**，仅返回文本供前端预览编辑。
 Response.data：`{ "soul_md": "AI 生成的人格档案初稿..." }`
+写 OperationLog（action=`material_library_generate_soul`）。
 
 ### 24.3 管理端接口（2 个）
 

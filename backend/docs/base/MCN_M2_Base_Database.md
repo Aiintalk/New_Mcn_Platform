@@ -1005,11 +1005,12 @@ migration 033 UPSERT `workspace_tools` 表：
 ### 28.2 索引
 
 - `idx_kol_references_kol_type`：`(kol_id, type) WHERE deleted_at IS NULL` — 列表分组查询主索引
-- `idx_kol_references_kol_recent`：`(kol_id, created_at DESC)` — 最新素材排序
+- `idx_kol_references_kol_recent`：`(kol_id, created_at DESC) WHERE deleted_at IS NULL` — 最新素材排序
+- `idx_kol_references_video_oss_key`：`(video_oss_key) WHERE video_oss_key IS NOT NULL AND deleted_at IS NULL` — 私有视频对象查询与清理
 
 ### 28.3 迁移文件
 
-`034_material_library.sql`
+`034_material_library.sql`（基础表）和 `050_material_library_media.sql`（文档元数据、私有视频对象字段与索引）
 
 ---
 
