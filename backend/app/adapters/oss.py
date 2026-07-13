@@ -101,7 +101,10 @@ async def upload_file(
             bucket.put_object,
             oss_key,
             content,
-            headers={"Content-Type": content_type},
+            headers={
+                "Content-Type": content_type,
+                "x-oss-object-acl": oss2.OBJECT_ACL_PRIVATE,
+            },
         )
         if result.status != 200:
             raise RuntimeError(f"OSS put_object non-200 status={result.status}")

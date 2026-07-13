@@ -57,6 +57,10 @@ async def test_upload_file_success(
     assert result == "test/file.txt"
     # to_thread 应以 put_object 为第一参数被调用
     assert mock_to_thread.call_args.args[0] == bucket.put_object
+    assert mock_to_thread.call_args.kwargs["headers"] == {
+        "Content-Type": "text/plain",
+        "x-oss-object-acl": "private",
+    }
     mock_report_success.assert_awaited_once()
     mock_report_failure.assert_not_awaited()
 

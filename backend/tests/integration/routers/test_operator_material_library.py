@@ -14,6 +14,11 @@ import pytest
 from sqlalchemy import text
 from unittest.mock import AsyncMock
 from uuid import uuid4
+from datetime import datetime, timezone
+
+from app.core.security import create_access_token
+from app.models.user import User
+from app.routers.operator_material_library import MAX_VIDEO_UPLOAD_BYTES
 
 
 # ---------------------------------------------------------------------------
@@ -33,6 +38,58 @@ class TestAuth:
     async def test_no_token(self, test_client):
         resp = await test_client.get("/api/tools/material-library/kols")
         assert resp.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_non_operator_is_forbidden_for_every_material_route(
+        self, test_client, test_session
+    ):
+        user = User(
+            username=f"material_viewer_{uuid4().hex}",
+            real_name="素材访客",
+            password_hash="not-used-in-test",
+            role="viewer",
+            status="enabled",
+            password_changed_at=datetime.now(timezone.utc),
+        )
+        test_session.add(user)
+        await test_session.commit()
+        token = create_access_token(
+            user_id=int(user.id), username=user.username, role=user.role,
+            token_version=int(user.token_version),
+        )
+
+        response = await test_client.get(
+            "/api/tools/material-library/kols",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_operator_must_change_initial_password_before_using_material_library(
+        self, test_client, test_session
+    ):
+        user = User(
+            username=f"material_initial_password_{uuid4().hex}",
+            real_name="待改密运营",
+            password_hash="not-used-in-test",
+            role="operator",
+            status="enabled",
+            password_changed_at=None,
+        )
+        test_session.add(user)
+        await test_session.commit()
+        token = create_access_token(
+            user_id=int(user.id), username=user.username, role=user.role,
+            token_version=int(user.token_version),
+        )
+
+        response = await test_client.get(
+            "/api/tools/material-library/kols",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == 403
 
 
 # ---------------------------------------------------------------------------
@@ -54,8 +111,9 @@ class TestListKols:
         )
         body = resp.json()
         assert body["success"] is True
-        assert isinstance(body["data"], list)
-        assert len(body["data"]) >= 1
+        assert isinstance(body["data"]["items"], list)
+        assert len(body["data"]["items"]) >= 1
+        assert body["data"]["pagination"]["page"] == 1
 
     @pytest.mark.asyncio
     async def test_search_by_name(self, test_client, operator_headers, test_session):
@@ -71,8 +129,8 @@ class TestListKols:
         )
         body = resp.json()
         assert body["success"] is True
-        assert len(body["data"]) >= 1
-        assert any("UniqueSearchKol_xyz" in k["name"] for k in body["data"])
+        assert len(body["data"]["items"]) >= 1
+        assert any("UniqueSearchKol_xyz" in k["name"] for k in body["data"]["items"])
 
     @pytest.mark.asyncio
     async def test_list_has_summary_fields(self, test_client, operator_headers):
@@ -81,11 +139,30 @@ class TestListKols:
             headers=operator_headers,
         )
         body = resp.json()
-        if len(body["data"]) > 0:
-            kol = body["data"][0]
+        if len(body["data"]["items"]) > 0:
+            kol = body["data"]["items"][0]
             for field in ("id", "name", "has_persona", "has_content_plan",
                           "reference_count", "has_intake"):
                 assert field in kol
+
+    @pytest.mark.asyncio
+    async def test_list_paginates_and_returns_total(self, test_client, operator_headers, test_session):
+        for index in range(3):
+            await test_session.execute(text(
+                "INSERT INTO kols (name, status) VALUES (:name, 'signed')"
+            ), {"name": f"PagedMaterialKol_{uuid4().hex}_{index}"})
+        await test_session.commit()
+
+        response = await test_client.get(
+            "/api/tools/material-library/kols?page=1&page_size=2",
+            headers=operator_headers,
+        )
+
+        data = response.json()["data"]
+        assert len(data["items"]) == 2
+        assert data["pagination"]["page"] == 1
+        assert data["pagination"]["page_size"] == 2
+        assert data["pagination"]["total"] >= 3
 
 
 # ---------------------------------------------------------------------------
@@ -412,6 +489,50 @@ class TestMaterialDocumentAndVideo:
         }
         assert upload.await_count == 1
         assert playback.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_video_rejects_declared_oversize_before_reading_full_file(
+        self, test_client, operator_headers, test_session, monkeypatch
+    ):
+        kol_id = await _create_material_kol(test_session, "OversizeVideoMaterialKol")
+        ref_id = await _create_reference(test_client, operator_headers, kol_id)
+        upload = AsyncMock()
+        monkeypatch.setattr("app.adapters.oss.upload_file", upload)
+
+        response = await test_client.post(
+            f"/api/tools/material-library/kols/{kol_id}/references/{ref_id}/video",
+            headers={
+                **operator_headers,
+                "content-length": str(MAX_VIDEO_UPLOAD_BYTES + 1024 * 1024 + 1),
+            },
+            files={"file": ("原片.mp4", b"small-video", "video/mp4")},
+        )
+
+        assert response.json()["success"] is False
+        assert "大小" in response.json()["message"]
+        upload.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_video_stops_chunked_read_when_actual_file_exceeds_limit(
+        self, test_client, operator_headers, test_session, monkeypatch
+    ):
+        kol_id = await _create_material_kol(test_session, "ChunkLimitVideoMaterialKol")
+        ref_id = await _create_reference(test_client, operator_headers, kol_id)
+        upload = AsyncMock()
+        monkeypatch.setattr("app.adapters.oss.upload_file", upload)
+        monkeypatch.setattr(
+            "app.routers.operator_material_library.MAX_VIDEO_UPLOAD_BYTES", 4
+        )
+
+        response = await test_client.post(
+            f"/api/tools/material-library/kols/{kol_id}/references/{ref_id}/video",
+            headers=operator_headers,
+            files={"file": ("原片.mp4", b"12345", "video/mp4")},
+        )
+
+        assert response.json()["success"] is False
+        assert "大小" in response.json()["message"]
+        upload.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_replacing_video_deletes_only_the_previous_private_object(

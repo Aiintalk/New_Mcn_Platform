@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.response import success_response, error_response, ErrorCode
-from app.middlewares.auth import get_current_user
+from app.middlewares.auth import get_current_user, require_admin_or_operator
 from app.models.user import User
 from app.models.kol import Kol
 from app.models.log import OperationLog
@@ -37,12 +37,18 @@ from app.services import document_parser
 from pydantic import BaseModel
 from typing import Optional
 
-router = APIRouter(prefix="/tools/material-library", tags=["material-library"])
+router = APIRouter(
+    prefix="/tools/material-library",
+    tags=["material-library"],
+    dependencies=[Depends(require_admin_or_operator)],
+)
 
 VALID_TYPES = [
     "红人爆款文案", "红人喜欢的内容", "风格参考",
     "千川爆款文案", "千川喜欢的内容", "千川风格参考",
 ]
+MAX_VIDEO_UPLOAD_BYTES = 500 * 1024 * 1024
+_UPLOAD_READ_CHUNK_BYTES = 1024 * 1024
 
 
 # ---------------------------------------------------------------------------
@@ -77,12 +83,6 @@ class ReferenceUpdate(BaseModel):
 # ---------------------------------------------------------------------------
 # 辅助
 # ---------------------------------------------------------------------------
-def _require_operator(current_user: User = Depends(get_current_user)) -> User:
-    if not current_user.is_active:
-        raise ValueError("用户已停用")
-    return current_user
-
-
 def _get_ip(request: Request) -> str:
     return request.headers.get("x-forwarded-for", request.client.host if request.client else "unknown")
 
@@ -103,6 +103,20 @@ async def _get_active_reference(
             KolReference.deleted_at.is_(None),
         )
     )).scalar_one_or_none()
+
+
+async def _read_upload_with_limit(file: UploadFile, max_bytes: int) -> bytes | None:
+    """分块读取上传内容；超限即停止，不把整份超大视频加载到内存。"""
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await file.read(_UPLOAD_READ_CHUNK_BYTES)
+        if not chunk:
+            return b"".join(chunks)
+        total += len(chunk)
+        if total > max_bytes:
+            return None
+        chunks.append(chunk)
 
 
 def _reference_to_dict(ref: KolReference) -> dict:
@@ -173,18 +187,30 @@ async def _get_latest_intake(db: AsyncSession, kol_name: str) -> dict | None:
 @router.get("/kols")
 async def list_kols(
     search: str = Query(default="", description="按红人名搜索"),
+    page: int = Query(default=1, ge=1, description="页码"),
+    page_size: int = Query(default=20, ge=1, le=100, description="每页数量"),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     """红人列表，每行含：基本信息 + persona 有无 + content_plan 有无 + 素材数 + intake 状态。"""
     # 基础查询：未软删的红人
-    base = select(Kol).where(Kol.deleted_at.is_(None))
+    filters = [Kol.deleted_at.is_(None)]
     if search:
-        base = base.where(Kol.name.ilike(f"%{search}%"))
-    base = base.order_by(Kol.updated_at.desc())
+        filters.append(Kol.name.ilike(f"%{search}%"))
+    total = (await db.execute(select(func.count(Kol.id)).where(*filters))).scalar_one()
+    base = (
+        select(Kol)
+        .where(*filters)
+        .order_by(Kol.updated_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
     kols = (await db.execute(base)).scalars().all()
     if not kols:
-        return success_response(data=[])
+        return success_response(data={
+            "items": [],
+            "pagination": {"page": page, "page_size": page_size, "total": total},
+        })
 
     kol_ids = [k.id for k in kols]
 
@@ -230,7 +256,10 @@ async def list_kols(
             "updated_at": k.updated_at.isoformat() if k.updated_at else None,
         })
 
-    return success_response(data=result)
+    return success_response(data={
+        "items": result,
+        "pagination": {"page": page, "page_size": page_size, "total": total},
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -469,7 +498,19 @@ async def upload_reference_video(
     if not (file.content_type or "").startswith("video/"):
         return error_response(ErrorCode.VALIDATION_ERROR, "请上传视频文件")
 
-    content = await file.read()
+    content_length = request.headers.get("content-length") if request else None
+    if content_length and content_length.isdigit() and int(content_length) > MAX_VIDEO_UPLOAD_BYTES + _UPLOAD_READ_CHUNK_BYTES:
+        return error_response(
+            ErrorCode.VALIDATION_ERROR,
+            f"视频文件大小不能超过 {MAX_VIDEO_UPLOAD_BYTES // 1024 // 1024}MB",
+        )
+
+    content = await _read_upload_with_limit(file, MAX_VIDEO_UPLOAD_BYTES)
+    if content is None:
+        return error_response(
+            ErrorCode.VALIDATION_ERROR,
+            f"视频文件大小不能超过 {MAX_VIDEO_UPLOAD_BYTES // 1024 // 1024}MB",
+        )
     if not content:
         return error_response(ErrorCode.VALIDATION_ERROR, "视频文件不能为空")
 
