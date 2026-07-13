@@ -10,6 +10,7 @@ Covers:
 """
 import pytest
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from unittest.mock import patch, AsyncMock
 
 
@@ -282,7 +283,41 @@ class TestActiveProducts:
         )
 
         assert resp.status_code == 422
-        assert "一个当前商品" in str(resp.json()["detail"])
+        body = resp.json()
+        assert body == {
+            "success": False,
+            "code": "VALIDATION_ERROR",
+            "message": "一个红人一次只能选择一个当前商品",
+            "data": None,
+        }
+
+    @pytest.mark.asyncio
+    async def test_active_products_database_rejects_second_product_for_same_kol(
+        self, test_session
+    ):
+        kid = await _create_kol(test_session)
+        pid1 = await _create_product(test_session, "数据库产品甲")
+        pid2 = await _create_product(test_session, "数据库产品乙")
+
+        await test_session.execute(
+            text(
+                "INSERT INTO kol_active_products (kol_id, product_id) "
+                "VALUES (:kol_id, :product_id)"
+            ),
+            {"kol_id": kid, "product_id": pid1},
+        )
+        await test_session.commit()
+
+        with pytest.raises(IntegrityError):
+            await test_session.execute(
+                text(
+                    "INSERT INTO kol_active_products (kol_id, product_id) "
+                    "VALUES (:kol_id, :product_id)"
+                ),
+                {"kol_id": kid, "product_id": pid2},
+            )
+            await test_session.commit()
+        await test_session.rollback()
 
     @pytest.mark.asyncio
     async def test_active_product_cannot_be_deleted_before_unlinking(

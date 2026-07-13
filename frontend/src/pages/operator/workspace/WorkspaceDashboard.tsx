@@ -387,6 +387,11 @@ export default function WorkspaceDashboard({ kolId, onKolLoaded }: WorkspaceDash
   if (!dashboard) return null;
 
   const { benchmarks, active_products } = dashboard;
+  const selectedProduct = selectedProductId === null
+    ? null
+    : allProducts.find((product) => product.id === selectedProductId)
+      ?? active_products.find((product) => product.id === selectedProductId)
+      ?? null;
 
   return (
     <>
@@ -635,32 +640,27 @@ export default function WorkspaceDashboard({ kolId, onKolLoaded }: WorkspaceDash
                 border: '1px solid var(--border)',
               }}
             >
-              {selectedProductId === null ? (
+              {selectedProduct === null ? (
                 <div className="empty-state" style={{ padding: 'var(--sp-5)' }}>
                   <div className="empty-state-text">未选择商品</div>
                 </div>
               ) : (
-                allProducts
-                  .filter((p) => selectedProductId === p.id)
-                  .map((p) => (
-                    <div
-                      key={p.id}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        padding: '8px var(--sp-3)',
-                        borderBottom: '1px solid var(--gray-100)',
-                        fontSize: 13,
-                      }}
-                    >
-                      <span style={{ fontWeight: 600, color: 'var(--gray-800)' }}>{p.nickname}</span>
-                      <CloseOutlined
-                        style={{ fontSize: 12, color: 'var(--gray-400)', cursor: 'pointer' }}
-                        onClick={() => setSelectedProductId(null)}
-                      />
-                    </div>
-                  ))
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '8px var(--sp-3)',
+                    borderBottom: '1px solid var(--gray-100)',
+                    fontSize: 13,
+                  }}
+                >
+                  <span style={{ fontWeight: 600, color: 'var(--gray-800)' }}>{selectedProduct.nickname}</span>
+                  <CloseOutlined
+                    style={{ fontSize: 12, color: 'var(--gray-400)', cursor: 'pointer' }}
+                    onClick={() => setSelectedProductId(null)}
+                  />
+                </div>
               )}
             </div>
           </div>

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { App } from 'antd';
@@ -447,6 +447,20 @@ describe('WorkspaceDashboard', () => {
     await waitFor(() => {
       expect(mockUpdateActiveProducts).toHaveBeenCalledWith(1, [11]);
     });
+  });
+
+  it('previews the current product when it is outside the loaded product page', async () => {
+    const user = userEvent.setup();
+    mockGetQianchuanProducts.mockResolvedValue({
+      items: [sampleProducts.items[1]],
+      pagination: { page: 1, page_size: 20, total: 2, total_pages: 1 },
+    });
+
+    renderWorkspacePage();
+    await user.click(await screen.findByRole('button', { name: '选择商品' }));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('大红瓶精华')).toBeInTheDocument();
   });
 });
 
