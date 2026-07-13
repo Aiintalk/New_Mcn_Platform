@@ -296,6 +296,24 @@ class TestParseFiles:
 
 class TestAnalyzeStream:
     @pytest.mark.asyncio
+    async def test_analyze_stream_error_is_not_report_delta(self, test_client, operator_headers, test_session):
+        kol_id = await _create_kol(test_session, name="失败恢复达人")
+        created = await test_client.post(
+            f"/api/operator/workspace/{kol_id}/retrospective",
+            json={"title": "失败复盘", "live_data": "直播数据"}, headers=operator_headers,
+        )
+        async def _failing_stream(*args, **kwargs):
+            raise RuntimeError("模型服务失败")
+            yield ""
+        with patch("app.routers.operator_retrospective.yunwu_adapter.chat_stream", side_effect=_failing_stream):
+            response = await test_client.post(
+                f"/api/operator/workspace/{kol_id}/retrospective/{created.json()['data']['id']}/analyze",
+                headers=operator_headers,
+            )
+        assert '"error": "模型服务失败"' in response.text
+        assert '"done": true' not in response.text
+
+    @pytest.mark.asyncio
     async def test_analyze_requires_live_or_material_data(self, test_client, operator_headers, test_session):
         kol_id = await _create_kol(test_session, name="缺材料达人")
         create = await test_client.post(

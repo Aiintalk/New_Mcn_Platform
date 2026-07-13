@@ -121,7 +121,8 @@ async function readSseStream(
     for (const event of events) {
       const line = event.split('\n').find((item) => item.startsWith('data: '));
       if (!line) continue;
-      const payload = JSON.parse(line.slice(6)) as { delta?: string; done?: boolean };
+      const payload = JSON.parse(line.slice(6)) as { delta?: string; done?: boolean; error?: string };
+      if (payload.error) throw new Error(payload.error);
       if (payload.delta) {
         full += payload.delta;
         onDelta(full);
