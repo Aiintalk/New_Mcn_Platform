@@ -7,7 +7,7 @@ _DEFAULT_TABS = [
     "dashboard", "persona", "references", "products",
     "qianchuan-writer", "seeding-writer", "persona-writer",
     "livestream-writer", "livestream-review", "values-writer",
-    "script-review", "retrospective",
+    "script-review", "film-review", "retrospective",
 ]
 
 
