@@ -31,6 +31,7 @@ import { LivestreamWriterModule } from './LivestreamWriterPage';
 import { LivestreamReviewModule } from './LivestreamReviewPage';
 import { ValuesWriterModule } from './ValuesWriterPage';
 import { QianchuanScriptReviewModule } from './QianchuanScriptReviewPage';
+import { FilmReviewModule } from './FilmReviewPage';
 import WorkspaceRetrospective from './workspace/WorkspaceRetrospective';
 
 interface NavItem {
@@ -52,7 +53,7 @@ const NAV_ITEMS: NavItem[] = [
   { tab: 'livestream-review', label: '直播复盘',   icon: <PlayCircleOutlined /> },
   { tab: 'values-writer',     label: '价值观仿写', icon: <HeartOutlined /> },
   { tab: 'script-review',     label: '千川脚本预审', icon: <SearchOutlined /> },
-  { tab: 'film-review',       label: '千川成片预审', icon: <VideoCameraOutlined />,  disabled: true },
+  { tab: 'film-review',       label: '千川成片预审', icon: <VideoCameraOutlined /> },
   { tab: 'retrospective',     label: '复盘',       icon: <BarChartOutlined /> },
 ];
 
@@ -185,6 +186,7 @@ export default function KolWorkspacePage() {
           {activeTab === 'livestream-review' && <LivestreamReviewModule kolId={kolId} />}
           {activeTab === 'values-writer' && <ValuesWriterModule kolId={kolId} />}
           {activeTab === 'script-review' && <QianchuanScriptReviewModule kolId={kolId} />}
+          {activeTab === 'film-review' && <FilmReviewModule kolId={kolId} />}
           {activeTab === 'retrospective' && <WorkspaceRetrospective kolId={kolId} />}
         </main>
       </div>
