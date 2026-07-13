@@ -25,7 +25,6 @@ from app.adapters import yunwu as yunwu_adapter
 from app.core.database import AsyncSessionLocal, get_db
 from app.core.response import success_response, error_response, ErrorCode
 from app.middlewares.auth import get_current_user
-from app.models.kol import Kol
 from app.models.log import OperationLog
 from app.models.output import Output
 from app.models.qianchuan_writer import QianchuanWriterConfig
@@ -33,6 +32,7 @@ from app.models.task import TaskJob
 from app.models.user import User
 from app.services import word_export
 from app.services.file_parser import parse_uploaded_file
+from app.services.kol_context import get_current_product, get_kol_context, get_product_by_id
 from app.services.qianchuan_writer_prompt import render_system_prompt
 from app.services.workspace_prompt import resolve_prompt
 
@@ -197,10 +197,28 @@ async def parse_file(
 
 class ChatRequest(BaseModel):
     messages: list[dict]
-    persona_id: int
+    persona_id: int | None = None
     kol_id: int | None = None
+    product_id: int | None = None
     create_job: bool = False
     job_context: dict | None = None
+
+
+def _product_fields_for_prompt(product) -> dict[str, str]:
+    """仅将数据库中的非空商品字段交给提示词，避免信任前端拼接文本。"""
+    fields = {
+        "产品昵称": product.nickname,
+        "最主推卖点": product.core_selling_point,
+        "可视化": product.visualization,
+        "主推机制": product.mechanism,
+        "推荐来源": product.endorsement,
+        "用户反馈": product.user_feedback,
+        "独家卖点": product.unique_selling,
+        "获奖荣誉": product.awards,
+        "功效承诺": product.efficacy_proof,
+        "只有我有": "是，必须强调独家权益" if product.mechanism_exclusive else "否",
+    }
+    return {label: value for label, value in fields.items() if value and str(value).strip()}
 
 
 @router.post("/chat")
@@ -220,32 +238,46 @@ async def chat(
     config = await _get_config(db)
     model_id, provider = await _resolve_model(config, db)
 
-    # 读达人人设
-    kol_row = (await db.execute(
-        sa_text(
-            """
-            SELECT name, persona, content_plan
-            FROM kols
-            WHERE id = :id AND deleted_at IS NULL
-            """
-        ),
-        {"id": body.persona_id},
-    )).fetchone()
-    if kol_row is None:
+    if body.kol_id is not None and body.persona_id is not None and body.kol_id != body.persona_id:
         raise HTTPException(
-            status_code=404,
-            detail={"code": "RESOURCE_NOT_FOUND", "message": "达人人设不存在或已删除"},
+            status_code=400,
+            detail={"code": "INVALID_INPUT", "message": "工作台红人与达人参数不一致"},
         )
-    kol_name, kol_persona, kol_content_plan = kol_row[0], kol_row[1] or "", kol_row[2] or ""
+    kol_id = body.kol_id or body.persona_id
+    if kol_id is None:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "INVALID_INPUT", "message": "kol_id 或 persona_id 必填"},
+        )
+    kol_context = await get_kol_context(db, kol_id)
+    product = None
+    if body.product_id is not None:
+        product = await get_product_by_id(db, body.product_id)
+        if body.kol_id is not None:
+            current_product = await get_current_product(db, kol_id)
+            if current_product is None or current_product.id != product.id:
+                raise HTTPException(
+                    status_code=400,
+                    detail={"code": "CURRENT_PRODUCT_REQUIRED", "message": "请先选择当前商品后再生成"},
+                )
+    elif body.kol_id is not None:
+        product = await get_current_product(db, kol_id)
+        if product is None:
+            raise HTTPException(
+                status_code=400,
+                detail={"code": "CURRENT_PRODUCT_REQUIRED", "message": "请先选择或新建当前商品后再生成"},
+            )
 
     # 渲染 system_prompt（优先使用红人专属 Prompt）
-    kol_prompt = await resolve_prompt(body.kol_id, "qianchuan-writer", "system_prompt", db)
+    kol_prompt = await resolve_prompt(kol_id, "qianchuan-writer", "system_prompt", db)
     template = kol_prompt or config.system_prompt or ""
     system_prompt = render_system_prompt(
         template,
-        name=kol_name,
-        soul=kol_persona,
-        content_plan=kol_content_plan,
+        name=kol_context.name,
+        soul=kol_context.persona,
+        content_plan=kol_context.content_plan,
+        profile_sections=kol_context.prompt_sections(),
+        product_fields=_product_fields_for_prompt(product) if product else None,
     )
 
     messages = [{"role": "system", "content": system_prompt}] + body.messages
@@ -290,9 +322,10 @@ async def chat(
                 tool_name=TOOL_NAME,
                 status="completed",
                 input_payload={
-                    "persona_id": body.persona_id,
-                    "persona_name": kol_name,
-                    "product_name": job_context.get("product_name", ""),
+                    "kol_id": kol_id,
+                    "persona_name": kol_context.name,
+                    "product_id": product.id if product else None,
+                    "product_name": product.nickname if product else "",
                     "original_script_length": job_context.get("original_script_length", 0),
                 },
                 started_at=datetime.now(timezone.utc),
@@ -309,7 +342,9 @@ async def chat(
                 target_type="task_job",
                 target_id=task_job.id,
                 detail={
-                    "persona_name": kol_name,
+                    "kol_id": kol_id,
+                    "product_id": product.id if product else None,
+                    "persona_name": kol_context.name,
                     "model_id": model_id,
                     "job_context": job_context,
                 },

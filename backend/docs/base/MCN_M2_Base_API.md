@@ -1601,16 +1601,18 @@ Request（JSON）：
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `messages` | array<{role, content}> | 用户对话消息（含原版脚本 + 产品卖点 + 多轮追问）|
-| `persona_id` | int | 达人 ID（必填，从 /kols/personas 选）|
+| `messages` | array<{role, content}> | 用户对话消息（含原版脚本、运营修改意见或逐轮最小修改指令）|
+| `persona_id` | int | 达人 ID；兼容独立工具入口。工作台调用时必须与 `kol_id` 相同 |
+| `kol_id` | int\|null | 红人工作台路由中的红人 ID；提供时后端以它为准读取完整红人档案 |
+| `product_id` | int\|null | 当前共享商品 ID；提供时必须等于该红人的当前商品。留空时后端读取该红人的当前商品；无当前商品返回 400 CURRENT_PRODUCT_REQUIRED |
 | `create_job` | bool | 是否创建 task_job 记录（默认 false）|
-| `job_context` | object \| null | 任务上下文（product_name / original_script_length 等）|
+| `job_context` | object \| null | 任务上下文（original_script_length 等）；产品名称和商品字段由后端从数据库读取，不信任前端文本 |
 
 Response：`text/plain; charset=utf-8`（裸文本流，流式 chunk）
 
 错误：messages 为空 → 400 INVALID_INPUT；配置未激活 → 503 CONFIG_NOT_FOUND；persona 不存在 → 404 RESOURCE_NOT_FOUND。
 
-流程：读 DB 配置（`default`，is_active=true）→ 读 kols（persona/content_plan）→ `render_system_prompt` 占位符替换 → `yunwu_adapter.chat_stream` → StreamingResponse；`create_job=true` 时 BackgroundTask 写 TaskJob + OperationLog（action=`qianchuan_writer_chat`）。Adapter finally 自动写 AiCallLog。
+流程：读 DB 配置（`default`，is_active=true）→ 读取完整红人档案与当前商品 → `render_system_prompt` 占位符替换并追加完整档案、商品全部非空字段及“只有我有”约束 → `yunwu_adapter.chat_stream` → StreamingResponse；`create_job=true` 时 BackgroundTask 写 TaskJob + OperationLog（action=`qianchuan_writer_chat`）。Adapter finally 自动写 AiCallLog。
 
 ### 21.4 POST /save-output
 
@@ -2503,7 +2505,9 @@ Request Body：
 | `script_type` | `"direct"\|"value"` | 是 | 预审模式 |
 | `original_script` | string | 是 | 原版脚本 |
 | `adapted_script` | string | 是 | 仿写脚本 |
-| `product` | object\|null | 否 | 产品信息（direct 模式使用），key-value 字典 |
+| `product` | object\|null | 否 | 兼容独立预审页的产品信息；工作台闭环不得依赖此字段 |
+| `kol_id` | int\|null | 否 | 工作台红人 ID；与 `product_id` 同时提供时，后端校验商品是该红人的当前商品 |
+| `product_id` | int\|null | 否 | 当前共享商品 ID；后端读取最新商品字段，优先于 `product`，防止前端伪造旧卖点 |
 
 Response `data`：
 ```json

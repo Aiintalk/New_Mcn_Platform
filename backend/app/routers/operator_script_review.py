@@ -22,6 +22,7 @@ from app.models.log import OperationLog
 from app.models.output import Output
 from app.models.qianchuan_script_review import QianchuanScriptReviewConfig
 from app.models.user import User
+from app.services.kol_context import get_current_product, get_product_by_id
 from app.services.workspace_prompt import resolve_prompt
 
 router = APIRouter(prefix="/operator/qianchuan-script-review", tags=["operator-qianchuan-script-review"])
@@ -89,26 +90,27 @@ def _get_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-async def _call_review_ai(prompt: str, model_id: str) -> str:
+async def _call_review_ai(prompt: str, model_id: str, provider: str) -> str:
     """调 AI（非流式），返回原始文本（由 router 解析 JSON）。"""
     async with AsyncSessionLocal() as db:
         return await yunwu_adapter.chat(
             messages=[{"role": "user", "content": prompt}],
             db=db,
             model_id=model_id,
+            provider=provider,
             feature="qianchuan_script_review",
         )
 
 
-async def _resolve_model_id(config: QianchuanScriptReviewConfig | None, db: AsyncSession) -> str:
+async def _resolve_model(config: QianchuanScriptReviewConfig | None, db: AsyncSession) -> tuple[str, str]:
     if config is None or config.ai_model_id is None:
-        return "claude-sonnet-4-6"
+        return "claude-sonnet-4-6", "yunwu"
     from sqlalchemy import text as sa_text
     row = (await db.execute(
-        sa_text("SELECT model_id FROM ai_models WHERE id = :id AND status = 'active'"),
+        sa_text("SELECT model_id, COALESCE(provider, 'yunwu') FROM ai_models WHERE id = :id AND status = 'active'"),
         {"id": config.ai_model_id},
     )).fetchone()
-    return row[0] if row else "claude-sonnet-4-6"
+    return (row[0], row[1]) if row else ("claude-sonnet-4-6", "yunwu")
 
 
 class ReviewRequest(BaseModel):
@@ -117,6 +119,7 @@ class ReviewRequest(BaseModel):
     adapted_script: str
     product: Optional[dict] = None
     kol_id: int | None = None
+    product_id: int | None = None
 
 
 @router.post("/review")
@@ -131,13 +134,34 @@ async def review_script(
         .where(QianchuanScriptReviewConfig.is_active == True)  # noqa: E712
     )).scalar_one_or_none()
 
-    model_id = await _resolve_model_id(config, db)
+    model_id, provider = await _resolve_model(config, db)
 
     if body.script_type == "direct":
         kol_prompt = await resolve_prompt(body.kol_id, "script-review", "direct_prompt", db)
         template = kol_prompt or (config.direct_prompt if config and config.direct_prompt else _DEFAULT_DIRECT_PROMPT)
         product_info = ""
-        if body.product:
+        if body.product_id is not None:
+            product = await get_product_by_id(db, body.product_id)
+            if body.kol_id is not None:
+                current_product = await get_current_product(db, body.kol_id)
+                if current_product is None or current_product.id != product.id:
+                    return error_response("CURRENT_PRODUCT_REQUIRED", "请先选择当前商品后再预审")
+            product_info = "\n".join(
+                f"{label}: {value}"
+                for label, value in {
+                    "产品昵称": product.nickname,
+                    "最主推卖点": product.core_selling_point,
+                    "可视化": product.visualization,
+                    "主推机制": product.mechanism,
+                    "推荐来源": product.endorsement,
+                    "用户反馈": product.user_feedback,
+                    "独家卖点": product.unique_selling,
+                    "获奖荣誉": product.awards,
+                    "功效承诺": product.efficacy_proof,
+                    "只有我有": "是" if product.mechanism_exclusive else "否",
+                }.items() if value is not None and str(value).strip()
+            )
+        elif body.product:
             product_info = "\n".join(f"{k}: {v}" for k, v in body.product.items())
         prompt = template.format(
             original_script=body.original_script,
@@ -152,7 +176,7 @@ async def review_script(
             adapted_script=body.adapted_script,
         )
 
-    raw = await _call_review_ai(prompt, model_id)
+    raw = await _call_review_ai(prompt, model_id, provider)
 
     try:
         result = json.loads(raw)
