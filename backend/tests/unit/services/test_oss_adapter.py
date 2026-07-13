@@ -18,6 +18,7 @@ from app.adapters.oss import (
     delete_file,
     get_download_url,
     upload_file,
+    upload_file_from_path,
 )
 
 
@@ -87,6 +88,75 @@ async def test_upload_file_failure(
     with pytest.raises(RuntimeError, match="OSS upload_file failed"):
         await upload_file("test/file.txt", b"hello", "text/plain", db=mock_db)
 
+    mock_report_failure.assert_awaited_once()
+    mock_report_success.assert_not_awaited()
+
+
+@patch("app.adapters.oss.report_success", new_callable=AsyncMock)
+@patch("app.adapters.oss.report_failure", new_callable=AsyncMock)
+@patch("app.adapters.oss.asyncio.to_thread", new_callable=AsyncMock)
+@patch("app.adapters.oss._make_bucket")
+@patch("app.adapters.oss._get_oss_credential", new_callable=AsyncMock)
+async def test_upload_file_from_path_streams_source_file_to_oss(
+    mock_get_cred,
+    mock_make_bucket,
+    mock_to_thread,
+    mock_report_failure,
+    mock_report_success,
+    mock_db,
+    tmp_path,
+):
+    """路径上传必须调用 OSS 的文件接口，不能退回整份 bytes 上传。"""
+    source = tmp_path / "large-video.mp4"
+    source.write_bytes(b"video-content")
+    mock_get_cred.return_value = (42, "AKIDxxx", "SECRETxxx", "my-bucket", "oss-cn-hangzhou.aliyuncs.com")
+    bucket = MagicMock()
+    mock_make_bucket.return_value = bucket
+    mock_to_thread.return_value = MagicMock(status=200, etag="abc")
+
+    result = await upload_file_from_path(
+        "test/large-video.mp4", source, "video/mp4", db=mock_db
+    )
+
+    assert result == "test/large-video.mp4"
+    assert mock_to_thread.call_args.args[0] == bucket.put_object_from_file
+    assert mock_to_thread.call_args.args[2] == str(source)
+    bucket.put_object.assert_not_called()
+    mock_report_success.assert_awaited_once()
+    mock_report_failure.assert_not_awaited()
+
+
+@patch("app.adapters.oss.report_success", new_callable=AsyncMock)
+@patch("app.adapters.oss.report_failure", new_callable=AsyncMock)
+@patch("app.adapters.oss.asyncio.to_thread", new_callable=AsyncMock)
+@patch("app.adapters.oss._make_bucket")
+@patch("app.adapters.oss._get_oss_credential", new_callable=AsyncMock)
+async def test_upload_file_from_path_failure_keeps_upload_call_log(
+    mock_get_cred,
+    mock_make_bucket,
+    mock_to_thread,
+    mock_report_failure,
+    mock_report_success,
+    mock_db,
+    tmp_path,
+):
+    """文件流上传失败仍要记录 OSS 调用，便于排查外部服务异常。"""
+    from app.models.oss_call_log import OssCallLog
+
+    source = tmp_path / "failed-video.mp4"
+    source.write_bytes(b"video-content")
+    mock_get_cred.return_value = (42, "AKIDxxx", "SECRETxxx", "my-bucket", "oss-cn-hangzhou.aliyuncs.com")
+    mock_make_bucket.return_value = MagicMock()
+    mock_to_thread.side_effect = OSError("network unavailable")
+
+    with pytest.raises(RuntimeError, match="upload_file_from_path failed"):
+        await upload_file_from_path("test/failed-video.mp4", source, "video/mp4", db=mock_db)
+
+    logs = [call.args[0] for call in mock_db.add.call_args_list if isinstance(call.args[0], OssCallLog)]
+    assert len(logs) == 1
+    assert logs[0].operation == "upload"
+    assert logs[0].status == "fail"
+    assert "network unavailable" in (logs[0].error_message or "")
     mock_report_failure.assert_awaited_once()
     mock_report_success.assert_not_awaited()
 
