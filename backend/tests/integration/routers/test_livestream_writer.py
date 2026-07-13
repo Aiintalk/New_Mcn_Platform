@@ -50,6 +50,25 @@ async def kol_missing_persona(test_session):
     await test_session.commit()
 
 
+@pytest.fixture
+async def kol_with_current_product(test_session):
+    """创建完整档案和唯一当前商品，验证生成时以服务端事实为准。"""
+    kol_id = (await test_session.execute(text(
+        "INSERT INTO kols (name, status, persona, content_plan, background, experience, relationships, unique_story, extra_notes, deleted_at) "
+        "VALUES ('直播测试达人', 'signed', '原有人设', '内容规划', '基本身份', '真实经历', '关系网', '独家经历', '其他补充', NULL) "
+        "RETURNING id"
+    ))).scalar_one()
+    product_id = (await test_session.execute(text(
+        "INSERT INTO qianchuan_products (nickname, core_selling_point, mechanism, mechanism_exclusive, unique_selling) "
+        "VALUES ('数据库商品', '数据库卖点', '买一赠一', true, '独家权益') RETURNING id"
+    ))).scalar_one()
+    await test_session.execute(text(
+        "INSERT INTO kol_active_products (kol_id, product_id) VALUES (:kol_id, :product_id)"
+    ), {"kol_id": kol_id, "product_id": product_id})
+    await test_session.commit()
+    return {"kol_id": kol_id, "product_id": product_id}
+
+
 # ---------------------------------------------------------------------------
 # Auth
 # ---------------------------------------------------------------------------
@@ -268,6 +287,40 @@ class TestChat:
         assert resp.status_code == 200
         assert "text/plain" in resp.headers["content-type"]
         assert "直播脚本内容" in resp.text
+
+    @pytest.mark.asyncio
+    async def test_initial_generation_uses_server_kol_and_current_product_context(
+        self, test_client, operator_token, kol_with_current_product
+    ):
+        captured_messages = []
+
+        async def mock_stream(*args, **kwargs):
+            captured_messages.extend(kwargs["messages"])
+            yield "直播脚本内容"
+
+        with patch(
+            "app.routers.operator_livestream_writer.yunwu_adapter.chat_stream",
+            side_effect=mock_stream,
+        ):
+            resp = await test_client.post(
+                "/api/tools/livestream-writer/chat",
+                json={
+                    "messages": [{"role": "user", "content": "请生成开播方案"}],
+                    "systemPrompt": "前端伪造商品：过期卖点",
+                    "kol_id": kol_with_current_product["kol_id"],
+                    "reference_script": "已确认的对标直播文案",
+                    "reference_confirmed": True,
+                    "sp_order": "背书→机制→种草",
+                    "createJob": True,
+                },
+                headers={"Authorization": f"Bearer {operator_token}"},
+            )
+
+        assert resp.status_code == 200
+        context = "\n".join(message["content"] for message in captured_messages)
+        for expected in ("数据库商品", "数据库卖点", "买一赠一", "独家权益", "真实经历", "关系网", "独家经历", "其他补充", "内容规划", "已确认的对标直播文案"):
+            assert expected in context
+        assert "前端伪造商品：过期卖点" not in context
 
 
 # ---------------------------------------------------------------------------

@@ -17,7 +17,9 @@ import {
   parseFile,
   chatStream,
 } from '../../api/livestreamWriter';
+import { getActiveProducts } from '../../api/kolWorkspace';
 import type { Persona, SpOrder, LivestreamWriterConfig } from '../../types/livestreamWriter';
+import type { QianchuanProduct } from '../../types/kolWorkspace';
 
 const { TextArea } = Input;
 
@@ -63,6 +65,7 @@ function LivestreamWriterInner({ initKolId }: { initKolId?: number }) {
   // Step 1
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [selectedPersona, setSelectedPersona] = useState<Persona | null>(null);
+  const [currentProduct, setCurrentProduct] = useState<QianchuanProduct | null>(null);
 
   // Step 2
   const [sellingPoints, setSellingPoints] = useState('');
@@ -85,12 +88,18 @@ function LivestreamWriterInner({ initKolId }: { initKolId?: number }) {
   // 加载配置和达人列表
   useEffect(() => {
     async function init() {
+      const productsPromise = isModule && initKolId
+        ? getActiveProducts(initKolId)
+        : Promise.resolve([] as QianchuanProduct[]);
       try {
-        const [cfg, kolResp] = await Promise.all([
-          getLivestreamWriterConfig(),
-          getKolPersonas(),
-        ]);
+        const cfg = await getLivestreamWriterConfig();
         setConfig(cfg);
+      } catch (e) {
+        message.error('配置加载失败，请刷新重试');
+      }
+
+      try {
+        const kolResp = await getKolPersonas();
         const personaList = kolResp.personas ?? [];
         setPersonas(personaList);
         // Module 模式：通过 workspace dashboard 获取 kol 名字，再匹配
@@ -101,7 +110,14 @@ function LivestreamWriterInner({ initKolId }: { initKolId?: number }) {
           setSelectedPersona(found);
         }
       } catch (e) {
-        message.error('加载失败，请刷新重试');
+        message.error('红人信息加载失败，请刷新重试');
+      }
+
+      try {
+        const products = await productsPromise;
+        setCurrentProduct(products[0] ?? null);
+      } catch (e) {
+        message.error('当前商品加载失败，请刷新重试');
       } finally {
         setConfigLoading(false);
       }
@@ -164,6 +180,9 @@ function LivestreamWriterInner({ initKolId }: { initKolId?: number }) {
 
   // 首次生成的用户消息
   function buildFirstUserMessage(): string {
+    if (isModule) {
+      return '直接输出完整的开播方案，不要提问。请遵守系统中已确认的红人档案、当前商品、卖点顺序和对标文案，七个模块全部输出，不要遗漏。';
+    }
     const refLength = countChars(refScript);
     const pName = productName || '（未填写）';
     const pName2 = selectedPersona?.name ?? '（未选择）';
@@ -186,10 +205,15 @@ function LivestreamWriterInner({ initKolId }: { initKolId?: number }) {
     try {
       const resp = await chatStream({
         messages: newMessages,
-        systemPrompt,
-        model: config?.model_id,
+        systemPrompt: isFirst && isModule ? '' : systemPrompt,
+        ...(isModule ? { kol_id: initKolId } : { model: config?.model_id }),
+        ...(isFirst && isModule ? {
+          reference_script: refScript,
+          reference_confirmed: refScriptLocked,
+          sp_order: spOrder,
+        } : {}),
         createJob: isFirst,
-        jobContext: isFirst ? {
+        jobContext: isFirst && !isModule ? {
           productName: productName || '',
           personaName: selectedPersona?.name ?? '',
           spOrder,
@@ -240,7 +264,8 @@ function LivestreamWriterInner({ initKolId }: { initKolId?: number }) {
 
   // 首次生成
   async function handleGenerate() {
-    if (!selectedPersona || !sellingPoints.trim() || !refScript.trim()) {
+    const productReady = isModule ? Boolean(currentProduct) : Boolean(sellingPoints.trim());
+    if (!selectedPersona || !productReady || !refScript.trim() || !refScriptLocked) {
       message.warning('请完成所有步骤后再生成');
       return;
     }
@@ -288,17 +313,19 @@ function LivestreamWriterInner({ initKolId }: { initKolId?: number }) {
       <div className="page-header" style={{ marginBottom: 24 }}>
         <div>
           <h1 className="page-title">直播脚本仿写</h1>
-          <p className="page-desc">{isModule ? '上传卖点卡 · 锁定对标 · AI 生成7模块开播方案' : '选达人 · 上传卖点卡 · 锁定对标 · AI 生成7模块开播方案'}</p>
+          <p className="page-desc">{isModule ? '确认当前商品 · 锁定对标 · AI 生成7模块开播方案' : '选达人 · 上传卖点卡 · 锁定对标 · AI 生成7模块开播方案'}</p>
         </div>
       </div>
 
       {/* 步骤导航 */}
       <Steps
         current={isModule ? step - 1 : step}
-        onChange={isModule ? (v) => setStep(v + 1) : setStep}
+        onChange={isModule ? (v) => {
+          if (currentProduct || v === 0) setStep(v + 1);
+        } : setStep}
         style={{ marginBottom: 32 }}
         items={isModule
-          ? [{ title: '上传卖点' }, { title: '锁定对标' }, { title: '生成方案' }]
+          ? [{ title: '确认商品' }, { title: '锁定对标' }, { title: '生成方案' }]
           : [{ title: '选达人' }, { title: '上传卖点' }, { title: '锁定对标' }, { title: '生成方案' }]
         }
       />
@@ -335,8 +362,33 @@ function LivestreamWriterInner({ initKolId }: { initKolId?: number }) {
         </div>
       )}
 
-      {/* Step 2 · 上传卖点 */}
-      {step === 1 && (
+      {/* Step 2 · 上传卖点（独立入口）或确认当前商品（工作台） */}
+      {step === 1 && isModule && (
+        <div className="card" style={{ padding: 24 }}>
+          <h3 style={{ marginBottom: 16, fontWeight: 600 }}>当前商品</h3>
+          {currentProduct ? (
+            <div style={{ padding: 16, background: 'var(--gray-50)', borderRadius: 8 }}>
+              <div style={{ fontWeight: 600, marginBottom: 8 }}>{currentProduct.nickname}</div>
+              {currentProduct.core_selling_point && (
+                <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
+                  最主推卖点：<span>{currentProduct.core_selling_point}</span>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div style={{ color: 'var(--text-secondary)' }}>
+              <span>还没有当前商品</span>，请先在商品库选择或新建一个当前商品。
+            </div>
+          )}
+          <div style={{ marginTop: 24, display: 'flex', justifyContent: 'flex-end' }}>
+            <Button type="primary" disabled={!currentProduct} onClick={() => setStep(2)}>
+              下一步
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {step === 1 && !isModule && (
         <div className="card" style={{ padding: 24 }}>
           <h3 style={{ marginBottom: 16, fontWeight: 600 }}>上传产品卖点卡</h3>
           <Upload
@@ -414,7 +466,7 @@ function LivestreamWriterInner({ initKolId }: { initKolId?: number }) {
           {!refScriptLocked && (
             <div style={{ marginTop: 12 }}>
               <Button
-                icon={<LockOutlined />}
+                icon={<LockOutlined aria-hidden />}
                 type="default"
                 disabled={!refScript.trim()}
                 onClick={() => setRefScriptLocked(true)}
@@ -440,7 +492,7 @@ function LivestreamWriterInner({ initKolId }: { initKolId?: number }) {
             <div className="card" style={{ padding: 24, textAlign: 'center' }}>
               <p style={{ marginBottom: 16, color: 'var(--text-secondary)' }}>
                 达人：<strong>{selectedPersona?.name}</strong> &nbsp;|&nbsp;
-                产品：<strong>{productName || '（未识别）'}</strong> &nbsp;|&nbsp;
+                产品：<strong>{currentProduct?.nickname || productName || '（未识别）'}</strong> &nbsp;|&nbsp;
                 卖点顺序：<strong>{spOrder}</strong> &nbsp;|&nbsp;
                 对标字数：<strong>{countChars(refScript)}</strong> 字
               </p>
