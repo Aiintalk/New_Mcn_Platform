@@ -136,8 +136,8 @@ class TestPersonas:
         assert "creator_name" in target
 
     @pytest.mark.asyncio
-    async def test_filters_incomplete_kol(self, test_client, operator_headers, test_session):
-        """persona 为空或 content_plan 为空的 kol 不出现。"""
+    async def test_returns_kol_with_empty_profile_fields(self, test_client, operator_headers, test_session):
+        """工作台路由可用的红人不能被旧 persona/content_plan 筛选挡住。"""
         await test_session.execute(text(
             "INSERT INTO kols (name, persona, content_plan, status) "
             "VALUES ('无 persona', NULL, '规划', 'signed')"
@@ -152,8 +152,8 @@ class TestPersonas:
             headers=operator_headers,
         )
         names = [p["name"] for p in resp.json()["data"]]
-        assert "无 persona" not in names
-        assert "无 content_plan" not in names
+        assert "无 persona" in names
+        assert "无 content_plan" in names
 
 
 # ---------------------------------------------------------------------------
@@ -273,9 +273,82 @@ class TestChat:
         assert resp.json()["code"] == "CURRENT_PRODUCT_REQUIRED"
 
     @pytest.mark.asyncio
+    async def test_chat_compatibility_persona_id_still_requires_current_product(
+        self, test_client, operator_headers, test_session
+    ):
+        kol_id = await _create_kol(test_session, persona=None, content_plan=None)
+
+        resp = await test_client.post(
+            "/api/tools/qianchuan-writer/chat",
+            json={
+                "messages": [{"role": "user", "content": "原版脚本"}],
+                "persona_id": kol_id,
+            },
+            headers=operator_headers,
+        )
+
+        assert resp.status_code == 400
+        assert resp.json()["code"] == "CURRENT_PRODUCT_REQUIRED"
+
+    @pytest.mark.asyncio
+    async def test_chat_generates_for_empty_profile_when_current_product_exists(
+        self, test_client, operator_headers, test_session
+    ):
+        kol_id = await _create_kol(test_session, persona=None, content_plan=None)
+        await _create_current_product(test_session, kol_id)
+
+        async def mock_stream(*args, **kwargs):
+            yield "空档案也能生成"
+
+        with patch(
+            "app.routers.operator_qianchuan_writer.yunwu_adapter.chat_stream",
+            side_effect=mock_stream,
+        ), patch(
+            "app.routers.operator_qianchuan_writer.AsyncSessionLocal"
+        ) as mock_sl:
+            mock_sess = AsyncMock()
+            mock_sess.__aenter__ = AsyncMock(return_value=mock_sess)
+            mock_sess.__aexit__ = AsyncMock(return_value=False)
+            mock_sl.return_value = mock_sess
+
+            resp = await test_client.post(
+                "/api/tools/qianchuan-writer/chat",
+                json={
+                    "messages": [{"role": "user", "content": "原版脚本"}],
+                    "persona_id": kol_id,
+                },
+                headers=operator_headers,
+            )
+
+        assert resp.status_code == 200
+        assert "空档案也能生成" in resp.text
+
+    @pytest.mark.asyncio
+    async def test_chat_rejects_product_not_matching_current_product(
+        self, test_client, operator_headers, test_session
+    ):
+        kol_id = await _create_kol(test_session)
+        await _create_current_product(test_session, kol_id)
+        other_product_id = await _create_current_product(test_session, await _create_kol(test_session, name="另一位达人"))
+
+        resp = await test_client.post(
+            "/api/tools/qianchuan-writer/chat",
+            json={
+                "messages": [{"role": "user", "content": "原版脚本"}],
+                "persona_id": kol_id,
+                "product_id": other_product_id,
+            },
+            headers=operator_headers,
+        )
+
+        assert resp.status_code == 400
+        assert resp.json()["code"] == "CURRENT_PRODUCT_REQUIRED"
+
+    @pytest.mark.asyncio
     async def test_chat_success(self, test_client, operator_headers, test_session):
         kol_id = await _create_kol(test_session, name="AI测试达人",
                                    persona="人设", content_plan="规划")
+        await _create_current_product(test_session, kol_id)
 
         async def mock_stream(*args, **kwargs):
             yield "你好"
@@ -329,6 +402,7 @@ class TestChat:
     @pytest.mark.asyncio
     async def test_chat_ai_failure(self, test_client, operator_headers, test_session):
         kol_id = await _create_kol(test_session, name="错误达人")
+        await _create_current_product(test_session, kol_id)
 
         async def mock_stream_error(*args, **kwargs):
             raise RuntimeError("AI 服务异常")

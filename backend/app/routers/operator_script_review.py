@@ -125,6 +125,7 @@ class ReviewRequest(BaseModel):
 @router.post("/review")
 async def review_script(
     body: ReviewRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_operator),
 ):
@@ -191,6 +192,26 @@ async def review_script(
                 return error_response("INTERNAL_ERROR", f"AI 返回格式解析失败: {raw[:200]}")
         else:
             return error_response("INTERNAL_ERROR", f"AI 返回格式解析失败: {raw[:200]}")
+
+    db.add(OperationLog(
+        user_id=current_user.id,
+        username=current_user.username,
+        role=current_user.role,
+        action="qianchuan_script_review",
+        target_type="script_review",
+        target_id=None,
+        detail={
+            "kol_id": body.kol_id,
+            "product_id": body.product_id,
+            "original_script_length": len(body.original_script.replace(" ", "").replace("\n", "").replace("\t", "")),
+            "feature": "qianchuan_pre_review",
+            "model_id": model_id,
+            "output_marker": "review_completed",
+        },
+        ip=_get_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    ))
+    await db.commit()
 
     return success_response(data={
         "rating": result.get("rating"),

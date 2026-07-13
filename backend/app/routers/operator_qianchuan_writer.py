@@ -111,7 +111,7 @@ async def get_kol_personas(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_operator),
 ):
-    """Step 1 达人下拉：返回 persona + content_plan 均非空且未删除的达人。"""
+    """Step 1 达人下拉：返回可用红人；空档案也允许进入工作流。"""
     rows = (
         await db.execute(
             sa_text(
@@ -124,9 +124,7 @@ async def get_kol_personas(
                        COALESCE(u.username, '系统预设') AS creator_name
                 FROM kols k
                 LEFT JOIN users u ON k.created_by = u.id
-                WHERE k.persona IS NOT NULL
-                  AND k.content_plan IS NOT NULL
-                  AND k.deleted_at IS NULL
+                WHERE k.deleted_at IS NULL
                   AND k.status IN ('signed', 'pending_renewal')
                 ORDER BY k.name
                 """
@@ -250,23 +248,21 @@ async def chat(
             detail={"code": "INVALID_INPUT", "message": "kol_id 或 persona_id 必填"},
         )
     kol_context = await get_kol_context(db, kol_id)
-    product = None
+    current_product = await get_current_product(db, kol_id)
+    if current_product is None:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "CURRENT_PRODUCT_REQUIRED", "message": "请先选择或新建当前商品后再生成"},
+        )
     if body.product_id is not None:
         product = await get_product_by_id(db, body.product_id)
-        if body.kol_id is not None:
-            current_product = await get_current_product(db, kol_id)
-            if current_product is None or current_product.id != product.id:
-                raise HTTPException(
-                    status_code=400,
-                    detail={"code": "CURRENT_PRODUCT_REQUIRED", "message": "请先选择当前商品后再生成"},
-                )
-    elif body.kol_id is not None:
-        product = await get_current_product(db, kol_id)
-        if product is None:
+        if current_product.id != product.id:
             raise HTTPException(
                 status_code=400,
-                detail={"code": "CURRENT_PRODUCT_REQUIRED", "message": "请先选择或新建当前商品后再生成"},
+                detail={"code": "CURRENT_PRODUCT_REQUIRED", "message": "当前商品与请求商品不一致，请重新加载后再生成"},
             )
+    else:
+        product = current_product
 
     # 渲染 system_prompt（优先使用红人专属 Prompt）
     kol_prompt = await resolve_prompt(kol_id, "qianchuan-writer", "system_prompt", db)
@@ -327,6 +323,9 @@ async def chat(
                     "product_id": product.id if product else None,
                     "product_name": product.nickname if product else "",
                     "original_script_length": job_context.get("original_script_length", 0),
+                    "feature": job_context.get("feature", "qianchuan_draft"),
+                    "model_id": model_id,
+                    "output_marker": "stream_completed",
                 },
                 started_at=datetime.now(timezone.utc),
                 finished_at=datetime.now(timezone.utc),
@@ -346,7 +345,9 @@ async def chat(
                     "product_id": product.id if product else None,
                     "persona_name": kol_context.name,
                     "model_id": model_id,
-                    "job_context": job_context,
+                    "feature": job_context.get("feature", "qianchuan_draft"),
+                    "original_script_length": job_context.get("original_script_length", 0),
+                    "output_marker": "stream_completed",
                 },
                 ip=_get_ip(request),
                 user_agent=request.headers.get("user-agent"),

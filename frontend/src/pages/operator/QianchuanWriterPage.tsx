@@ -115,6 +115,7 @@ export function QianchuanWriterModule({ kolId }: { kolId: number }) {
   const [streamDisplay, setStreamDisplay] = useState('');
   const [reviewHistory, setReviewHistory] = useState<Array<{ round: number; review: ReviewResult }>>([]);
   const [finalDraft, setFinalDraft] = useState('');
+  const [hasFinalDraft, setHasFinalDraft] = useState(false);
   const [finalReview, setFinalReview] = useState<Pick<ReviewResult, 'rating' | 'must_fix'> | null>(null);
   const [needsManualReview, setNeedsManualReview] = useState(false);
   const [confirmedFinal, setConfirmedFinal] = useState(false);
@@ -217,6 +218,7 @@ export function QianchuanWriterModule({ kolId }: { kolId: number }) {
     setStreamDisplay('');
     setReviewHistory([]);
     setFinalDraft('');
+    setHasFinalDraft(false);
     setFinalReview(null);
     setNeedsManualReview(false);
     setConfirmedFinal(false);
@@ -234,6 +236,7 @@ export function QianchuanWriterModule({ kolId }: { kolId: number }) {
         create_job: true,
         job_context: {
           original_script_length: charCount(originalScript),
+          feature: 'qianchuan_initial_draft',
         },
       });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
@@ -260,15 +263,22 @@ export function QianchuanWriterModule({ kolId }: { kolId: number }) {
     setConfirmedFinal(false);
 
     try {
-      const apiMessages: QianchuanChatMessage[] = newMessages.map((m) => ({
-        role: m.role,
-        content: m.content,
-      }));
+      const apiMessages: QianchuanChatMessage[] = isFinalAdjustment
+        ? [{
+          role: 'user',
+          content: `当前最佳稿：\n${finalDraft}\n\n运营调整要求：\n${userMsg.content}\n\n请仅按要求最小修改未点名内容，并输出完整修改稿。`,
+        }]
+        : newMessages.map((m) => ({ role: m.role, content: m.content }));
       const resp = await chatStream({
         messages: apiMessages,
         persona_id: selectedPersona.id,
         kol_id: kolId,
         product_id: currentProduct.id,
+        create_job: isFinalAdjustment,
+        job_context: isFinalAdjustment ? {
+          original_script_length: charCount(originalScript),
+          feature: 'qianchuan_manual_adjustment',
+        } : undefined,
       });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const full = await readStream(resp, (text) => setStreamDisplay(text));
@@ -282,10 +292,12 @@ export function QianchuanWriterModule({ kolId }: { kolId: number }) {
           });
           setReviewHistory((history) => [...history, { round: history.length + 1, review }]);
           setFinalDraft(full);
+          setHasFinalDraft(true);
           setFinalReview(review);
           setNeedsManualReview(review.rating !== 'pass');
         } catch (reviewErr: unknown) {
           setFinalDraft(full);
+          setHasFinalDraft(true);
           setFinalReview(null);
           setNeedsManualReview(true);
           message.error(reviewErr instanceof Error ? `微调后的预审失败，当前稿已保留：${reviewErr.message}` : '微调后的预审失败，当前稿已保留，请人工处理');
@@ -317,7 +329,11 @@ export function QianchuanWriterModule({ kolId }: { kolId: number }) {
       persona_id: selectedPersona.id,
       kol_id: kolId,
       product_id: currentProduct.id,
-      job_context: { original_script_length: charCount(originalScript) },
+      create_job: true,
+      job_context: {
+        original_script_length: charCount(originalScript),
+        feature: 'qianchuan_auto_rewrite',
+      },
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     return readStream(response, (text) => setStreamDisplay(text));
@@ -347,14 +363,37 @@ export function QianchuanWriterModule({ kolId }: { kolId: number }) {
       }
       const best = selectBestReviewCandidate(candidates);
       setFinalDraft(best?.text ?? draft);
+      setHasFinalDraft(true);
       setFinalReview(best?.review ?? null);
       setNeedsManualReview(Boolean(best && best.review.rating !== 'pass'));
     } catch (err: unknown) {
       setFinalDraft(draft);
+      setHasFinalDraft(true);
       setNeedsManualReview(true);
       message.error(err instanceof Error ? `预审已停止，当前稿已保留：${err.message}` : '预审已停止，当前稿已保留，请人工处理');
     } finally {
       setStreamDisplay('');
+      setStreaming(false);
+    }
+  }
+
+  async function handleEditedDraftReview(): Promise<void> {
+    if (!finalDraft.trim() || !currentProduct || streaming) return;
+    setStreaming(true);
+    setConfirmedFinal(false);
+    try {
+      const review = await submitReview({
+        script_type: 'direct', original_script: originalScript, adapted_script: finalDraft,
+        kol_id: kolId, product_id: currentProduct.id,
+      });
+      setReviewHistory((history) => [...history, { round: history.length + 1, review }]);
+      setFinalReview(review);
+      setNeedsManualReview(review.rating !== 'pass');
+    } catch (err: unknown) {
+      setFinalReview(null);
+      setNeedsManualReview(true);
+      message.error(err instanceof Error ? `编辑稿预审失败，当前稿已保留：${err.message}` : '编辑稿预审失败，当前稿已保留，请人工处理');
+    } finally {
       setStreaming(false);
     }
   }
@@ -566,11 +605,20 @@ export function QianchuanWriterModule({ kolId }: { kolId: number }) {
             </div>
           )}
 
-          {finalDraft && !streaming && (
+          {hasFinalDraft && !streaming && (
             <div style={{ padding: 'var(--sp-3)', background: 'var(--brand-light)', borderRadius: 'var(--radius-md)', marginBottom: 'var(--sp-3)' }}>
               <div style={{ fontWeight: 600, marginBottom: 'var(--sp-2)' }}>最好版本{finalReview ? `：${finalReview.rating === 'pass' ? '通过' : finalReview.rating === 'minor' ? '小改' : '不通过'}` : ''}</div>
-              <div style={{ whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.6 }}>{finalDraft}</div>
+              <TextArea
+                aria-label="运营直接编辑当前最佳稿"
+                rows={8}
+                value={finalDraft}
+                onChange={(event) => {
+                  setFinalDraft(event.target.value);
+                  setConfirmedFinal(false);
+                }}
+              />
               {needsManualReview && <div style={{ marginTop: 'var(--sp-2)', fontSize: 12 }}>轮次用尽或预审中断，剩余问题需人工确认。</div>}
+              <Button style={{ marginTop: 'var(--sp-2)', marginRight: 'var(--sp-2)' }} onClick={handleEditedDraftReview}>编辑稿预审一次</Button>
               <Button style={{ marginTop: 'var(--sp-2)' }} type={confirmedFinal ? 'default' : 'primary'} onClick={() => setConfirmedFinal(true)}>{confirmedFinal ? '已确认最终稿' : '运营确认最终稿'}</Button>
             </div>
           )}

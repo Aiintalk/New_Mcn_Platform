@@ -118,6 +118,50 @@ class TestOperatorReview:
         assert "结构完整" in body["data"]["passed"]
 
     @pytest.mark.asyncio
+    async def test_review_records_minimal_trace_without_script_content(
+        self, test_client, operator_headers, operator_user, test_session
+    ):
+        kol_id = (await test_session.execute(text(
+            "INSERT INTO kols (name, status) VALUES ('预审留痕达人', 'signed') RETURNING id"
+        ))).scalar()
+        product_id = (await test_session.execute(text(
+            "INSERT INTO qianchuan_products (nickname) VALUES ('预审留痕商品') RETURNING id"
+        ))).scalar()
+        await test_session.execute(text(
+            "INSERT INTO kol_active_products (kol_id, product_id) VALUES (:kol_id, :product_id)"
+        ), {"kol_id": kol_id, "product_id": product_id})
+        await test_session.commit()
+
+        with patch(
+            "app.routers.operator_script_review._call_review_ai",
+            new=AsyncMock(return_value=_MOCK_AI_RESPONSE),
+        ):
+            resp = await test_client.post(
+                "/api/operator/qianchuan-script-review/review",
+                json={
+                    "script_type": "direct",
+                    "original_script": "原版不应写入日志",
+                    "adapted_script": "仿写不应写入日志",
+                    "kol_id": kol_id,
+                    "product_id": product_id,
+                },
+                headers=operator_headers,
+            )
+
+        assert resp.status_code == 200
+        row = (await test_session.execute(text(
+            "SELECT detail FROM operation_logs WHERE action = 'qianchuan_script_review' "
+            "AND user_id = :user_id ORDER BY id DESC LIMIT 1"
+        ), {"user_id": operator_user.id})).scalar_one()
+        assert row["kol_id"] == kol_id
+        assert row["product_id"] == product_id
+        assert row["original_script_length"] == len("原版不应写入日志")
+        assert row["feature"] == "qianchuan_pre_review"
+        assert row["model_id"]
+        assert "原版不应写入日志" not in str(row)
+        assert "仿写不应写入日志" not in str(row)
+
+    @pytest.mark.asyncio
     async def test_review_value_mode(self, test_client, operator_headers):
         with patch(
             "app.routers.operator_script_review._call_review_ai",
