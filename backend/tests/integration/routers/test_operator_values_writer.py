@@ -49,6 +49,86 @@ async def _create_kol(test_session, name="测试达人"):
     return kol_id
 
 
+async def _set_current_product(test_session, kol_id):
+    product_id = (await test_session.execute(text(
+        "INSERT INTO qianchuan_products (nickname, core_selling_point, mechanism, unique_selling, mechanism_exclusive) "
+        "VALUES ('数据库晚霜', '紧致卖点', '买一送一', '独家卖点', false) RETURNING id"
+    ))).scalar()
+    await test_session.execute(text(
+        "INSERT INTO kol_active_products (kol_id, product_id) VALUES (:kol_id, :product_id)"
+    ), {"kol_id": kol_id, "product_id": product_id})
+    await test_session.commit()
+
+
+class TestLegacyValuesWorkflow:
+    @pytest.mark.asyncio
+    async def test_derive_directions_requires_current_product(self, test_client, operator_headers, test_session):
+        kol_id = await _create_kol(test_session, name="没有商品的达人")
+        resp = await test_client.post(
+            "/api/operator/values-writer/derive-directions",
+            json={"kol_id": kol_id, "opening_line": "锁定开头", "original_script": "锁定开头\n原文正文"},
+            headers=operator_headers,
+        )
+        assert resp.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_derive_directions_reads_database_product_and_full_kol_context(
+        self, test_client, operator_headers, test_session
+    ):
+        kol_id = await _create_kol(test_session, name="完整档案达人")
+        await test_session.execute(text(
+            "UPDATE kols SET content_plan = '内容计划', experience = '真实经历', relationships = '关系网', "
+            "unique_story = '独家经历', extra_notes = '补充信息' WHERE id = :id"
+        ), {"id": kol_id})
+        await _set_current_product(test_session, kol_id)
+        with patch("app.routers.operator_values_writer.yunwu_adapter.chat", new_callable=AsyncMock) as mock_chat:
+            mock_chat.return_value = '[{"type":"诱惑型","title":"被看见","description":"说明","anchor":"锚点"},{"type":"焦虑型","title":"错过","description":"说明","anchor":"锚点"}]'
+            resp = await test_client.post(
+                "/api/operator/values-writer/derive-directions",
+                json={"kol_id": kol_id, "opening_line": "锁定开头", "original_script": "锁定开头\n原文正文"},
+                headers=operator_headers,
+            )
+        assert resp.status_code == 200
+        prompt = mock_chat.call_args.kwargs["messages"][0]["content"]
+        for value in ("数据库晚霜", "紧致卖点", "独家卖点", "内容计划", "真实经历", "关系网", "独家经历", "补充信息"):
+            assert value in prompt
+        assert resp.json()["data"]["directions"][0]["type"] == "诱惑型"
+
+    @pytest.mark.asyncio
+    async def test_generate_replaces_changed_opening_with_locked_opening(
+        self, test_client, operator_headers, test_session
+    ):
+        kol_id = await _create_kol(test_session, name="锁定开头达人")
+        await _set_current_product(test_session, kol_id)
+
+        async def _mock_stream(*args, **kwargs):
+            yield "<analysis>12字，2段</analysis><rewrite>模型擅自改了开头。\n后续正文。</rewrite><report>检查完成</report>"
+
+        with patch(
+            "app.routers.operator_values_writer.yunwu_adapter.chat_stream",
+            side_effect=_mock_stream,
+        ):
+            response = await test_client.post(
+                "/api/operator/values-writer/generate",
+                json={
+                    "kol_id": kol_id,
+                    "opening_line": "锁定开头。",
+                    "original_script": "锁定开头。\n原文正文。",
+                    "direction": {"type": "诱惑型", "title": "被看见", "description": "说明", "anchor": "锚点"},
+                },
+                headers=operator_headers,
+            )
+
+        payloads = [
+            json.loads(line.removeprefix("data: "))
+            for line in response.text.splitlines()
+            if line.startswith("data: ")
+        ]
+        generated = "".join(payload.get("delta", "") for payload in payloads)
+        assert response.status_code == 200
+        assert "<rewrite>锁定开头。\n后续正文。</rewrite>" in generated
+
+
 # ---------------------------------------------------------------------------
 # Test 1: No auth → 401
 # ---------------------------------------------------------------------------

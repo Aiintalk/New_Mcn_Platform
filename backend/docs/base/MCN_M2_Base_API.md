@@ -2378,46 +2378,39 @@ Request Body（所有字段可选，未传字段不变）：
 
 ### 26.3 运营端接口
 
-#### POST `/api/operator/values-writer/extract-values`
+#### POST `/api/operator/values-writer/derive-directions`
 
-从 kol 的人物档案提炼价值观清单（非流式，等待完成）。
+旧版四步流程的第三步。服务端固定读取 `kol_id` 的完整人物档案和唯一当前商品；前端传入的商品正文不会被采用。根据锁定开头、爆款全文和当前商品返回 2 至 3 个可选情绪方向。解析或模型调用失败时，服务端最多尝试 3 次；三次仍失败返回明确错误。
 
 Request Body：
 ```json
-{ "kol_id": 1, "extra_context": "可选补充说明" }
+{ "kol_id": 1, "opening_line": "锁定的第一句", "original_script": "爆款全文" }
 ```
 
 Response `data`：
 ```json
-{ "values": ["真实", "治愈", "共鸣", "在地化"] }
+{ "directions": [{ "type": "焦虑型", "title": "错失机会", "description": "放大缺失的代价", "anchor": "再拖下去会错过" }] }
 ```
 
-#### POST stream `/api/operator/values-writer/emotion-direction`
+没有当前商品时返回 `400`，错误信息为“请先在产品库选择当前商品”。
 
-根据选中价值观推导情绪方向（SSE 流式）。
+#### POST stream `/api/operator/values-writer/generate`
 
-Request Body：
-```json
-{ "kol_id": 1, "selected_values": ["真实", "治愈"], "tone": "轻松温暖" }
-```
-
-Response：`Content-Type: text/event-stream`，格式：`data: {"delta": "..."}`
-
-#### POST stream `/api/operator/values-writer/write`
-
-生成价值观内容（SSE 流式）。
+旧版四步流程的第四步。服务端读取当前商品和完整人物档案，要求模型输出 `<analysis>`、`<rewrite>`、`<report>` 三个结构化片段；改写稿必须逐字保留 `opening_line`，并且不得出现当前商品名称或直接商品信息。
 
 Request Body：
 ```json
 {
   "kol_id": 1,
-  "selected_values": ["真实"],
-  "emotion_direction": "...",
-  "product_context": "本期推广番茄精华"
+  "opening_line": "锁定的第一句",
+  "original_script": "爆款全文",
+  "direction": { "type": "诱惑型", "title": "人生开挂", "description": "放大获得后的生活优势", "anchor": "被看见的轻松感" }
 }
 ```
 
-Response：`Content-Type: text/event-stream`
+Response：`Content-Type: text/event-stream`，格式：`data: {"delta": "..."}`。模型输出缺少任一结构化片段时，前端必须展示解析失败，不能将原始标签文本作为成功脚本。
+
+`extract-values`、`emotion-direction`、`write` 和 `iterate` 为兼容既有独立入口保留；红人工作台入口只使用以上两个旧版四步流程接口。
 
 #### POST stream `/api/operator/values-writer/iterate`
 

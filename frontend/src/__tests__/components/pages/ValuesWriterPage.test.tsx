@@ -1,259 +1,67 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, act } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { App } from 'antd';
 
-// ── Mock API ─────────────────────────────────────────────────────────────────
-
-const mockExtractValues = vi.fn();
-const mockEmotionDirectionStream = vi.fn();
-const mockWriteStream = vi.fn();
-const mockIterateStream = vi.fn();
+const mockDeriveDirections = vi.fn();
+const mockGenerateValueScript = vi.fn();
 
 vi.mock('../../../api/valuesWriter', () => ({
-  extractValues: (...args: unknown[]) => mockExtractValues(...args),
-  emotionDirectionStream: (...args: unknown[]) => mockEmotionDirectionStream(...args),
-  writeStream: (...args: unknown[]) => mockWriteStream(...args),
-  iterateStream: (...args: unknown[]) => mockIterateStream(...args),
-  getConfig: vi.fn().mockResolvedValue({
-    id: 1,
-    config_key: 'default',
-    extract_values_prompt: null,
-    emotion_direction_prompt: null,
-    writing_prompt: null,
-    iteration_prompt: null,
-    model_id: null,
-    is_active: true,
-    updated_at: null,
-  }),
-  updateConfig: vi.fn().mockResolvedValue({}),
+  deriveDirections: (...args: unknown[]) => mockDeriveDirections(...args),
+  generateValueScript: (...args: unknown[]) => mockGenerateValueScript(...args),
+  saveOutput: vi.fn(),
 }));
-
-vi.mock('../../../api/request', () => ({
-  get: vi.fn().mockResolvedValue([]),
-  post: vi.fn().mockResolvedValue({}),
-  put: vi.fn().mockResolvedValue({}),
+vi.mock('../../../api/kolWorkspace', () => ({
+  getActiveProducts: vi.fn().mockResolvedValue([{ id: 8, nickname: '晚霜', core_selling_point: '紧致', mechanism: '买一送一', unique_selling: '独家', mechanism_exclusive: true }]),
+  updateActiveProducts: vi.fn().mockResolvedValue({}),
 }));
-
-vi.mock('../../../api/ai', () => ({
-  getAiModels: vi.fn().mockResolvedValue({ items: [], total: 0 }),
+vi.mock('../../../api/qianchuanProducts', () => ({
+  getQianchuanProducts: vi.fn().mockResolvedValue({ items: [{ id: 8, nickname: '晚霜', core_selling_point: '紧致', mechanism: '买一送一', unique_selling: '独家', mechanism_exclusive: true }], pagination: {} }),
 }));
+vi.mock('../../../api/request', () => ({ get: vi.fn().mockResolvedValue([]) }));
+vi.mock('../../../store/authStore', () => ({ useAuthStore: { getState: () => ({ token: 'mock-token' }) } }));
 
-vi.mock('../../../store/authStore', () => ({
-  useAuthStore: { getState: () => ({ token: 'mock-token' }) },
-}));
+import { ValuesWriterModule, calculateBigramSimilarity, parseValueScriptResult } from '../../../pages/operator/ValuesWriterPage';
 
-// ── 渲染 helper ───────────────────────────────────────────────────────────────
-
-import { ValuesWriterModule } from '../../../pages/operator/ValuesWriterPage';
-
-function renderModule(kolId = 1) {
-  return render(
-    <App>
-      <ValuesWriterModule kolId={kolId} />
-    </App>,
-  );
+function renderModule() {
+  return render(<App><ValuesWriterModule kolId={1} /></App>);
 }
 
-// ── 常量 ─────────────────────────────────────────────────────────────────────
-
-const SAMPLE_VALUES = ['真实', '治愈', '共鸣'];
-
-describe('ValuesWriterPage — ValuesWriterModule', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
+describe('ValuesWriterModule', () => {
+  it('从锁定开头和爆款全文开始旧版四步流程', () => {
+    renderModule();
+    expect(screen.getByRole('heading', { name: '输入爆款原文' })).toBeInTheDocument();
+    expect(screen.getByLabelText('锁定开头')).toBeInTheDocument();
+    expect(screen.getByLabelText('爆款全文')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /下一步：选择产品/ })).toBeDisabled();
   });
 
-  // ────────────────────────────────────────────────────────────────────────────
-  // Test 1: Step 2 初始化：mock extractValues 返回 values → 渲染 Tags
-  // ────────────────────────────────────────────────────────────────────────────
-  it('Step 2: 调 extractValues 后渲染价值观 Tag 列表', async () => {
-    mockExtractValues.mockResolvedValue({ values: SAMPLE_VALUES });
-
-    renderModule();
-
-    // 等待加载完成，3 个 Tag 都渲染出来
-    await waitFor(() => {
-      expect(screen.getByText('真实')).toBeInTheDocument();
-      expect(screen.getByText('治愈')).toBeInTheDocument();
-      expect(screen.getByText('共鸣')).toBeInTheDocument();
+  it('根据当前商品推导方向，并允许人工调整后生成', async () => {
+    const user = userEvent.setup();
+    mockDeriveDirections.mockResolvedValue({ directions: [{ type: '诱惑型', title: '被看见', description: '展示生活优势', anchor: '轻松被偏爱' }] });
+    mockGenerateValueScript.mockImplementation(async (_body: unknown, onDelta: (value: string) => void) => {
+      const value = '<analysis>总字数：30</analysis><rewrite>锁定开头\n全新表达</rewrite><report>开头核查通过</report>';
+      onDelta(value);
+      return value;
     });
-
-    expect(mockExtractValues).toHaveBeenCalledWith(1);
+    renderModule();
+    await user.type(screen.getByLabelText('锁定开头'), '锁定开头');
+    await user.type(screen.getByLabelText('爆款全文'), '锁定开头\n原文第二段');
+    await user.click(screen.getByRole('button', { name: /下一步：选择产品/ }));
+    await user.click(screen.getByRole('button', { name: '生成情绪方向' }));
+    await screen.findByText('诱惑型 · 被看见');
+    await user.click(screen.getByText('诱惑型 · 被看见'));
+    await user.clear(screen.getByLabelText('人工调整方向说明'));
+    await user.type(screen.getByLabelText('人工调整方向说明'), '人工确认的方向');
+    await user.click(screen.getByRole('button', { name: '生成脚本和报告' }));
+    await screen.findByLabelText('改写脚本');
+    expect(mockDeriveDirections).toHaveBeenCalledWith({ kol_id: 1, opening_line: '锁定开头', original_script: '锁定开头\n原文第二段' });
+    expect(mockGenerateValueScript.mock.calls[0][0]).toMatchObject({ kol_id: 1, direction: { description: '人工确认的方向' } });
   });
 
-  // ────────────────────────────────────────────────────────────────────────────
-  // Test 2: 选 Tag 高亮，超过 3 个无法选中
-  // ────────────────────────────────────────────────────────────────────────────
-  it('Step 2: 选 Tag 高亮，超过 3 个无法选中', async () => {
-    const moreValues = ['真实', '治愈', '共鸣', '温暖', '力量'];
-    mockExtractValues.mockResolvedValue({ values: moreValues });
-
-    renderModule();
-
-    await waitFor(() => {
-      expect(screen.getByText('真实')).toBeInTheDocument();
-    });
-
-    // 已选 0 个
-    expect(screen.getByText('已选 0 / 3')).toBeInTheDocument();
-
-    // 选第 1 个
-    await act(async () => {
-      screen.getByText('真实').click();
-    });
-    await waitFor(() => expect(screen.getByText('已选 1 / 3')).toBeInTheDocument());
-
-    // 选第 2 个
-    await act(async () => {
-      screen.getByText('治愈').click();
-    });
-    await waitFor(() => expect(screen.getByText('已选 2 / 3')).toBeInTheDocument());
-
-    // 选第 3 个
-    await act(async () => {
-      screen.getByText('共鸣').click();
-    });
-    await waitFor(() => expect(screen.getByText('已选 3 / 3')).toBeInTheDocument());
-
-    // 尝试选第 4 个：count 依然 3
-    await act(async () => {
-      screen.getByText('温暖').click();
-    });
-    // 数量不应超过 3
-    expect(screen.getByText('已选 3 / 3')).toBeInTheDocument();
-  });
-
-  // ────────────────────────────────────────────────────────────────────────────
-  // Test 3: 至少选 1 个后「确认」按钮可点
-  // ────────────────────────────────────────────────────────────────────────────
-  it('Step 2: 未选时确认按钮 disabled，选 1 个后可点', async () => {
-    mockExtractValues.mockResolvedValue({ values: SAMPLE_VALUES });
-
-    renderModule();
-
-    await waitFor(() => screen.getByText('真实'));
-
-    // 未选：disabled
-    const confirmBtn = screen.getByRole('button', { name: /确认，生成情绪方向/ });
-    expect(confirmBtn).toBeDisabled();
-
-    // 选 1 个
-    await act(async () => {
-      screen.getByText('真实').click();
-    });
-
-    await waitFor(() => {
-      expect(
-        screen.getByRole('button', { name: /确认，生成情绪方向/ }),
-      ).not.toBeDisabled();
-    });
-  });
-
-  // ────────────────────────────────────────────────────────────────────────────
-  // Test 4: Step 3：mock emotionDirectionStream → onDelta 回调 → TextArea 更新
-  // ────────────────────────────────────────────────────────────────────────────
-  it('Step 3: emotionDirectionStream 回调更新情绪方向 TextArea', async () => {
-    mockExtractValues.mockResolvedValue({ values: SAMPLE_VALUES });
-
-    const emotionText = '轻松真实，有温度，贴近生活';
-    mockEmotionDirectionStream.mockImplementation(
-      async (_body: unknown, onDelta: (text: string) => void) => {
-        onDelta(emotionText);
-        return emotionText;
-      },
-    );
-
-    renderModule();
-
-    // 进入 Step 2
-    await waitFor(() => screen.getByText('真实'));
-
-    // 选 1 个
-    await act(async () => {
-      screen.getByText('真实').click();
-    });
-
-    // 进入 Step 3
-    await act(async () => {
-      screen.getByRole('button', { name: /确认，生成情绪方向/ }).click();
-    });
-
-    await waitFor(() => {
-      expect(screen.getByRole('heading', { name: '生成情绪方向' })).toBeInTheDocument();
-    });
-
-    // 点击生成
-    await act(async () => {
-      screen.getByRole('button', { name: '生成情绪方向' }).click();
-    });
-
-    await waitFor(() => {
-      expect(screen.getByDisplayValue(emotionText)).toBeInTheDocument();
-    });
-
-    expect(mockEmotionDirectionStream).toHaveBeenCalled();
-  });
-
-  // ────────────────────────────────────────────────────────────────────────────
-  // Test 5: Step 4：mock writeStream → 内容区更新
-  // ────────────────────────────────────────────────────────────────────────────
-  it('Step 4: writeStream 回调更新内容区 TextArea', async () => {
-    mockExtractValues.mockResolvedValue({ values: SAMPLE_VALUES });
-
-    const emotionText = '轻松真实，有温度，贴近生活';
-    mockEmotionDirectionStream.mockImplementation(
-      async (_body: unknown, onDelta: (text: string) => void) => {
-        onDelta(emotionText);
-        return emotionText;
-      },
-    );
-
-    const generatedContent = '这是生成的价值观仿写内容，充满了真实感和温度。';
-    mockWriteStream.mockImplementation(
-      async (_body: unknown, onDelta: (text: string) => void) => {
-        onDelta(generatedContent);
-        return generatedContent;
-      },
-    );
-
-    renderModule();
-
-    // Step 2: 选价值观
-    await waitFor(() => screen.getByText('真实'));
-    await act(async () => {
-      screen.getByText('真实').click();
-    });
-
-    // Step 3: 进入
-    await act(async () => {
-      screen.getByRole('button', { name: /确认，生成情绪方向/ }).click();
-    });
-    await waitFor(() => {
-      expect(screen.getByRole('heading', { name: '生成情绪方向' })).toBeInTheDocument();
-    });
-
-    // Step 3: 生成情绪方向
-    await act(async () => {
-      screen.getByRole('button', { name: '生成情绪方向' }).click();
-    });
-    await waitFor(() => screen.getByDisplayValue(emotionText));
-
-    // Step 4: 进入
-    await act(async () => {
-      screen.getByRole('button', { name: /下一步：生成内容/ }).click();
-    });
-    await waitFor(() => screen.getByRole('button', { name: '开始生成' }));
-
-    // Step 4: 生成内容
-    await act(async () => {
-      screen.getByRole('button', { name: '开始生成' }).click();
-    });
-
-    await waitFor(() => {
-      expect(screen.getByDisplayValue(generatedContent)).toBeInTheDocument();
-    });
-
-    expect(mockWriteStream).toHaveBeenCalled();
+  it('只接受完整的结构化生成结果，并按旧版双字算法给出百分比', () => {
+    expect(parseValueScriptResult('<rewrite>脚本</rewrite><report>报告</report>')).toBeNull();
+    expect(parseValueScriptResult('<analysis>结构</analysis><rewrite>脚本</rewrite><report>报告</report>')).toEqual({ analysis: '结构', rewrite: '脚本', report: '报告' });
+    expect(calculateBigramSimilarity('甲乙丙丁', '甲乙戊己')).toBe(20);
   });
 });
