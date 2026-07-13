@@ -56,6 +56,7 @@ export async function generateValueScript(
 ): Promise<string> {
   const { useAuthStore } = await import('../store/authStore');
   const token = useAuthStore.getState().token;
+  // SSE 流式：resp.body.getReader()（例外不走 request.ts）
   const resp = await fetch(`${BASE_URL}/api/operator/values-writer/generate`, {
     method: 'POST',
     headers: {
