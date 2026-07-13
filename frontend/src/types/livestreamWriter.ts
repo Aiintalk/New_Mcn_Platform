@@ -21,6 +21,10 @@ export interface ChatRequest {
   messages: Array<{ role: 'user' | 'assistant'; content: string }>;
   systemPrompt: string;
   model?: string;
+  kol_id?: number;
+  reference_script?: string;
+  reference_confirmed?: boolean;
+  sp_order?: SpOrder;
   createJob?: boolean;
   jobContext?: {
     productName: string;

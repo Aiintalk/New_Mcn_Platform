@@ -1196,7 +1196,7 @@ Response（200）：
 | 方法 | 路径 | 角色 | 功能 |
 |------|------|------|------|
 | GET | `/api/tools/livestream-writer/config` | operator/admin | 获取激活的 Prompt + 模型（实时拉取，管理端可配置）|
-| GET | `/api/tools/livestream-writer/kols/personas` | operator/admin | 达人列表（content_plan 和 persona 均非空）|
+| GET | `/api/tools/livestream-writer/kols/personas` | operator/admin | 达人列表（含 `id`，供独立页面提交 `kol_id`）|
 | POST | `/api/tools/livestream-writer/parse-file` | operator/admin | 文件解析（.txt/.md/.docx/.pages，不支持 .pdf）|
 | POST | `/api/tools/livestream-writer/chat` | operator/admin | AI 流式对话（raw text stream）|
 | GET | `/api/admin/livestream-writer/configs` | admin | 配置列表 |
@@ -1253,7 +1253,11 @@ Request（JSON）：
 ```json
 {
   "messages": [{ "role": "user|assistant", "content": "string" }],
-  "systemPrompt": "string（前端动态构建，已注入变量）",
+  "kol_id": 123,
+  "reference_script": "已确认的对标直播间文案",
+  "reference_confirmed": true,
+  "sp_order": "背书→机制→种草",
+  "systemPrompt": "string（兼容旧调用；工作台生成以后台统一配置为准）",
   "model": "string（可选，默认 claude-opus-4-6-thinking）",
   "createJob": true,
   "jobContext": {
@@ -1264,6 +1268,13 @@ Request（JSON）：
   }
 }
 ```
+
+业务规则：
+
+- 首次生成（`createJob=true`）必须传入 `kol_id`、已确认的 `reference_script` 和 `reference_confirmed=true`。
+- 服务端按 `kol_id` 重新读取未删除红人的完整档案，以及该红人的唯一当前商品；不采信前端拼接的商品正文。
+- 没有当前商品时返回 400 `CURRENT_PRODUCT_REQUIRED`；未确认对标文案时返回 400 `REFERENCE_SCRIPT_REQUIRED`。
+- 写入任务上下文时记录红人、当前商品、对标文案字数、卖点顺序、功能、模型和产出标识，不写入完整对标文案。
 
 Response：`text/plain; charset=utf-8`（raw text stream，非 SSE）
 
