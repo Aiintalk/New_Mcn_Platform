@@ -47,6 +47,26 @@ async def _create_kol(test_session, name="孙知羽", persona="人设A", content
     return kol_id
 
 
+async def _create_current_product(test_session, kol_id: int):
+    result = await test_session.execute(text(
+        """
+        INSERT INTO qianchuan_products (
+            nickname, core_selling_point, mechanism, mechanism_exclusive,
+            unique_selling, efficacy_proof
+        ) VALUES (
+            '数据库云朵面霜', '数据库卖点', '数据库买一送一', true,
+            '数据库独家卖点', '数据库功效证明'
+        ) RETURNING id
+        """
+    ))
+    product_id = result.scalar()
+    await test_session.execute(text(
+        "INSERT INTO kol_active_products (kol_id, product_id) VALUES (:kol_id, :product_id)"
+    ), {"kol_id": kol_id, "product_id": product_id})
+    await test_session.commit()
+    return product_id
+
+
 # ---------------------------------------------------------------------------
 # Auth tests
 # ---------------------------------------------------------------------------
@@ -88,19 +108,15 @@ class TestAuth:
 
 class TestPersonas:
     @pytest.mark.asyncio
-    async def test_empty_list(self, test_client, operator_headers, test_session):
-        # 清掉匹配的 kols
-        await test_session.execute(text(
-            "DELETE FROM kols WHERE persona IS NOT NULL AND content_plan IS NOT NULL"
-        ))
-        await test_session.commit()
+    async def test_list_response_is_safe_with_other_module_kols(self, test_client, operator_headers):
+        """共享测试库可能有其他模块的红人，本接口不应通过删除它们制造空列表。"""
         resp = await test_client.get(
             "/api/tools/qianchuan-writer/kols/personas",
             headers=operator_headers,
         )
         body = resp.json()
         assert body["success"] is True
-        assert body["data"] == []
+        assert isinstance(body["data"], list)
 
     @pytest.mark.asyncio
     async def test_returns_personas(self, test_client, operator_headers, test_session):
@@ -184,6 +200,78 @@ class TestParseFile:
 # ---------------------------------------------------------------------------
 
 class TestChat:
+    @pytest.mark.asyncio
+    async def test_chat_uses_full_kol_and_current_product_from_database(
+        self, test_client, operator_headers, test_session
+    ):
+        kol_id = await _create_kol(test_session, name="完整档案达人")
+        await test_session.execute(text(
+            """
+            UPDATE kols
+            SET background = '基本身份内容', experience = '真实经历内容',
+                relationships = '关系网内容', unique_story = '独家经历内容',
+                extra_notes = '其他补充内容'
+            WHERE id = :kol_id
+            """
+        ), {"kol_id": kol_id})
+        await test_session.commit()
+        product_id = await _create_current_product(test_session, kol_id)
+        seen_messages = []
+
+        async def mock_stream(*args, **kwargs):
+            seen_messages.extend(kwargs["messages"])
+            yield "仿写完成"
+
+        with patch(
+            "app.routers.operator_qianchuan_writer.yunwu_adapter.chat_stream",
+            side_effect=mock_stream,
+        ), patch(
+            "app.routers.operator_qianchuan_writer.AsyncSessionLocal"
+        ) as mock_sl:
+            mock_sess = AsyncMock()
+            mock_sess.__aenter__ = AsyncMock(return_value=mock_sess)
+            mock_sess.__aexit__ = AsyncMock(return_value=False)
+            mock_sl.return_value = mock_sess
+
+            resp = await test_client.post(
+                "/api/tools/qianchuan-writer/chat",
+                json={
+                    "messages": [{"role": "user", "content": "原版脚本"}],
+                    "persona_id": kol_id,
+                    "kol_id": kol_id,
+                    "product_id": product_id,
+                },
+                headers=operator_headers,
+            )
+
+        assert resp.status_code == 200
+        system_prompt = seen_messages[0]["content"]
+        for expected in (
+            "基本身份内容", "真实经历内容", "关系网内容", "独家经历内容", "其他补充内容",
+            "数据库云朵面霜", "数据库卖点", "数据库买一送一", "数据库独家卖点", "只有我有",
+        ):
+            assert expected in system_prompt
+
+    @pytest.mark.asyncio
+    async def test_chat_requires_current_product_for_workspace(
+        self, test_client, operator_headers, test_session
+    ):
+        kol_id = await _create_kol(test_session)
+
+        resp = await test_client.post(
+            "/api/tools/qianchuan-writer/chat",
+            json={
+                "messages": [{"role": "user", "content": "原版脚本"}],
+                "persona_id": kol_id,
+                "kol_id": kol_id,
+            },
+            headers=operator_headers,
+        )
+
+        assert resp.status_code == 400
+        assert resp.json()["success"] is False
+        assert resp.json()["code"] == "CURRENT_PRODUCT_REQUIRED"
+
     @pytest.mark.asyncio
     async def test_chat_success(self, test_client, operator_headers, test_session):
         kol_id = await _create_kol(test_session, name="AI测试达人",

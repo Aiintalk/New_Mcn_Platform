@@ -50,11 +50,11 @@ export interface QianchuanChatMessage {
 /** POST /chat 请求体 */
 export interface QianchuanChatRequest {
   messages: QianchuanChatMessage[];
-  persona_id: number;
+  persona_id?: number;
   kol_id?: number;
+  product_id?: number;
   create_job?: boolean;
   job_context?: {
-    product_name?: string;
     original_script_length?: number;
   };
 }
