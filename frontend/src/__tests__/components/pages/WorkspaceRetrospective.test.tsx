@@ -143,6 +143,13 @@ describe('WorkspaceRetrospective', () => {
     await user.upload(input, [new File(['one'], '第一份.txt', { type: 'text/plain' }), new File(['two'], '第二份.txt', { type: 'text/plain' })]);
     expect(await screen.findByDisplayValue('第一份正文')).toBeInTheDocument();
     expect(screen.getByDisplayValue('第二份正文')).toBeInTheDocument();
+    await user.type(screen.getByTestId('title-input'), '脚本复盘');
+    mockSaveSession.mockResolvedValue({ ...session2, id: 88, title: '脚本复盘' });
+    await user.click(screen.getByTestId('save-draft-btn'));
+    expect(mockSaveSession).toHaveBeenCalledWith(1, expect.objectContaining({ material_scripts: [
+      { name: '第一份.txt', text: '第一份正文' },
+      { name: '第二份.txt', text: '第二份正文' },
+    ] }));
   });
 
   // ── Test 3: 编辑视图 - 标题输入 + 保存草稿 ────────────────────────────────────

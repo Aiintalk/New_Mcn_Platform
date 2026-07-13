@@ -117,6 +117,10 @@ def _sse_done() -> str:
     return f"data: {json.dumps({'done': True})}\n\n"
 
 
+def _sse_error(message: str) -> str:
+    return f"data: {json.dumps({'error': message}, ensure_ascii=False)}\n\n"
+
+
 # ---------------------------------------------------------------------------
 # Schemas
 # ---------------------------------------------------------------------------
@@ -399,7 +403,8 @@ async def analyze_stream(
                     state["full_text"] += chunk
                     yield _sse_chunk(chunk)
             except Exception as e:
-                yield _sse_chunk(f"[ERROR] {e}")
+                yield _sse_error(str(e))
+                return
         yield _sse_done()
 
         # 完成后更新 session.result + status='done'
