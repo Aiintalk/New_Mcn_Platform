@@ -348,9 +348,10 @@ CREATE INDEX idx_tikhub_call_logs_created ON tikhub_call_logs(created_at DESC);
 | `027_oss_call_logs.sql` | oss_call_logs 表（OSS 调用日志） | Sprint 4+ |
 | `028_service_credentials_test_fields.sql` | service_credentials 加 last_tested_at / last_latency_ms 字段 | Sprint 4+ |
 | `029_asr_call_logs.sql` | asr_call_logs 表（ASR 调用日志） | Sprint 4+ |
+| `051_qianchuan_full_video_preview_config.sql` | 初始化完整视频成片预审独立 `full_video` 配置键 | M2 红人工作台还原 |
 ### 完整视频成片预审的数据边界（M2 红人工作台还原）
 
-完整视频预审**不新增业务表**：复用 `qianchuan_preview_configs`（Prompt + `ai_model_id`）、`ai_models`（必须选择 provider=`gemini` 的 active 模型）、`credentials`（provider=`gemini` 的统一凭证）、`task_jobs`、`outputs`、`external_service_logs`、`ai_call_logs` 和 `oss_call_logs`。
+完整视频预审**不新增业务表**：复用 `qianchuan_preview_configs`（完整视频使用独立 `full_video` 配置键，Prompt + `ai_model_id`）、`ai_models`（必须选择 provider=`gemini` 的 active 模型）、`credentials`（provider=`gemini` 的统一凭证）、`task_jobs`、`outputs`、`external_service_logs`、`ai_call_logs` 和 `oss_call_logs`。
 
 - `task_jobs.input_payload` 只允许记录不可变的 `kol_id`，以及 `original`、`edited` 的临时 OSS 对象键、原始文件名、MIME 类型和字节数；不得保存视频正文、公开 URL 或 Gemini API key。保存报告时从该 `kol_id` 写入 `outputs.content_json`，不信任前端归属字段。
 - 分析成功、供应商失败、超时和客户端断开时，均尝试删除 Gemini Files 临时文件与临时 OSS 对象；删除失败仅记调用日志，不删除任务错误事实。

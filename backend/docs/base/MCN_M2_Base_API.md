@@ -2705,9 +2705,9 @@ Response `data`：`{ "active_product_ids": [] }` 或 `{"active_product_ids": [12
 
 `multipart/form-data`，字段 `kol_id`（当前工作台红人编号）、`original` 和 `edited` 均必填。服务端先验证 `kol_id` 对应的未删除红人存在；两个文件只接受 `.mp4`、`.mov` 和对应 `video/mp4`、`video/quicktime` MIME 类型；每个文件服务端实际限制为 **500MB**。服务端按块写入临时目录，临时上传到私有对象存储，再将两条完整视频上传至 Gemini Files API，轮询到 `ACTIVE` 后才发起流式分析。
 
-Response：`Content-Type: text/plain; charset=utf-8`，流中状态片段以 `__STATUS__` 开头；报告正文为 Markdown。响应头 `X-Task-Id` 可用于保存。
+Response：`Content-Type: text/event-stream`。流事件为 `status`（上传、处理进度）、`report`（每个 Gemini 正文分片，`data.text` 可立即追加）以及供应商失败时的 `error`、`failed`；前端收到 `error` 或 `failed` 后保留已选视频但禁止保存或导出部分报告。响应头 `X-Task-Id` 可用于保存。
 
-分析所用 Prompt、模型和 Gemini 凭证均由管理端既有 `qianchuan_preview_configs`、`ai_models`、`credentials` 统一管理：绑定模型必须是状态为 `active`、provider 为 `gemini` 的模型；无配置、供应商处理失败或超时会返回明确错误，绝不改为关键帧分析。`task_jobs.input_payload` 只记录临时对象键和文件元数据，处理结束后删除对象存储和 Gemini 临时文件。
+分析所用 Prompt、模型和 Gemini 凭证均由管理端既有 `qianchuan_preview_configs`、`ai_models`、`credentials` 统一管理。完整视频固定读取独立的 `full_video` 配置键，既有 `default` 配置键仍只用于文案预审；绑定模型必须是状态为 `active`、provider 为 `gemini` 的模型；无配置、供应商处理失败或超时会返回明确错误，绝不改为关键帧分析。`task_jobs.input_payload` 只记录临时对象键和文件元数据，处理结束后删除对象存储和 Gemini 临时文件；Gemini 清理失败会单独写入关联任务的外部服务日志。只有任务状态为 `success` 的完整报告可保存。
 
 ### POST `/api/tools/qianchuan-preview/save-video-report`
 

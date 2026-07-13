@@ -50,7 +50,7 @@ describe('FilmReviewModule', () => {
     const user = userEvent.setup();
     mockSaveFilmReport.mockResolvedValue({ output_id: 9 });
     mockAnalyzeFilm.mockResolvedValue(new Response(
-      '__STATUS__正在上传两条完整视频\n__STATUS__Gemini 正在读取两条完整视频...\n# 三维评分：88',
+      'event: status\ndata: {"message":"正在上传两条完整视频"}\n\nevent: status\ndata: {"message":"Gemini 正在读取两条完整视频..."}\n\nevent: report\ndata: {"text":"# 三维评分："}\n\nevent: report\ndata: {"text":"88"}\n\n',
       { headers: { 'X-Task-Id': '42' } },
     ));
     render(<App><FilmReviewModule kolId={7} /></App>);
@@ -72,5 +72,23 @@ describe('FilmReviewModule', () => {
       original_filename: 'origin.mp4',
       edited_filename: 'edited.mov',
     });
+  });
+
+  it('marks the selected files failed and does not offer save or export after an SSE error event', async () => {
+    const user = userEvent.setup();
+    mockAnalyzeFilm.mockResolvedValue(new Response(
+      'event: report\ndata: {"text":"# 部分报告"}\n\nevent: error\ndata: {"message":"Gemini 服务超时"}\n\nevent: failed\ndata: {"task_id":42}\n\n',
+      { headers: { 'X-Task-Id': '42' } },
+    ));
+    render(<App><FilmReviewModule kolId={7} /></App>);
+
+    await user.upload(screen.getByTestId('film-file-original'), new File(['origin'], 'origin.mp4', { type: 'video/mp4' }));
+    await user.upload(screen.getByTestId('film-file-edited'), new File(['edited'], 'edited.mov', { type: 'video/quicktime' }));
+    await user.click(screen.getByRole('button', { name: /开始完整视频预审/ }));
+
+    expect((await screen.findAllByText('分析失败，可重试')).length).toBe(2);
+    expect(screen.getAllByText(/Gemini 服务超时/).length).toBeGreaterThan(0);
+    expect(screen.queryByRole('button', { name: /保存报告/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /导出办公文档/ })).not.toBeInTheDocument();
   });
 });

@@ -6,6 +6,7 @@ app/routers/operator_qianchuan_preview.py
   POST /api/tools/qianchuan-preview/generate    — SSE 流式生成预审报告
   POST /api/tools/qianchuan-preview/export-word — 导出 Word 文件
 """
+import json
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -228,13 +229,17 @@ async def _write_video_to_temp(file: UploadFile, directory: Path, slot: str) -> 
     suffix = Path(file.filename or "").suffix.lower()
     target = directory / f"{slot}{suffix}"
     size = 0
-    with target.open("wb") as destination:
-        while chunk := await file.read(VIDEO_CHUNK_BYTES):
-            size += len(chunk)
-            if size > VIDEO_MAX_BYTES:
-                target.unlink(missing_ok=True)
-                raise ValueError(f"视频文件大小不能超过 {VIDEO_MAX_BYTES // 1024 // 1024}MB")
-            destination.write(chunk)
+    try:
+        with target.open("wb") as destination:
+            while chunk := await file.read(VIDEO_CHUNK_BYTES):
+                size += len(chunk)
+                if size > VIDEO_MAX_BYTES:
+                    target.unlink(missing_ok=True)
+                    raise ValueError(f"视频文件大小不能超过 {VIDEO_MAX_BYTES // 1024 // 1024}MB")
+                destination.write(chunk)
+    except OSError:
+        target.unlink(missing_ok=True)
+        raise
     if size == 0:
         target.unlink(missing_ok=True)
         raise ValueError("视频文件不能为空")
@@ -245,7 +250,7 @@ async def _resolve_full_video_config(db: AsyncSession) -> tuple[str, str]:
     """必须由管理端绑定 active Gemini 模型，不能回退到默认文字模型。"""
     row = (await db.execute(sa_text(
         "SELECT system_prompt, ai_model_id FROM qianchuan_preview_configs "
-        "WHERE config_key='default' AND is_active=true LIMIT 1"
+        "WHERE config_key='full_video' AND is_active=true LIMIT 1"
     ))).fetchone()
     if not row or not row[1] or not (row[0] or "").strip():
         raise RuntimeError("请先在管理端为千川成片预审配置 Gemini 模型和提示词")
@@ -261,12 +266,32 @@ def _temporary_video_key(task_id: int, slot: str, filename: str) -> str:
     return f"qianchuan-preview/temp/{task_id}/{slot}-{uuid4().hex}{Path(filename).suffix.lower()}"
 
 
-async def _set_video_task_error(task_id: int, message: str) -> None:
+def _remove_local_video_temp(directory: Path | None, temp_paths: list[Path]) -> None:
+    for path in temp_paths:
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
+    if directory is None:
+        return
+    try:
+        for path in directory.iterdir():
+            path.unlink(missing_ok=True)
+        directory.rmdir()
+    except OSError:
+        pass
+
+
+def _sse(event: str, data: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+async def _set_video_task_error(task_id: int, message: str, error_code: str = ErrorCode.EXTERNAL_SERVICE_ERROR) -> None:
     async with database.AsyncSessionLocal() as task_db:
         task = await task_db.get(TaskJob, task_id)
         if task:
-            task.status = "error"
-            task.error_code = ErrorCode.EXTERNAL_SERVICE_ERROR
+            task.status = "failed"
+            task.error_code = error_code
             task.error_message = message[:500]
             task.finished_at = datetime.now(timezone.utc)
             task.duration_ms = max(task.duration_ms or 0, 0)
@@ -308,10 +333,11 @@ async def analyze_video(
     await db.commit()
     await db.refresh(task)
 
-    directory = Path(mkdtemp(prefix=f"qianchuan-preview-{task.id}-"))
+    directory: Path | None = None
     temp_paths: list[Path] = []
     oss_keys: list[str] = []
     try:
+        directory = Path(mkdtemp(prefix=f"qianchuan-preview-{task.id}-"))
         original_path, original_size = await _write_video_to_temp(original, directory, "original")
         temp_paths.append(original_path)
         edited_path, edited_size = await _write_video_to_temp(edited, directory, "edited")
@@ -339,10 +365,12 @@ async def analyze_video(
         await oss_adapter.upload_file_from_path(edited_key, edited_path, edited.content_type or VIDEO_TYPES[edited_path.suffix], db, current_user.id)
     except ValueError as exc:
         await _set_video_task_error(task.id, str(exc))
-        for path in temp_paths:
-            path.unlink(missing_ok=True)
-        directory.rmdir() if directory.exists() and not any(directory.iterdir()) else None
+        _remove_local_video_temp(directory, temp_paths)
         raise HTTPException(status_code=400, detail={"code": ErrorCode.VALIDATION_ERROR, "message": str(exc)}) from exc
+    except OSError as exc:
+        await _set_video_task_error(task.id, "本地临时视频写入失败", ErrorCode.INTERNAL_ERROR)
+        _remove_local_video_temp(directory, temp_paths)
+        raise HTTPException(status_code=500, detail={"code": ErrorCode.INTERNAL_ERROR, "message": "本地临时视频写入失败"}) from exc
     except (KeyError, RuntimeError) as exc:
         await _set_video_task_error(task.id, "临时视频上传失败，请检查对象存储配置后重试")
         for oss_key in oss_keys:
@@ -350,9 +378,7 @@ async def analyze_video(
                 await oss_adapter.delete_file(oss_key, db, current_user.id)
             except (KeyError, RuntimeError):
                 pass
-        for path in temp_paths:
-            path.unlink(missing_ok=True)
-        directory.rmdir() if directory.exists() and not any(directory.iterdir()) else None
+        _remove_local_video_temp(directory, temp_paths)
         raise HTTPException(status_code=502, detail={"code": ErrorCode.EXTERNAL_SERVICE_ERROR, "message": "临时视频上传失败，请检查对象存储配置后重试"}) from exc
 
     async def stream_report():
@@ -372,14 +398,18 @@ async def analyze_video(
                     user_id=current_user.id,
                     task_id=task.id,
                 ):
-                    yield chunk
+                    if chunk.startswith("__STATUS__"):
+                        yield _sse("status", {"message": chunk[len("__STATUS__"):].strip()})
+                    else:
+                        yield _sse("report", {"text": chunk})
             finished = True
         except GeneratorExit:
             error_message = "客户端中断了完整视频分析"
             raise
         except Exception as exc:
             error_message = str(exc)
-            yield f"\n\n[ERROR] 分析失败：{error_message}"
+            yield _sse("error", {"message": f"分析失败：{error_message}"})
+            yield _sse("failed", {"task_id": task.id})
         finally:
             async with database.AsyncSessionLocal() as cleanup_db:
                 for oss_key in oss_keys:
@@ -402,20 +432,15 @@ async def analyze_video(
                     if finished:
                         current.status = "success"
                     else:
-                        current.status = "error"
+                        current.status = "failed"
                         current.error_code = ErrorCode.EXTERNAL_SERVICE_ERROR
                         current.error_message = (error_message or "完整视频分析未完成")[:500]
                 await cleanup_db.commit()
-            for path in temp_paths:
-                path.unlink(missing_ok=True)
-            try:
-                directory.rmdir()
-            except OSError:
-                pass
+            _remove_local_video_temp(directory, temp_paths)
 
     return StreamingResponse(
         stream_report(),
-        media_type="text/plain; charset=utf-8",
+        media_type="text/event-stream",
         headers={"X-Task-Id": str(task.id)},
     )
 
@@ -440,6 +465,8 @@ async def save_video_report(
     kol_id = payload.get("kol_id") if isinstance(payload, dict) else None
     if not task or task.tool_code != "qianchuan-preview" or not isinstance(payload, dict) or payload.get("mode") != "full_video" or not isinstance(kol_id, int):
         return error_response(ErrorCode.TASK_NOT_FOUND, "成片预审任务不存在")
+    if task.status != "success":
+        return error_response(ErrorCode.VALIDATION_ERROR, "完整视频分析尚未成功完成，不能保存报告")
     if current_user.role != "admin" and task.created_by != current_user.id:
         return error_response(ErrorCode.PERMISSION_DENIED, "只能保存自己的成片预审报告")
     kol = (await db.execute(
