@@ -38,25 +38,8 @@ async def parse_files_to_text(files: list[UploadFile]) -> str:
     Raises:
         ValueError: 无文件 / 全部解析失败 / 有效文本过短
     """
-    if not files:
-        raise ValueError("请上传文件")
-
-    texts: list[str] = []
-
-    for f in files:
-        filename = f.filename or "unknown"
-        try:
-            content_bytes = await f.read()
-            text = _extract_by_extension(filename, content_bytes)
-            if text and text.strip():
-                texts.append(f"=== 文件: {filename} ===\n{text}")
-            else:
-                logger.warning("document_parser: file %s produced empty text, skipped", filename)
-        except ValueError:
-            # Re-raise specific errors (e.g., .xls not supported)
-            raise
-        except Exception as e:
-            logger.warning("document_parser: failed to parse %s: %s", filename, e)
+    items = await parse_files_to_items(files)
+    texts = [f"=== 文件: {item['name']} ===\n{item['text']}" for item in items]
 
     combined = "\n\n".join(texts)
 
@@ -69,6 +52,28 @@ async def parse_files_to_text(files: list[UploadFile]) -> str:
         combined = combined[:_MAX_TEXT_LENGTH]
 
     return combined
+
+
+async def parse_files_to_items(files: list[UploadFile]) -> list[dict[str, str]]:
+    """逐份解析上传文件，保留文件名与正文一一对应。"""
+    if not files:
+        raise ValueError("请上传文件")
+    items: list[dict[str, str]] = []
+    for f in files:
+        filename = f.filename or "unknown"
+        try:
+            text = _extract_by_extension(filename, await f.read())
+            if text and text.strip():
+                items.append({"name": filename, "text": text})
+            else:
+                logger.warning("document_parser: file %s produced empty text, skipped", filename)
+        except ValueError:
+            raise
+        except Exception as e:
+            logger.warning("document_parser: failed to parse %s: %s", filename, e)
+    if not items or not any(len(item["text"].strip()) >= _MIN_VALID_LENGTH for item in items):
+        raise ValueError("无法从文件中提取有效文字内容，请尝试复制文档内容手动粘贴")
+    return items
 
 
 def _extract_by_extension(filename: str, content_bytes: bytes) -> str:
