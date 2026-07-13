@@ -256,22 +256,19 @@ describe('KolWorkspacePage', () => {
     expect(mockGetMaterialLibraryKolDetail).toHaveBeenCalledWith(1);
   });
 
-  // Test 4: 禁用 Tab（千川成片预审 Sprint 23）点击后 activeTab 不变
-  it('does not change activeTab when disabled nav item is clicked', async () => {
+  // Test 4: 千川成片预审已启用，并在工作台中打开完整视频预审页面
+  it('opens the full-video film review module when the film review tab is clicked', async () => {
     const user = userEvent.setup();
     renderWorkspacePage();
-    // 等 dashboard 加载
     await waitFor(() => {
       expect(screen.getByText('对标账号')).toBeInTheDocument();
     });
-    // 点击仍然禁用的千川成片预审（Sprint 23）
     await user.click(screen.getByTestId('nav-item-film-review'));
-    // Dashboard 应仍然存在（activeTab 没变）
     await waitFor(() => {
-      expect(screen.getByText('对标账号')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: '千川成片预审' })).toBeInTheDocument();
     });
-    // 千川产品库页不应出现
-    expect(screen.queryByText('千川产品库')).not.toBeInTheDocument();
+    expect(screen.getByText('原片')).toBeInTheDocument();
+    expect(screen.getByText('已剪辑成片')).toBeInTheDocument();
   });
 
   // Test 5: WorkspaceDashboard 对标账号正常展示（mock API 返回）
