@@ -125,7 +125,8 @@ class TestOperatorReview:
             "INSERT INTO kols (name, status) VALUES ('预审留痕达人', 'signed') RETURNING id"
         ))).scalar()
         product_id = (await test_session.execute(text(
-            "INSERT INTO qianchuan_products (nickname) VALUES ('预审留痕商品') RETURNING id"
+            "INSERT INTO qianchuan_products (nickname, mechanism_exclusive) "
+            "VALUES ('预审留痕商品', false) RETURNING id"
         ))).scalar()
         await test_session.execute(text(
             "INSERT INTO kol_active_products (kol_id, product_id) VALUES (:kol_id, :product_id)"
