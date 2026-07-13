@@ -2694,3 +2694,30 @@ Request Body：
 Response `data`：`{ "active_product_ids": [] }` 或 `{"active_product_ids": [123]}`。
 
 业务规则：写入时整体替换旧关联；商品 ID 必须存在且未软删除；删除当前商品前必须先解除或替换关联，删除接口会返回 400 和明确提示。
+
+---
+
+## 30. qianchuan-preview 完整视频成片预审（M2 红人工作台还原）
+
+> 路由前缀：`/api/tools/qianchuan-preview`。保留原有文案预审接口；以下接口仅用于红人工作台的完整视频分析，不会退化为关键帧分析。
+
+### POST stream `/api/tools/qianchuan-preview/analyze-video`
+
+`multipart/form-data`，字段 `kol_id`（当前工作台红人编号）、`original` 和 `edited` 均必填。服务端先验证 `kol_id` 对应的未删除红人存在；两个文件只接受 `.mp4`、`.mov` 和对应 `video/mp4`、`video/quicktime` MIME 类型；每个文件服务端实际限制为 **500MB**。服务端按块写入临时目录，临时上传到私有对象存储，再将两条完整视频上传至 Gemini Files API，轮询到 `ACTIVE` 后才发起流式分析。
+
+Response：`Content-Type: text/plain; charset=utf-8`，流中状态片段以 `__STATUS__` 开头；报告正文为 Markdown。响应头 `X-Task-Id` 可用于保存。
+
+分析所用 Prompt、模型和 Gemini 凭证均由管理端既有 `qianchuan_preview_configs`、`ai_models`、`credentials` 统一管理：绑定模型必须是状态为 `active`、provider 为 `gemini` 的模型；无配置、供应商处理失败或超时会返回明确错误，绝不改为关键帧分析。`task_jobs.input_payload` 只记录临时对象键和文件元数据，处理结束后删除对象存储和 Gemini 临时文件。
+
+### POST `/api/tools/qianchuan-preview/save-video-report`
+
+将完整视频预审报告写入全局 `outputs`，不迁移旧数据。红人归属只从 `task_id` 对应任务的 `input_payload.kol_id` 读取并写进 `outputs.content_json`，前端不能另传或覆盖。
+
+Request Body：
+```json
+{ "task_id": 123, "report": "完整 Markdown 报告", "original_filename": "original.mp4", "edited_filename": "edited.mov" }
+```
+
+Response `data`：`{ "output_id": 456 }`。仅允许任务创建者或管理员保存；空报告返回 `400 INVALID_INPUT`。
+
+`POST /export-word` 可复用，传入上述保存前或保存后的报告文本即可导出 `.docx` 办公文档。
