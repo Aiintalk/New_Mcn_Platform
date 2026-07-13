@@ -102,12 +102,17 @@ function LivestreamWriterInner({ initKolId }: { initKolId?: number }) {
         const kolResp = await getKolPersonas();
         const personaList = kolResp.personas ?? [];
         setPersonas(personaList);
-        // Module 模式：通过 workspace dashboard 获取 kol 名字，再匹配
+        // Module 模式：通过工作台资料兜底空档案，按唯一 ID 匹配列表中的红人。
         if (isModule && initKolId) {
           const { getWorkspaceDashboard } = await import('../../api/kolWorkspace');
           const dashboard = await getWorkspaceDashboard(initKolId);
-          const found = personaList.find((p) => p.name === dashboard.kol.name) ?? null;
-          setSelectedPersona(found);
+          const found = personaList.find((p) => p.id === initKolId);
+          setSelectedPersona(found ?? {
+            id: initKolId,
+            name: dashboard.kol.name,
+            soul: '',
+            contentPlan: '',
+          });
         }
       } catch (e) {
         message.error('红人信息加载失败，请刷新重试');
@@ -205,13 +210,14 @@ function LivestreamWriterInner({ initKolId }: { initKolId?: number }) {
     try {
       const resp = await chatStream({
         messages: newMessages,
-        systemPrompt: isFirst && isModule ? '' : systemPrompt,
-        ...(isModule ? { kol_id: initKolId } : { model: config?.model_id }),
-        ...(isFirst && isModule ? {
+        systemPrompt: isModule ? '' : systemPrompt,
+        ...(isModule ? {
+          workspace_mode: true,
+          kol_id: initKolId,
           reference_script: refScript,
           reference_confirmed: refScriptLocked,
           sp_order: spOrder,
-        } : {}),
+        } : { model: config?.model_id }),
         createJob: isFirst,
         jobContext: isFirst && !isModule ? {
           productName: productName || '',
@@ -338,12 +344,12 @@ function LivestreamWriterInner({ initKolId }: { initKolId?: number }) {
             showSearch
             placeholder="请选达人"
             style={{ width: '100%', maxWidth: 400 }}
-            value={selectedPersona?.name}
-            onChange={(name) => {
-              const p = personas.find(p => p.name === name) ?? null;
+            value={selectedPersona?.id}
+            onChange={(id) => {
+              const p = personas.find(p => p.id === id) ?? null;
               setSelectedPersona(p);
             }}
-            options={personas.map(p => ({ label: p.name, value: p.name }))}
+            options={personas.map(p => ({ label: p.name, value: p.id }))}
             filterOption={(input, option) =>
               (option?.label as string).toLowerCase().includes(input.toLowerCase())
             }
@@ -378,6 +384,9 @@ function LivestreamWriterInner({ initKolId }: { initKolId?: number }) {
           ) : (
             <div style={{ color: 'var(--text-secondary)' }}>
               <span>还没有当前商品</span>，请先在商品库选择或新建一个当前商品。
+              <a href={`/workspace/${initKolId}?tab=products`} style={{ display: 'block', marginTop: 8 }}>
+                前往产品库选择或新建商品
+              </a>
             </div>
           )}
           <div style={{ marginTop: 24, display: 'flex', justifyContent: 'flex-end' }}>

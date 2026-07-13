@@ -1,6 +1,7 @@
 // Types for 直播脚本仿写工具（livestream-writer）
 
 export interface Persona {
+  id: number;
   name: string;
   soul: string;
   contentPlan: string;
@@ -21,6 +22,7 @@ export interface ChatRequest {
   messages: Array<{ role: 'user' | 'assistant'; content: string }>;
   systemPrompt: string;
   model?: string;
+  workspace_mode?: boolean;
   kol_id?: number;
   reference_script?: string;
   reference_confirmed?: boolean;
