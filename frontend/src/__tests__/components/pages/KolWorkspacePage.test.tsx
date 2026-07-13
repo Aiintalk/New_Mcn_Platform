@@ -14,6 +14,7 @@ const mockGetActiveProducts        = vi.fn();
 const mockUpdateActiveProducts     = vi.fn();
 const mockGetPersonaDetails        = vi.fn();
 const mockUpdatePersonaDetails     = vi.fn();
+const mockGetMaterialLibraryKolDetail = vi.fn();
 
 vi.mock('../../../api/kolWorkspace', () => ({
   getWorkspaceDashboard:  (...args: unknown[]) => mockGetWorkspaceDashboard(...args),
@@ -37,6 +38,18 @@ vi.mock('../../../api/qianchuanProducts', () => ({
   createQianchuanProduct: (...args: unknown[]) => mockCreateQianchuanProduct(...args),
   updateQianchuanProduct: (...args: unknown[]) => mockUpdateQianchuanProduct(...args),
   deleteQianchuanProduct: (...args: unknown[]) => mockDeleteQianchuanProduct(...args),
+}));
+
+vi.mock('../../../api/materialLibrary', () => ({
+  getMaterialLibraryKolDetail: (...args: unknown[]) => mockGetMaterialLibraryKolDetail(...args),
+  flattenKolReferences: (references: Record<string, unknown[]> | unknown[] | { items: unknown[] }) =>
+    Array.isArray(references) ? references : ('items' in references ? references.items : Object.values(references).flat()),
+  createKolReference: vi.fn(),
+  updateKolReference: vi.fn(),
+  deleteKolReference: vi.fn(),
+  getKolReferenceVideoPlayback: vi.fn(),
+  parseKolReferenceDocument: vi.fn(),
+  uploadKolReferenceVideo: vi.fn(),
 }));
 
 // Mock APIs used by tool Modules
@@ -176,6 +189,13 @@ describe('KolWorkspacePage', () => {
     mockGetPersonaDetails.mockResolvedValue({
       kol_id: 1, background: null, experience: null, relationships: null, unique_story: null, extra_notes: null, updated_at: null,
     });
+    mockGetMaterialLibraryKolDetail.mockResolvedValue({
+      id: 1, name: '孙知羽', account_name: null, category: null, follower_count: null, persona: '', content_plan: '',
+      references: {
+        '红人爆款文案': [], '红人喜欢的内容': [], '风格参考': [],
+        '千川爆款文案': [], '千川喜欢的内容': [], '千川风格参考': [],
+      },
+    });
   });
 
   // Test 1: Shell 正常渲染（顶部栏显示、左侧导航显示）
@@ -225,6 +245,15 @@ describe('KolWorkspacePage', () => {
       expect(screen.getByText('千川产品库')).toBeInTheDocument();
     });
     expect(mockGetQianchuanProducts).toHaveBeenCalled();
+  });
+
+  it('opens the current kol material library from the workspace navigation', async () => {
+    const user = userEvent.setup();
+    renderWorkspacePage();
+
+    await user.click(await screen.findByTestId('nav-item-references'));
+    expect(await screen.findByText('管理当前红人的六类脚本文档和视频原片')).toBeInTheDocument();
+    expect(mockGetMaterialLibraryKolDetail).toHaveBeenCalledWith(1);
   });
 
   // Test 4: 禁用 Tab（千川成片预审 Sprint 23）点击后 activeTab 不变
