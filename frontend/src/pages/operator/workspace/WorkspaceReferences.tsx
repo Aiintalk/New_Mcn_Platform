@@ -52,6 +52,8 @@ const TYPE_META: Record<string, TypeMeta> = Object.fromEntries(
   TYPE_GROUPS.flatMap(({ types }) => types.map(({ type, icon, color }) => [type, { icon, color }])),
 );
 
+const MAX_VIDEO_UPLOAD_BYTES = 500 * 1024 * 1024;
+
 type FormState = {
   title: string;
   dataDescription: string;
@@ -146,6 +148,15 @@ export default function WorkspaceReferences({ kolId }: WorkspaceReferencesProps)
     } catch (error) {
       message.error(error instanceof Error ? error.message : '文档解析失败');
     }
+  }
+
+  function selectVideo(file?: File) {
+    if (file && file.size > MAX_VIDEO_UPLOAD_BYTES) {
+      message.error('视频文件不能超过 500MB');
+      setForm((previous) => ({ ...previous, video: undefined }));
+      return;
+    }
+    setForm((previous) => ({ ...previous, video: file }));
   }
 
   async function saveReference() {
@@ -256,7 +267,7 @@ export default function WorkspaceReferences({ kolId }: WorkspaceReferencesProps)
           <label>上传脚本文档（自动解析后仍可修改）<input aria-label="上传脚本文档" type="file" accept=".txt,.doc,.docx,.pdf" onChange={(event) => void parseDocument(event.target.files?.[0])} /></label>
           {form.documentName && <span style={{ fontSize: 12, color: 'var(--gray-500)' }}>已解析：{form.documentName} {readableSize(form.documentSize)}</span>}
           <label>脚本正文 *<textarea aria-label="脚本正文" rows={7} value={form.content} onChange={(event) => setForm({ ...form, content: event.target.value })} /></label>
-          <label>{editing?.has_video ? '替换视频（不选则保留现有视频）' : '视频原片（可选）'}<input aria-label="视频原片" type="file" accept="video/*" onChange={(event) => setForm({ ...form, video: event.target.files?.[0] })} /></label>
+          <label>{editing?.has_video ? '替换视频（不选则保留现有视频）' : '视频原片（可选）'}，最大 500MB<input aria-label="视频原片" type="file" accept="video/*" onChange={(event) => selectVideo(event.target.files?.[0])} /></label>
           {editing?.has_video && <span style={{ fontSize: 12, color: 'var(--gray-500)' }}>当前视频：{editing.video_name}</span>}
           <div style={{ display: 'flex', gap: 8 }}><button className="btn btn-primary btn-sm" disabled={saving} onClick={() => void saveReference()}>{saving ? '保存中...' : '保存'}</button><button className="btn btn-ghost btn-sm" disabled={saving} onClick={resetForm}>取消</button></div>
         </div>

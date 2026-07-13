@@ -19,6 +19,24 @@ export interface KolListItem {
   updated_at: string | null;
 }
 
+export interface MaterialLibraryPagination {
+  page: number;
+  page_size: number;
+  total: number;
+}
+
+export interface MaterialLibraryKolList {
+  items: KolListItem[];
+  pagination: MaterialLibraryPagination;
+}
+
+export type MaterialLibraryKolsResponse = KolListItem[] | MaterialLibraryKolList;
+
+/** 兼容旧数组响应和当前分页响应，页面只需使用红人数据项。 */
+export function materialLibraryKolItems(response: MaterialLibraryKolsResponse): KolListItem[] {
+  return Array.isArray(response) ? response : response.items;
+}
+
 export interface KolReference {
   id: number;
   title: string;
@@ -82,7 +100,7 @@ export interface MaterialLibraryConfig {
 // ---------------------------------------------------------------------------
 
 export const getMaterialLibraryKols = (search?: string) =>
-  get<KolListItem[]>('/api/tools/material-library/kols', { search });
+  get<MaterialLibraryKolsResponse>('/api/tools/material-library/kols', { search });
 
 export const getMaterialLibraryKolDetail = (kolId: number) =>
   get<KolDetail>(`/api/tools/material-library/kols/${kolId}`);
