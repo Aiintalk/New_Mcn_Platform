@@ -1228,7 +1228,7 @@ Response（200）：
   "success": true, "code": "OK",
   "data": {
     "personas": [
-      { "name": "达人名称", "soul": "persona字段内容", "contentPlan": "content_plan字段内容" }
+      { "id": 123, "name": "达人名称", "soul": "persona字段内容", "contentPlan": "content_plan字段内容" }
     ]
   }
 }
@@ -1253,6 +1253,7 @@ Request（JSON）：
 ```json
 {
   "messages": [{ "role": "user|assistant", "content": "string" }],
+  "workspace_mode": true,
   "kol_id": 123,
   "reference_script": "已确认的对标直播间文案",
   "reference_confirmed": true,
@@ -1271,7 +1272,8 @@ Request（JSON）：
 
 业务规则：
 
-- 首次生成（`createJob=true`）必须传入 `kol_id`、已确认的 `reference_script` 和 `reference_confirmed=true`。
+- 仅工作台内嵌模式（`workspace_mode=true`）必须传入 `kol_id`、已确认的 `reference_script`、`reference_confirmed=true` 和卖点顺序；首次生成、后续修改和自动压缩均适用。
+- 独立入口保留原有的人设、卖点卡、对标和前端提示词输入，不强制要求工作台红人或当前商品。
 - 服务端按 `kol_id` 重新读取未删除红人的完整档案，以及该红人的唯一当前商品；不采信前端拼接的商品正文。
 - 没有当前商品时返回 400 `CURRENT_PRODUCT_REQUIRED`；未确认对标文案时返回 400 `REFERENCE_SCRIPT_REQUIRED`。
 - 写入任务上下文时记录红人、当前商品、对标文案字数、卖点顺序、功能、模型和产出标识，不写入完整对标文案。

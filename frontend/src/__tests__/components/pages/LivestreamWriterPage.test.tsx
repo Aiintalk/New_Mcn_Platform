@@ -92,6 +92,33 @@ describe('LivestreamWriterModule', () => {
     expect(mockChatStream.mock.calls[0][0].systemPrompt).not.toContain('熬夜也能稳住肤况');
   });
 
+  it('内嵌模式按红人 ID 选择人设，空档案也不阻断生成', async () => {
+    const user = userEvent.setup();
+    mockGetKolPersonas.mockResolvedValue({
+      personas: [{ id: 8, name: '同名但不是当前红人', soul: '错误人设', contentPlan: '错误规划' }],
+    });
+    mockGetWorkspaceDashboard.mockResolvedValue({
+      kol: { id: 7, name: '空档案红人', avatar_url: null, category: '美妆' },
+    });
+    mockChatStream.mockResolvedValue(streamResponse('### 四、直播讲解脚本\n完整脚本'));
+
+    render(<App><LivestreamWriterModule kolId={7} /></App>);
+
+    await waitFor(() => expect(screen.getByText('当前精华')).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: '下一步' }));
+    await user.type(screen.getByPlaceholderText('粘贴对标直播间文案...'), '对标直播文案');
+    await user.click(screen.getByRole('button', { name: '确认锁定对标' }));
+    await user.click(screen.getByRole('button', { name: '开始仿写' }));
+    await user.click(screen.getByRole('button', { name: '生成开播方案' }));
+
+    await waitFor(() => expect(mockChatStream).toHaveBeenCalledTimes(1));
+    expect(mockChatStream).toHaveBeenCalledWith(expect.objectContaining({
+      workspace_mode: true,
+      kol_id: 7,
+      systemPrompt: '',
+    }));
+  });
+
   it('没有当前商品时明确提示，且不能进入生成', async () => {
     const user = userEvent.setup();
     mockGetActiveProducts.mockResolvedValue([]);
@@ -100,6 +127,7 @@ describe('LivestreamWriterModule', () => {
 
     await waitFor(() => expect(screen.getByText('还没有当前商品')).toBeInTheDocument());
     expect(screen.getByRole('button', { name: '下一步' })).toBeDisabled();
+    expect(screen.getByRole('link', { name: '前往产品库选择或新建商品' })).toHaveAttribute('href', '/workspace/7?tab=products');
     expect(mockGetActiveProducts).toHaveBeenCalledWith(7);
     await user.click(screen.getByRole('button', { name: '下一步' }));
   });

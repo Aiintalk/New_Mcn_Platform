@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   HomeOutlined,
   UserOutlined,
@@ -59,12 +59,20 @@ const NAV_ITEMS: NavItem[] = [
 export default function KolWorkspacePage() {
   const { kol_id } = useParams<{ kol_id: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const kolId = Number(kol_id);
 
   const [activeTab, setActiveTab] = useState<WorkspaceTab>('dashboard');
   const [kolName, setKolName] = useState('');
   const [kolAvatar, setKolAvatar] = useState<string | null>(null);
   const [enabledTabs, setEnabledTabs] = useState<WorkspaceTabCode[] | null>(null);
+
+  useEffect(() => {
+    const tab = searchParams.get('tab') as WorkspaceTab | null;
+    if (tab && NAV_ITEMS.some((item) => item.tab === tab && !item.disabled)) {
+      setActiveTab(tab);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     getKolWorkspaceConfig(kolId)

@@ -131,6 +131,7 @@ async def get_kol_personas(
 
     personas = [
         {
+            "id": row.id,
             "name": row.name,
             "soul": row.persona or "",
             "contentPlan": row.content_plan or "",
@@ -189,6 +190,7 @@ class ChatRequest(BaseModel):
     messages: list[dict]
     systemPrompt: str
     model: str = DEFAULT_MODEL
+    workspace_mode: bool = False
     kol_id: int | None = None
     reference_script: str | None = None
     reference_confirmed: bool = False
@@ -260,7 +262,7 @@ async def chat(
             detail={"code": "INVALID_INPUT", "message": "messages 不能为空"},
         )
 
-    if body.kol_id is None and not body.systemPrompt.strip():
+    if not body.workspace_mode and not body.systemPrompt.strip():
         raise HTTPException(
             status_code=400,
             detail={"code": "INVALID_INPUT", "message": "systemPrompt 不能为空"},
@@ -271,16 +273,21 @@ async def chat(
     model_id = await _resolve_lw_model(config, db)
     kol_context = None
     product = None
-    if body.createJob:
+    if body.workspace_mode:
         if body.kol_id is None:
             raise HTTPException(
                 status_code=400,
-                detail={"code": "INVALID_INPUT", "message": "首次生成必须选择红人"},
+                detail={"code": "INVALID_INPUT", "message": "工作台生成必须选择红人"},
             )
         if not body.reference_confirmed or not (body.reference_script or "").strip():
             raise HTTPException(
                 status_code=400,
-                detail={"code": "REFERENCE_SCRIPT_REQUIRED", "message": "请先确认对标直播文案后再生成"},
+                detail={"code": "REFERENCE_SCRIPT_REQUIRED", "message": "请先确认对标直播文案后再生成或修改"},
+            )
+        if not (body.sp_order or "").strip():
+            raise HTTPException(
+                status_code=400,
+                detail={"code": "INVALID_INPUT", "message": "请先选择卖点顺序"},
             )
         kol_context = await get_kol_context(db, body.kol_id)
         product = await get_current_product(db, body.kol_id)
@@ -290,10 +297,14 @@ async def chat(
                 detail={"code": "CURRENT_PRODUCT_REQUIRED", "message": "请先选择或新建当前商品后再生成"},
             )
 
-    # 红人专属配置优先于工具通用配置；前端 systemPrompt 不作为可信事实进入模型上下文。
+    # 工作台只信任后台配置和数据库事实；独立入口保留旧版前端拼好的业务输入。
     kol_prompt = await resolve_prompt(body.kol_id, "livestream-writer", "system_prompt", db)
-    template = kol_prompt or config.system_prompt or ""
-    if body.createJob:
+    template = (
+        kol_prompt or config.system_prompt or ""
+        if body.workspace_mode
+        else kol_prompt or body.systemPrompt
+    )
+    if body.workspace_mode:
         resolved_system_prompt = _build_initial_system_prompt(
             template,
             kol_context=kol_context,
@@ -345,12 +356,12 @@ async def chat(
         if not create_job:
             return
         full_content = "".join(accumulated)
-        product_name = product.nickname if product else ""
-        persona_name = kol_context.name if kol_context else ""
+        product_name = product.nickname if product else job_context.get("productName", "")
+        persona_name = kol_context.name if kol_context else job_context.get("personaName", "")
 
         async with AsyncSessionLocal() as bg_db:
             task_job = TaskJob(
-                task_no=f"LW-{int(time.time())}",
+                task_no=f"LW-{time.time_ns()}",
                 tool_code=TOOL_CODE,
                 tool_name=TOOL_NAME,
                 status="completed",
@@ -359,8 +370,8 @@ async def chat(
                     "product_id": product.id if product else None,
                     "productName": product_name,
                     "personaName": persona_name,
-                    "spOrder": body.sp_order or "",
-                    "refLength": len((body.reference_script or "").strip()),
+                    "spOrder": body.sp_order or job_context.get("spOrder", ""),
+                    "refLength": len((body.reference_script or "").strip()) or job_context.get("refLength", 0),
                     "feature": job_context.get("feature", "livestream_draft"),
                     "model": model_id,
                     "output_marker": "stream_completed",
