@@ -15,10 +15,15 @@ from sqlalchemy import text
 from unittest.mock import AsyncMock
 from uuid import uuid4
 from datetime import datetime, timezone
+from pathlib import Path
 
 from app.core.security import create_access_token
 from app.models.user import User
-from app.routers.operator_material_library import MAX_VIDEO_UPLOAD_BYTES
+from app.routers.operator_material_library import (
+    MAX_VIDEO_UPLOAD_BYTES,
+    _UPLOAD_READ_CHUNK_BYTES,
+    _write_upload_to_temp_file,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -407,6 +412,31 @@ async def _create_reference(test_client, operator_headers, kol_id: int) -> int:
 
 class TestMaterialDocumentAndVideo:
     @pytest.mark.asyncio
+    async def test_video_temp_file_writer_reads_upload_in_fixed_chunks(self):
+        """视频先逐块落临时文件，不能把上传流一次性读成整份内容。"""
+        class ChunkedUpload:
+            filename = "chunked.mp4"
+
+            def __init__(self):
+                self.read_sizes = []
+                self.chunks = [b"one", b"two", b""]
+
+            async def read(self, size):
+                self.read_sizes.append(size)
+                return self.chunks.pop(0)
+
+        upload = ChunkedUpload()
+        result = await _write_upload_to_temp_file(upload, max_bytes=100)
+        assert result is not None
+        temp_path, size = result
+        try:
+            assert size == 6
+            assert temp_path.read_bytes() == b"onetwo"
+            assert upload.read_sizes == [_UPLOAD_READ_CHUNK_BYTES] * 3
+        finally:
+            temp_path.unlink(missing_ok=True)
+
+    @pytest.mark.asyncio
     async def test_parse_document_returns_editable_text_and_metadata(
         self, test_client, operator_headers, test_session
     ):
@@ -426,6 +456,24 @@ class TestMaterialDocumentAndVideo:
             "document_type": "text/plain",
             "document_size": len("这是可编辑的脚本文字。".encode("utf-8")),
         }
+
+    @pytest.mark.asyncio
+    async def test_parse_document_rejects_oversize_before_parser_reads_again(
+        self, test_client, operator_headers, test_session, monkeypatch
+    ):
+        kol_id = await _create_material_kol(test_session, "OversizeDocumentMaterialKol")
+        monkeypatch.setattr(
+            "app.routers.operator_material_library.MAX_DOCUMENT_UPLOAD_BYTES", 4
+        )
+
+        response = await test_client.post(
+            f"/api/tools/material-library/kols/{kol_id}/references/parse-document",
+            headers=operator_headers,
+            files={"file": ("脚本.txt", b"12345", "text/plain")},
+        )
+
+        assert response.json()["success"] is False
+        assert "大小" in response.json()["message"]
 
     @pytest.mark.asyncio
     async def test_edit_reference_persists_data_description_and_document_metadata(
@@ -459,10 +507,18 @@ class TestMaterialDocumentAndVideo:
     ):
         kol_id = await _create_material_kol(test_session, "VideoMaterialKol")
         ref_id = await _create_reference(test_client, operator_headers, kol_id)
-        upload = AsyncMock(side_effect=lambda key, *_args, **_kwargs: key)
+        uploaded_paths = []
+
+        async def upload(key, path, *_args, **_kwargs):
+            path = Path(path)
+            assert path.exists()
+            assert path.read_bytes() == b"video-binary"
+            uploaded_paths.append(path)
+            return key
+
         playback = AsyncMock(return_value="https://signed.example/video?expires=900")
         monkeypatch.setattr(
-            "app.adapters.oss.upload_file", upload
+            "app.adapters.oss.upload_file_from_path", upload
         )
         monkeypatch.setattr(
             "app.adapters.oss.get_download_url", playback
@@ -487,8 +543,9 @@ class TestMaterialDocumentAndVideo:
             "url": "https://signed.example/video?expires=900",
             "expires_in": 900,
         }
-        assert upload.await_count == 1
+        assert len(uploaded_paths) == 1
         assert playback.await_count == 1
+        assert all(not path.exists() for path in uploaded_paths)
 
     @pytest.mark.asyncio
     async def test_video_rejects_declared_oversize_before_reading_full_file(
@@ -497,7 +554,7 @@ class TestMaterialDocumentAndVideo:
         kol_id = await _create_material_kol(test_session, "OversizeVideoMaterialKol")
         ref_id = await _create_reference(test_client, operator_headers, kol_id)
         upload = AsyncMock()
-        monkeypatch.setattr("app.adapters.oss.upload_file", upload)
+        monkeypatch.setattr("app.adapters.oss.upload_file_from_path", upload)
 
         response = await test_client.post(
             f"/api/tools/material-library/kols/{kol_id}/references/{ref_id}/video",
@@ -519,7 +576,7 @@ class TestMaterialDocumentAndVideo:
         kol_id = await _create_material_kol(test_session, "ChunkLimitVideoMaterialKol")
         ref_id = await _create_reference(test_client, operator_headers, kol_id)
         upload = AsyncMock()
-        monkeypatch.setattr("app.adapters.oss.upload_file", upload)
+        monkeypatch.setattr("app.adapters.oss.upload_file_from_path", upload)
         monkeypatch.setattr(
             "app.routers.operator_material_library.MAX_VIDEO_UPLOAD_BYTES", 4
         )
@@ -546,7 +603,7 @@ class TestMaterialDocumentAndVideo:
         await test_session.commit()
         upload = AsyncMock(side_effect=lambda key, *_args, **_kwargs: key)
         delete_object = AsyncMock()
-        monkeypatch.setattr("app.adapters.oss.upload_file", upload)
+        monkeypatch.setattr("app.adapters.oss.upload_file_from_path", upload)
         monkeypatch.setattr("app.adapters.oss.delete_file", delete_object)
 
         response = await test_client.post(
@@ -558,6 +615,32 @@ class TestMaterialDocumentAndVideo:
         assert response.json()["success"] is True
         assert delete_object.await_count == 1
         assert delete_object.await_args.args[0] == "material-library/old/private.mp4"
+
+    @pytest.mark.asyncio
+    async def test_video_upload_failure_removes_temporary_file(
+        self, test_client, operator_headers, test_session, monkeypatch
+    ):
+        kol_id = await _create_material_kol(test_session, "FailedVideoMaterialKol")
+        ref_id = await _create_reference(test_client, operator_headers, kol_id)
+        uploaded_paths = []
+
+        async def upload(_key, path, *_args, **_kwargs):
+            path = Path(path)
+            assert path.exists()
+            uploaded_paths.append(path)
+            raise RuntimeError("OSS unavailable")
+
+        monkeypatch.setattr("app.adapters.oss.upload_file_from_path", upload)
+
+        response = await test_client.post(
+            f"/api/tools/material-library/kols/{kol_id}/references/{ref_id}/video",
+            headers=operator_headers,
+            files={"file": ("原片.mp4", b"video-binary", "video/mp4")},
+        )
+
+        assert response.json()["success"] is False
+        assert uploaded_paths
+        assert all(not path.exists() for path in uploaded_paths)
 
     @pytest.mark.asyncio
     async def test_reference_cannot_be_read_or_deleted_through_another_kol_path(

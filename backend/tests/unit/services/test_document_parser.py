@@ -95,6 +95,13 @@ async def test_multiple_files_merged():
 
 
 @pytest.mark.asyncio
+async def test_single_short_file_is_rejected():
+    f = _FakeUploadFile("short.txt", b"too short")
+    with pytest.raises(ValueError, match="无法从文件中提取有效文字内容"):
+        await parse_files_to_text([f])
+
+
+@pytest.mark.asyncio
 async def test_truncation_at_max_length():
     long_text = "X" * (_MAX_TEXT_LENGTH + 500)
     f = _FakeUploadFile("big.txt", long_text.encode("utf-8"))

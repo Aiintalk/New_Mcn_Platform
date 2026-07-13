@@ -71,9 +71,18 @@ async def parse_files_to_items(files: list[UploadFile]) -> list[dict[str, str]]:
             raise
         except Exception as e:
             logger.warning("document_parser: failed to parse %s: %s", filename, e)
-    if not items or not any(len(item["text"].strip()) >= _MIN_VALID_LENGTH for item in items):
+    combined_text = "\n".join(item["text"] for item in items).strip()
+    if not combined_text or len(combined_text) < _MIN_VALID_LENGTH:
         raise ValueError("无法从文件中提取有效文字内容，请尝试复制文档内容手动粘贴")
     return items
+
+
+def parse_file_content_to_item(filename: str, content: bytes) -> dict[str, str]:
+    """解析已读取的单份文档，供需要先限制上传大小的路由复用。"""
+    text = _extract_by_extension(filename, content)
+    if not text or not text.strip():
+        raise ValueError("无法从文件中提取有效文字内容，请尝试复制文档内容手动粘贴")
+    return {"name": filename, "text": text}
 
 
 def _extract_by_extension(filename: str, content_bytes: bytes) -> str:
