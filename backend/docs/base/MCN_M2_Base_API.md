@@ -2720,6 +2720,6 @@ Request Body：
 { "task_id": 123, "report": "完整 Markdown 报告", "original_filename": "original.mp4", "edited_filename": "edited.mov" }
 ```
 
-Response `data`：`{ "output_id": 456 }`。仅允许任务创建者或管理员保存；空报告返回 `400 INVALID_INPUT`。
+Response `data`：`{ "output_id": 456 }`。仅允许任务创建者或管理员保存；空报告会按平台统一响应信封返回 `success=false` 与 `VALIDATION_ERROR`（校验失败），HTTP 状态码为 `200`。
 
 `POST /export-word` 可复用，传入上述保存前或保存后的报告文本即可导出 `.docx` 办公文档。
