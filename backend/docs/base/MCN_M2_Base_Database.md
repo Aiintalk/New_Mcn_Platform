@@ -985,12 +985,22 @@ migration 033 UPSERT `workspace_tools` 表：
 | `source` | VARCHAR(100) | 否 | 来源，默认 '抖音' |
 | `type` | VARCHAR(50) | 是 | 6 类之一（见下） |
 | `content` | TEXT | 是 | 正文内容 |
+| `data_description` | TEXT | 否 | 自由文本的数据/点赞数说明；保留既有 `likes` 数值字段兼容 |
+| `document_name` | VARCHAR(500) | 否 | 解析来源脚本文档的原始文件名；原文件不做永久本地保存 |
+| `document_type` | VARCHAR(100) | 否 | 解析来源脚本文档的 MIME 类型 |
+| `document_size` | BIGINT | 否 | 解析来源脚本文档的字节数 |
+| `video_oss_key` | VARCHAR(1024) | 否 | 视频原片的私有对象存储键，不保存公开链接 |
+| `video_name` | VARCHAR(500) | 否 | 视频原始文件名 |
+| `video_content_type` | VARCHAR(100) | 否 | 视频 MIME 类型 |
+| `video_size` | BIGINT | 否 | 视频字节数 |
 | `created_by` | BIGINT FK→users | 否 | 审计用 |
 | `created_at` | TIMESTAMPTZ | 是 | 默认 NOW() |
 | `updated_at` | TIMESTAMPTZ | 是 | 默认 NOW() |
 | `deleted_at` | TIMESTAMPTZ | 否 | 软删 |
 
 `type` 枚举：`红人爆款文案 / 红人喜欢的内容 / 风格参考 / 千川爆款文案 / 千川喜欢的内容 / 千川风格参考`
+
+文档解析后的正文保存到 `content`，运营可在保存前或编辑时修改；视频只保存私有对象键，读取时由后端鉴权后生成短时签名播放地址。素材删除始终先软删数据库记录，再按对象存储适配层规则删除关联视频对象并写服务调用日志；旧素材的新增字段均可为空。
 
 ### 28.2 索引
 

@@ -12,6 +12,8 @@ Covers:
 """
 import pytest
 from sqlalchemy import text
+from unittest.mock import AsyncMock
+from uuid import uuid4
 
 
 # ---------------------------------------------------------------------------
@@ -299,3 +301,185 @@ class TestGetIntake:
         body = resp.json()
         assert body["success"] is True
         assert body["data"] is None
+
+
+# ---------------------------------------------------------------------------
+# 文档、视频和编辑（红人工作台旧版功能还原）
+# ---------------------------------------------------------------------------
+
+async def _create_material_kol(test_session, prefix: str) -> int:
+    name = f"{prefix}_{uuid4().hex}"
+    await test_session.execute(text(
+        "INSERT INTO kols (name, status) VALUES (:name, 'signed')"
+    ), {"name": name})
+    await test_session.commit()
+    return (await test_session.execute(text(
+        "SELECT id FROM kols WHERE name = :name"
+    ), {"name": name})).scalar_one()
+
+
+async def _create_reference(test_client, operator_headers, kol_id: int) -> int:
+    response = await test_client.post(
+        f"/api/tools/material-library/kols/{kol_id}/references",
+        headers=operator_headers,
+        json={"title": "待补全素材", "type": "风格参考", "content": "初始正文"},
+    )
+    assert response.json()["success"] is True
+    return response.json()["data"]["id"]
+
+
+class TestMaterialDocumentAndVideo:
+    @pytest.mark.asyncio
+    async def test_parse_document_returns_editable_text_and_metadata(
+        self, test_client, operator_headers, test_session
+    ):
+        kol_id = await _create_material_kol(test_session, "ParseMaterialKol")
+
+        response = await test_client.post(
+            f"/api/tools/material-library/kols/{kol_id}/references/parse-document",
+            headers=operator_headers,
+            files={"file": ("脚本.txt", "这是可编辑的脚本文字。", "text/plain")},
+        )
+
+        body = response.json()
+        assert body["success"] is True
+        assert body["data"] == {
+            "text": "这是可编辑的脚本文字。",
+            "document_name": "脚本.txt",
+            "document_type": "text/plain",
+            "document_size": len("这是可编辑的脚本文字。".encode("utf-8")),
+        }
+
+    @pytest.mark.asyncio
+    async def test_edit_reference_persists_data_description_and_document_metadata(
+        self, test_client, operator_headers, test_session
+    ):
+        kol_id = await _create_material_kol(test_session, "EditMaterialKol")
+        ref_id = await _create_reference(test_client, operator_headers, kol_id)
+
+        response = await test_client.put(
+            f"/api/tools/material-library/kols/{kol_id}/references/{ref_id}",
+            headers=operator_headers,
+            json={
+                "title": "已编辑素材",
+                "data_description": "点赞 3 万，转化稳定",
+                "content": "运营修改后的正文",
+                "document_name": "来源脚本.txt",
+                "document_type": "text/plain",
+                "document_size": 42,
+            },
+        )
+
+        body = response.json()
+        assert body["success"] is True
+        assert body["data"]["data_description"] == "点赞 3 万，转化稳定"
+        assert body["data"]["document_name"] == "来源脚本.txt"
+        assert body["data"]["content"] == "运营修改后的正文"
+
+    @pytest.mark.asyncio
+    async def test_upload_then_playback_uses_private_object_key_and_short_url(
+        self, test_client, operator_headers, test_session, monkeypatch
+    ):
+        kol_id = await _create_material_kol(test_session, "VideoMaterialKol")
+        ref_id = await _create_reference(test_client, operator_headers, kol_id)
+        upload = AsyncMock(side_effect=lambda key, *_args, **_kwargs: key)
+        playback = AsyncMock(return_value="https://signed.example/video?expires=900")
+        monkeypatch.setattr(
+            "app.adapters.oss.upload_file", upload
+        )
+        monkeypatch.setattr(
+            "app.adapters.oss.get_download_url", playback
+        )
+
+        upload_response = await test_client.post(
+            f"/api/tools/material-library/kols/{kol_id}/references/{ref_id}/video",
+            headers=operator_headers,
+            files={"file": ("原片.mp4", b"video-binary", "video/mp4")},
+        )
+        upload_body = upload_response.json()
+        assert upload_body["success"] is True
+        assert upload_body["data"]["video_name"] == "原片.mp4"
+        assert "video_oss_key" not in upload_body["data"]
+        assert "url" not in upload_body["data"]
+
+        playback_response = await test_client.get(
+            f"/api/tools/material-library/kols/{kol_id}/references/{ref_id}/video/playback",
+            headers=operator_headers,
+        )
+        assert playback_response.json()["data"] == {
+            "url": "https://signed.example/video?expires=900",
+            "expires_in": 900,
+        }
+        assert upload.await_count == 1
+        assert playback.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_replacing_video_deletes_only_the_previous_private_object(
+        self, test_client, operator_headers, test_session, monkeypatch
+    ):
+        kol_id = await _create_material_kol(test_session, "ReplaceVideoMaterialKol")
+        ref_id = await _create_reference(test_client, operator_headers, kol_id)
+        await test_session.execute(text(
+            "UPDATE kol_references SET video_oss_key = :key WHERE id = :ref_id"
+        ), {"key": "material-library/old/private.mp4", "ref_id": ref_id})
+        await test_session.commit()
+        upload = AsyncMock(side_effect=lambda key, *_args, **_kwargs: key)
+        delete_object = AsyncMock()
+        monkeypatch.setattr("app.adapters.oss.upload_file", upload)
+        monkeypatch.setattr("app.adapters.oss.delete_file", delete_object)
+
+        response = await test_client.post(
+            f"/api/tools/material-library/kols/{kol_id}/references/{ref_id}/video",
+            headers=operator_headers,
+            files={"file": ("新原片.mp4", b"new-video-binary", "video/mp4")},
+        )
+
+        assert response.json()["success"] is True
+        assert delete_object.await_count == 1
+        assert delete_object.await_args.args[0] == "material-library/old/private.mp4"
+
+    @pytest.mark.asyncio
+    async def test_reference_cannot_be_read_or_deleted_through_another_kol_path(
+        self, test_client, operator_headers, test_session
+    ):
+        owner_kol_id = await _create_material_kol(test_session, "OwnerMaterialKol")
+        other_kol_id = await _create_material_kol(test_session, "OtherMaterialKol")
+        ref_id = await _create_reference(test_client, operator_headers, owner_kol_id)
+
+        response = await test_client.delete(
+            f"/api/tools/material-library/kols/{other_kol_id}/references/{ref_id}",
+            headers=operator_headers,
+        )
+        assert response.json()["success"] is False
+
+        detail_response = await test_client.get(
+            f"/api/tools/material-library/kols/{owner_kol_id}", headers=operator_headers
+        )
+        all_refs = [ref for refs in detail_response.json()["data"]["references"].values() for ref in refs]
+        assert any(ref["id"] == ref_id for ref in all_refs)
+
+    @pytest.mark.asyncio
+    async def test_delete_soft_deletes_reference_then_deletes_its_video_object(
+        self, test_client, operator_headers, test_session, monkeypatch
+    ):
+        kol_id = await _create_material_kol(test_session, "DeleteVideoMaterialKol")
+        ref_id = await _create_reference(test_client, operator_headers, kol_id)
+        await test_session.execute(text(
+            "UPDATE kol_references SET video_oss_key = :key WHERE id = :ref_id"
+        ), {"key": "material-library/test/private.mp4", "ref_id": ref_id})
+        await test_session.commit()
+        delete_object = AsyncMock()
+        monkeypatch.setattr("app.adapters.oss.delete_file", delete_object)
+
+        response = await test_client.delete(
+            f"/api/tools/material-library/kols/{kol_id}/references/{ref_id}",
+            headers=operator_headers,
+        )
+
+        assert response.json()["success"] is True
+        assert delete_object.await_count == 1
+        assert delete_object.await_args.args[0] == "material-library/test/private.mp4"
+        assert delete_object.await_args.args[1] is test_session
+        assert (await test_session.execute(text(
+            "SELECT deleted_at FROM kol_references WHERE id = :ref_id"
+        ), {"ref_id": ref_id})).scalar_one() is not None
