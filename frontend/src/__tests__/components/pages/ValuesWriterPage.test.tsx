@@ -21,7 +21,7 @@ vi.mock('../../../api/qianchuanProducts', () => ({
 vi.mock('../../../api/request', () => ({ get: vi.fn().mockResolvedValue([]) }));
 vi.mock('../../../store/authStore', () => ({ useAuthStore: { getState: () => ({ token: 'mock-token' }) } }));
 
-import { ValuesWriterModule, calculateBigramSimilarity, parseValueScriptResult } from '../../../pages/operator/ValuesWriterPage';
+import { ValuesWriterModule, calculateBigramSimilarity, parseValueScriptResult, similarityStatus } from '../../../pages/operator/ValuesWriterPage';
 
 function renderModule() {
   return render(<App><ValuesWriterModule kolId={1} /></App>);
@@ -51,17 +51,26 @@ describe('ValuesWriterModule', () => {
     await user.click(screen.getByRole('button', { name: '生成情绪方向' }));
     await screen.findByText('诱惑型 · 被看见');
     await user.click(screen.getByText('诱惑型 · 被看见'));
+    await user.clear(screen.getByLabelText('方向标题'));
+    await user.type(screen.getByLabelText('方向标题'), '人工标题');
     await user.clear(screen.getByLabelText('人工调整方向说明'));
     await user.type(screen.getByLabelText('人工调整方向说明'), '人工确认的方向');
     await user.click(screen.getByRole('button', { name: '生成脚本和报告' }));
     await screen.findByLabelText('改写脚本');
     expect(mockDeriveDirections).toHaveBeenCalledWith({ kol_id: 1, opening_line: '锁定开头', original_script: '锁定开头\n原文第二段' });
-    expect(mockGenerateValueScript.mock.calls[0][0]).toMatchObject({ kol_id: 1, direction: { description: '人工确认的方向' } });
+    expect(mockGenerateValueScript.mock.calls[0][0]).toMatchObject({ kol_id: 1, direction: { title: '人工标题', description: '人工确认的方向' } });
   });
 
   it('只接受完整的结构化生成结果，并按旧版双字算法给出百分比', () => {
     expect(parseValueScriptResult('<rewrite>脚本</rewrite><report>报告</report>')).toBeNull();
     expect(parseValueScriptResult('<analysis>结构</analysis><rewrite>脚本</rewrite><report>报告</report>')).toEqual({ analysis: '结构', rewrite: '脚本', report: '报告' });
     expect(calculateBigramSimilarity('甲乙丙丁', '甲乙戊己')).toBe(20);
+  });
+
+  it('按 35、36 至 50、超过 50 三档提示相似度风险', () => {
+    expect(similarityStatus(35)).toBe('安全');
+    expect(similarityStatus(36)).toBe('接近安全线');
+    expect(similarityStatus(50)).toBe('接近安全线');
+    expect(similarityStatus(51)).toBe('需要继续改写');
   });
 });
