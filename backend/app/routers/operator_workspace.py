@@ -14,8 +14,8 @@ app/routers/operator_workspace.py
 from datetime import datetime, timezone
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, field_validator
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from pydantic import BaseModel
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -313,13 +313,6 @@ async def delete_benchmark(
 class ActiveProductsRequest(BaseModel):
     product_ids: list[int]
 
-    @field_validator("product_ids")
-    @classmethod
-    def require_at_most_one_current_product(cls, product_ids: list[int]) -> list[int]:
-        if len(product_ids) > 1:
-            raise ValueError("一个红人一次只能选择一个当前商品")
-        return product_ids
-
 
 @router.get("/{kol_id}/active-products", response_model=None)
 async def list_active_products(kol_id: int, current_user: User = Depends(require_operator)):
@@ -339,8 +332,16 @@ async def update_active_products(
     kol_id: int,
     body: ActiveProductsRequest,
     request: Request,
+    response: Response,
     current_user: User = Depends(require_operator),
 ):
+    if len(body.product_ids) > 1:
+        response.status_code = 422
+        return error_response(
+            ErrorCode.VALIDATION_ERROR,
+            "一个红人一次只能选择一个当前商品",
+        )
+
     async with AsyncSessionLocal() as session:
         await _get_kol_or_404(session, kol_id)
 
