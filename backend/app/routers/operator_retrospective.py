@@ -29,6 +29,7 @@ from app.models.log import OperationLog
 from app.models.retrospective import RetrospectiveConfig, RetrospectiveSession
 from app.models.user import User
 from app.services import document_parser
+from app.services.kol_context import get_kol_context
 from app.services.word_export import markdown_to_docx_bytes
 from app.services.workspace_prompt import resolve_prompt
 
@@ -302,13 +303,13 @@ async def parse_files(
     _: User = Depends(require_operator),
 ):
     try:
-        text = await document_parser.parse_files_to_text(files)
+        parsed_files = await document_parser.parse_files_to_items(files)
     except ValueError as e:
         raise HTTPException(
             status_code=400,
             detail={"code": "VALIDATION_ERROR", "message": str(e)},
         )
-    return success_response(data={"text": text})
+    return success_response(data={"files": parsed_files})
 
 
 # ---------------------------------------------------------------------------
@@ -335,11 +336,12 @@ async def analyze_stream(
             detail={"code": "RESOURCE_NOT_FOUND", "message": "复盘记录不存在"},
         )
 
-    # 读取 kol extra_notes
-    kol = (await db.execute(
-        select(Kol).where(Kol.id == kol_id, Kol.deleted_at.is_(None))
-    )).scalar_one_or_none()
-    extra_notes = kol.extra_notes if kol and kol.extra_notes else ""
+    if not (session.live_data and session.live_data.strip()) and not (session.material_data and session.material_data.strip()):
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "RETROSPECTIVE_DATA_REQUIRED", "message": "请至少填写直播汇总数据或素材明细数据后再开始分析"},
+        )
+    context = await get_kol_context(db, kol_id)
 
     # 读取 retrospective_configs default
     config = (await db.execute(
@@ -371,8 +373,9 @@ async def analyze_stream(
         user_content += "\n\n".join(material_parts)
     else:
         user_content += "（暂无材料）"
-    if extra_notes:
-        user_content += f"\n\n【达人风格约束】\n{extra_notes}"
+    profile_sections = [f"【{label}】\n{value}" for label, value in context.prompt_sections()]
+    if profile_sections:
+        user_content += "\n\n【红人档案】\n" + "\n".join(profile_sections)
 
     messages = [
         {"role": "system", "content": system_prompt},

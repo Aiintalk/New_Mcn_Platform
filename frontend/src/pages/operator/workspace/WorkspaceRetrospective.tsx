@@ -192,15 +192,11 @@ export default function WorkspaceRetrospective({ kolId }: WorkspaceRetrospective
     const fileArr = Array.from(files);
     setUploading((prev) => ({ ...prev, [field]: true }));
     try {
-      const { text } = await parseFiles(kolId, fileArr);
+      const { files: parsedFiles } = await parseFiles(kolId, fileArr);
       if (field === 'material_scripts') {
-        const newScripts = fileArr.map((f, i) => ({
-          name: f.name,
-          text: i === 0 ? text : '',
-        }));
-        setMaterialScripts((prev) => [...prev, ...newScripts]);
+        setMaterialScripts((prev) => [...prev, ...parsedFiles]);
       } else {
-        setParsedFields((prev) => ({ ...prev, [field]: text }));
+        setParsedFields((prev) => ({ ...prev, [field]: parsedFiles.map((item) => item.text).join('\n\n') }));
       }
       message.success(`${MATERIAL_FIELDS.find((f) => f.key === field)?.label ?? ''} 解析成功`);
     } catch (err: unknown) {
@@ -595,6 +591,18 @@ export default function WorkspaceRetrospective({ kolId }: WorkspaceRetrospective
                   );
                 })}
               </div>
+              {materialScripts.map((script, index) => (
+                <div key={`${script.name}-${index}`} style={{ marginTop: 'var(--sp-3)' }}>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600 }}>{script.name}</label>
+                  <textarea
+                    aria-label={`${script.name} 正文`}
+                    value={script.text}
+                    onChange={(event) => setMaterialScripts((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, text: event.target.value } : item))}
+                    rows={5}
+                    style={{ width: '100%', boxSizing: 'border-box', marginTop: 4 }}
+                  />
+                </div>
+              ))}
             </div>
 
             {/* 流式分析进度 */}

@@ -2632,13 +2632,13 @@ Response `data`：`{ "id": 1 }`
 
 #### POST `/api/operator/workspace/{kol_id}/retrospective/parse-files`
 
-解析上传文件为文本（multipart/form-data）。支持 PDF/DOCX/TXT/XLSX/PPTX/MD 格式。
+逐份解析上传文件（multipart/form-data）。支持 PDF/DOCX/TXT/XLSX/PPTX/MD 格式；响应中的文件名与正文严格一一对应，前端可分别编辑后保存。
 
-Response `data`：`{ "text": "解析出的文本..." }`
+Response `data`：`{ "files": [{ "name": "脚本一.docx", "text": "解析出的正文..." }] }`
 
 #### POST stream `/api/operator/workspace/{kol_id}/retrospective/{id}/analyze`
 
-流式生成复盘报告（SSE）。生成完成后自动保存 `result`，更新 `status='done'`，写 OperationLog（action=`retrospective_analyze`）。
+流式生成复盘报告（SSE）。至少需填写直播汇总数据或素材明细数据之一；分析会读取完整红人档案，空字段跳过。生成完成后自动保存 `result`，更新 `status='done'`，写 OperationLog（action=`retrospective_analyze`）。
 
 Response：`Content-Type: text/event-stream`，格式：`data: {"delta": "..."}\n\ndata: [DONE]\n\n`
 

@@ -129,6 +129,22 @@ describe('WorkspaceRetrospective', () => {
     expect(screen.getByTestId('analyze-btn')).toBeInTheDocument();
   });
 
+  it('逐份保存千川素材脚本的文件名和解析正文', async () => {
+    mockGetSessions.mockResolvedValue({ items: [], pagination: { ...samplePagination, total: 0, total_pages: 0 } });
+    mockParseFiles.mockResolvedValue({ files: [
+      { name: '第一份.txt', text: '第一份正文' },
+      { name: '第二份.txt', text: '第二份正文' },
+    ] });
+    renderModule();
+    await screen.findByText('新建复盘');
+    const user = userEvent.setup();
+    await user.click(screen.getByText('新建复盘'));
+    const input = screen.getByTestId('file-input-material_scripts');
+    await user.upload(input, [new File(['one'], '第一份.txt', { type: 'text/plain' }), new File(['two'], '第二份.txt', { type: 'text/plain' })]);
+    expect(await screen.findByDisplayValue('第一份正文')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('第二份正文')).toBeInTheDocument();
+  });
+
   // ── Test 3: 编辑视图 - 标题输入 + 保存草稿 ────────────────────────────────────
   it('Test 3: 编辑视图：标题输入 + 「保存草稿」按钮', async () => {
     mockGetSessions.mockResolvedValue({

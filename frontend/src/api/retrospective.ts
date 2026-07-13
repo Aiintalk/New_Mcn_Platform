@@ -34,8 +34,8 @@ export const saveSession = (kolId: number, data: Partial<RetrospectiveSession>) 
 export const deleteSession = (kolId: number, id: number) =>
   del<{ id: number }>(`/api/operator/workspace/${kolId}/retrospective/${id}`);
 
-/** 上传并解析文件，返回提取的文本 */
-export const parseFiles = async (kolId: number, files: File[]): Promise<{ text: string }> => {
+/** 上传并逐份解析文件，保留文件名与正文对应关系 */
+export const parseFiles = async (kolId: number, files: File[]): Promise<{ files: Array<{ name: string; text: string }> }> => {
   const { useAuthStore } = await import('../store/authStore');
   const token = useAuthStore.getState().token;
   const fd = new FormData();
@@ -52,7 +52,7 @@ export const parseFiles = async (kolId: number, files: File[]): Promise<{ text: 
     throw new Error(err?.message ?? `文件解析失败: ${resp.status}`);
   }
   const json = await resp.json();
-  return json.data as { text: string };
+  return json.data as { files: Array<{ name: string; text: string }> };
 };
 
 /** 流式分析复盘（SSE），onDelta 每次收到累积全文 */

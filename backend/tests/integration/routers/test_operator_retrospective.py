@@ -261,25 +261,33 @@ class TestDeleteSession:
 
 class TestParseFiles:
     @pytest.mark.asyncio
-    async def test_parse_files(self, test_client, operator_headers, test_session):
+    async def test_parse_files_keeps_each_filename_and_text_paired(self, test_client, operator_headers, test_session):
         kol_id = await _create_kol(test_session, name="解析文件测试达人")
 
         with patch(
-            "app.routers.operator_retrospective.document_parser.parse_files_to_text",
+            "app.routers.operator_retrospective.document_parser.parse_files_to_items",
             new_callable=AsyncMock,
         ) as mock_parse:
-            mock_parse.return_value = "=== 文件: test.txt ===\n测试文档内容"
+            mock_parse.return_value = [
+                {"name": "first.txt", "text": "第一份正文"},
+                {"name": "second.txt", "text": "第二份正文"},
+            ]
             resp = await test_client.post(
                 f"/api/operator/workspace/{kol_id}/retrospective/parse-files",
                 headers=operator_headers,
-                files=[("files", ("test.txt", BytesIO(b"hello world"), "text/plain"))],
+                files=[
+                    ("files", ("first.txt", BytesIO(b"hello world"), "text/plain")),
+                    ("files", ("second.txt", BytesIO(b"hello again"), "text/plain")),
+                ],
             )
 
         assert resp.status_code == 200
         body = resp.json()
         assert body["success"] is True
-        assert "text" in body["data"]
-        assert len(body["data"]["text"]) > 0
+        assert body["data"]["files"] == [
+            {"name": "first.txt", "text": "第一份正文"},
+            {"name": "second.txt", "text": "第二份正文"},
+        ]
 
 
 # ---------------------------------------------------------------------------
@@ -287,6 +295,20 @@ class TestParseFiles:
 # ---------------------------------------------------------------------------
 
 class TestAnalyzeStream:
+    @pytest.mark.asyncio
+    async def test_analyze_requires_live_or_material_data(self, test_client, operator_headers, test_session):
+        kol_id = await _create_kol(test_session, name="缺材料达人")
+        create = await test_client.post(
+            f"/api/operator/workspace/{kol_id}/retrospective",
+            json={"title": "空材料复盘"}, headers=operator_headers,
+        )
+        response = await test_client.post(
+            f"/api/operator/workspace/{kol_id}/retrospective/{create.json()['data']['id']}/analyze",
+            headers=operator_headers,
+        )
+        assert response.status_code == 400
+        assert "至少填写直播汇总数据或素材明细数据" in response.text
+
     @pytest.mark.asyncio
     async def test_analyze_stream(self, test_client, operator_headers, test_session):
         kol_id = await _create_kol(test_session, name="分析流式测试达人")
@@ -319,5 +341,26 @@ class TestAnalyzeStream:
         assert resp.status_code == 200
         assert "event-stream" in resp.headers.get("content-type", "")
         assert "data:" in resp.text
+
+    @pytest.mark.asyncio
+    async def test_analyze_uses_full_kol_context(self, test_client, operator_headers, test_session):
+        kol_id = await _create_kol(test_session, name="完整档案达人")
+        await test_session.execute(text(
+            "UPDATE kols SET content_plan='内容计划', experience='真实经历', relationships='关系网', unique_story='独家经历' WHERE id=:id"
+        ), {"id": kol_id})
+        await test_session.commit()
+        created = await test_client.post(
+            f"/api/operator/workspace/{kol_id}/retrospective",
+            json={"title": "档案复盘", "live_data": "直播数据"}, headers=operator_headers,
+        )
+        async def _mock_stream(*args, **kwargs):
+            assert all(value in kwargs["messages"][1]["content"] for value in ("内容计划", "真实经历", "关系网", "独家经历"))
+            yield "报告"
+        with patch("app.routers.operator_retrospective.yunwu_adapter.chat_stream", side_effect=_mock_stream):
+            response = await test_client.post(
+                f"/api/operator/workspace/{kol_id}/retrospective/{created.json()['data']['id']}/analyze",
+                headers=operator_headers,
+            )
+        assert response.status_code == 200
         # 验证 done 标记
-        assert '"done": true' in resp.text or '"done":true' in resp.text
+        assert '"done": true' in response.text or '"done":true' in response.text
