@@ -126,4 +126,21 @@ describe('WorkspaceReferences', () => {
     await waitFor(() => expect(mockParseDocument).toHaveBeenCalledWith(1, expect.any(File)));
     expect(await screen.findByDisplayValue('解析后的正文')).toBeInTheDocument();
   });
+
+  it('shows the 500MB server limit and prevents an oversized video upload', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByText('红人爆款文案'));
+    await user.click(screen.getByRole('button', { name: '编辑' }));
+    expect(screen.getByText(/最大 500MB/)).toBeInTheDocument();
+
+    const oversizedVideo = new File(['video'], 'oversized.mp4', { type: 'video/mp4' });
+    Object.defineProperty(oversizedVideo, 'size', { value: 500 * 1024 * 1024 + 1 });
+    fireEvent.change(screen.getByLabelText('视频原片'), { target: { files: [oversizedVideo] } });
+    await user.click(screen.getByRole('button', { name: '保存' }));
+
+    await waitFor(() => expect(mockUpdateReference).toHaveBeenCalled());
+    expect(mockUploadVideo).not.toHaveBeenCalled();
+  });
 });

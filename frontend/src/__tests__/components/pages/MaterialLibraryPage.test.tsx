@@ -14,6 +14,8 @@ const mockGenerateSoul = vi.fn();
 
 vi.mock('../../../api/materialLibrary', () => ({
   getMaterialLibraryKols: (...args: unknown[]) => mockGetKols(...args),
+  materialLibraryKolItems: (response: { items: unknown[] } | unknown[]) =>
+    Array.isArray(response) ? response : response.items,
   getMaterialLibraryKolDetail: (...args: unknown[]) => mockGetKolDetail(...args),
   updateKolProfile: (...args: unknown[]) => mockUpdateKolProfile(...args),
   createKolReference: (...args: unknown[]) => mockCreateKolReference(...args),
@@ -130,6 +132,18 @@ describe('MaterialLibraryPage', () => {
       expect(screen.getByText('内容规划')).toBeInTheDocument();
       expect(screen.getByText('入驻信息')).toBeInTheDocument();
     });
+  });
+
+  it('renders kols when the list API returns paginated items', async () => {
+    mockGetKols.mockResolvedValue({
+      items: sampleKols,
+      pagination: { page: 1, page_size: 20, total: 2 },
+    });
+
+    renderWithApp(<MaterialLibraryPage />);
+
+    expect(await screen.findByText('孙静')).toBeInTheDocument();
+    expect(mockGetKolDetail).toHaveBeenCalledWith(1);
   });
 
   // Test 2: 选中红人加载详情
