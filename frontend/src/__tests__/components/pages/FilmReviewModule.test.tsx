@@ -43,14 +43,14 @@ describe('FilmReviewModule', () => {
 
     expect(await screen.findByText('origin.mp4')).toBeInTheDocument();
     expect((await screen.findAllByRole('alert')).length).toBeGreaterThanOrEqual(2);
-    expect(mockAnalyzeFilm).toHaveBeenCalledWith(original, edited);
+    expect(mockAnalyzeFilm).toHaveBeenCalledWith(7, original, edited);
   });
 
   it('sends both selected complete videos, renders the streamed report, and saves it with its task id', async () => {
     const user = userEvent.setup();
     mockSaveFilmReport.mockResolvedValue({ output_id: 9 });
     mockAnalyzeFilm.mockResolvedValue(new Response(
-      '__STATUS__Gemini 正在读取两条完整视频...\n# 三维评分：88',
+      '__STATUS__正在上传两条完整视频\n__STATUS__Gemini 正在读取两条完整视频...\n# 三维评分：88',
       { headers: { 'X-Task-Id': '42' } },
     ));
     render(<App><FilmReviewModule kolId={7} /></App>);
@@ -61,7 +61,7 @@ describe('FilmReviewModule', () => {
     await user.upload(screen.getByTestId('film-file-edited'), edited);
     await user.click(screen.getByRole('button', { name: /开始完整视频预审/ }));
 
-    await waitFor(() => expect(mockAnalyzeFilm).toHaveBeenCalledWith(original, edited));
+    await waitFor(() => expect(mockAnalyzeFilm).toHaveBeenCalledWith(7, original, edited));
     expect(await screen.findByText('正在读取两条完整视频')).toBeInTheDocument();
     expect(await screen.findByText(/三维评分：88/)).toBeInTheDocument();
 
