@@ -11,6 +11,7 @@ app/routers/operator_values_writer.py
 import json
 import re
 from datetime import datetime
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -24,6 +25,7 @@ from app.core.response import success_response
 from app.middlewares.auth import get_current_user
 from app.models.log import OperationLog
 from app.models.output import Output
+from app.models.task import TaskJob
 from app.models.values_writer import ValuesWriterConfig
 from app.models.user import User
 from app.services.kol_context import get_current_product, get_kol_context
@@ -33,6 +35,7 @@ router = APIRouter(prefix="/operator/values-writer", tags=["operator-values-writ
 
 TOOL_CODE = "values-writer"
 TOOL_NAME = "价值观仿写"
+ALLOWED_DIRECTION_TYPES = {"焦虑型", "诱惑型"}
 
 _DEFAULT_EXTRACT_PROMPT = (
     "你是一位内容策略师。根据以下达人档案，提炼出该达人在内容创作上最核心的3-6个价值观关键词。\n"
@@ -159,11 +162,29 @@ def _restore_locked_opening(content: str, opening_line: str) -> str:
     if match is None:
         return content
     rewrite = match.group(2)
-    if rewrite.startswith(opening_line):
+    first_line = rewrite.split("\n", 1)[0]
+    if first_line == opening_line:
         return content
     remainder = rewrite.split("\n", 1)[1] if "\n" in rewrite else ""
     restored = opening_line if not remainder else f"{opening_line}\n{remainder}"
     return f"{content[:match.start(2)]}{restored}{content[match.end(2):]}"
+
+
+def _direct_product_facts(product) -> list[str]:
+    return [str(value) for value in (
+        product.nickname, product.core_selling_point, product.mechanism,
+        product.visualization, product.endorsement, product.user_feedback,
+        product.unique_selling, product.awards, product.efficacy_proof,
+        "只有我有" if product.mechanism_exclusive else None,
+    ) if value]
+
+
+def _validate_directions(directions: list[dict]) -> list[dict]:
+    if not 2 <= len(directions) <= 3:
+        raise ValueError("需返回 2 至 3 个情绪方向")
+    if any(item.get("type") not in ALLOWED_DIRECTION_TYPES for item in directions):
+        raise ValueError("情绪方向只支持焦虑型或诱惑型")
+    return directions
 
 
 # ---------------------------------------------------------------------------
@@ -303,8 +324,17 @@ async def derive_directions(
                     messages=[{"role": "user", "content": prompt}], db=ai_db,
                     model_id=model_id, provider=provider, user_id=current_user.id,
                     feature="values_writer_derive_directions",
-                )
-            return success_response(data={"directions": _parse_directions(output)})
+            )
+            directions = _validate_directions(_parse_directions(output))
+            db.add(TaskJob(
+                task_no=f"values-{uuid4().hex}", tool_code=TOOL_CODE, tool_name=TOOL_NAME,
+                status="success", created_by=current_user.id,
+                input_payload={"kol_id": body.kol_id, "product_id": product.id,
+                               "original_length": len(body.original_script), "model_id": model_id},
+                result_summary={"output_kind": "emotion_directions"},
+            ))
+            await db.commit()
+            return success_response(data={"directions": directions})
         except (RuntimeError, ValueError, json.JSONDecodeError) as exc:
             last_error = str(exc)
     raise HTTPException(
@@ -322,6 +352,8 @@ async def generate_value_script(
     """按旧版结构生成脚本与情绪检测报告，商品只在服务端读取。"""
     if not body.opening_line.strip() or not body.original_script.strip():
         raise HTTPException(status_code=400, detail={"code": "INVALID_INPUT", "message": "锁定开头和爆款全文均不能为空"})
+    if body.direction.type not in ALLOWED_DIRECTION_TYPES:
+        raise HTTPException(status_code=400, detail={"code": "INVALID_DIRECTION", "message": "情绪方向只支持焦虑型或诱惑型"})
     context = await get_kol_context(db, body.kol_id)
     product = await _require_current_product(db, body.kol_id)
     config = await _get_config(db)
@@ -336,12 +368,9 @@ async def generate_value_script(
 硬规则：
 1. <rewrite> 的第一句必须逐字保留“{body.opening_line}”。
 2. 保留原文段落数量、各段功能和节奏，正文完全重写。
-3. <rewrite> 和 <report> 不得出现产品昵称“{product.nickname}”以及成分、价格、功效等直接商品信息。
-4. 改写必须服务于 {body.direction.type} 情绪，锚点是“{body.direction.anchor}”。
+3. <rewrite> 和 <report> 不得出现商品名、成分、价格、功效等直接商品信息。
+4. 改写必须服务于 {body.direction.type} 情绪，方向标题是“{body.direction.title}”，说明是“{body.direction.description}”，锚点是“{body.direction.anchor}”。
 5. <analysis> 写总字数、段落数和各段功能；<report> 写触发句、恐惧强度、诱惑强度、产品联想、开头核查和优化建议。
-
-当前商品仅用于推导情绪，不得写进最终脚本：
-{_product_prompt(product)}
 
 红人档案：
 {_profile_prompt(context)}
@@ -361,7 +390,19 @@ async def generate_value_script(
                     feature="values_writer_generate",
                 ):
                     chunks.append(chunk)
-                yield _sse_chunk(_restore_locked_opening("".join(chunks), body.opening_line))
+                output = _restore_locked_opening("".join(chunks), body.opening_line)
+                if any(fact in output for fact in _direct_product_facts(product)):
+                    yield _sse_chunk("[ERROR] 生成结果包含商品直接信息")
+                    return
+                stream_db.add(TaskJob(
+                    task_no=f"values-{uuid4().hex}", tool_code=TOOL_CODE, tool_name=TOOL_NAME,
+                    status="success", created_by=user_id,
+                    input_payload={"kol_id": body.kol_id, "product_id": product.id,
+                                   "original_length": len(body.original_script), "model_id": model_id},
+                    result_summary={"output_kind": "structured_script"},
+                ))
+                await stream_db.commit()
+                yield _sse_chunk(output)
             except Exception as exc:
                 yield _sse_chunk(f"[ERROR] {exc}")
         yield _sse_done()

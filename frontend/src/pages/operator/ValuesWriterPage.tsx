@@ -32,6 +32,10 @@ export function calculateBigramSimilarity(original: string, rewritten: string): 
   return union ? Math.round((overlap / union) * 100) : 0;
 }
 
+export function similarityStatus(similarity: number): string {
+  return similarity > 50 ? '需要继续改写' : similarity > 35 ? '接近安全线' : '安全';
+}
+
 export function parseValueScriptResult(content: string): ValueScriptResult | null {
   const take = (tag: string) => content.match(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`))?.[1].trim();
   const analysis = take('analysis');
@@ -146,7 +150,7 @@ export function ValuesWriterModule({ kolId }: { kolId: number }) {
   }
 
   const similarity = result ? calculateBigramSimilarity(originalScript, result.rewrite) : null;
-  const similarityText = similarity === null ? '' : similarity > 50 ? '需要继续改写' : similarity > 35 ? '接近安全线' : '安全';
+  const similarityText = similarity === null ? '' : similarityStatus(similarity);
 
   return (
     <div>
@@ -183,7 +187,7 @@ export function ValuesWriterModule({ kolId }: { kolId: number }) {
         <h2 className="card-title">选择并调整情绪方向</h2>
         <p>先选择 AI 分析，再按实际内容调整说明或情绪锚点。</p>
         {directions.map((item, index) => <button key={`${item.type}-${item.title}`} className="card" style={{ width: '100%', textAlign: 'left', marginTop: 12, borderColor: direction === item ? 'var(--primary)' : undefined }} onClick={() => setDirection({ ...item })}><strong>{item.type} · {item.title}</strong><p>{item.description}</p><small>情绪锚点：{item.anchor}</small></button>)}
-        {direction && <><label htmlFor="value-direction" style={{ display: 'block', marginTop: 16 }}>人工调整方向说明</label><TextArea id="value-direction" aria-label="人工调整方向说明" rows={3} value={direction.description} onChange={(event) => setDirection({ ...direction, description: event.target.value })} /><label htmlFor="value-anchor" style={{ display: 'block', marginTop: 12 }}>情绪锚点</label><Input id="value-anchor" aria-label="情绪锚点" value={direction.anchor} onChange={(event) => setDirection({ ...direction, anchor: event.target.value })} /></>}
+        {direction && <><label htmlFor="value-direction-title" style={{ display: 'block', marginTop: 16 }}>方向标题</label><Input id="value-direction-title" aria-label="方向标题" value={direction.title} onChange={(event) => setDirection({ ...direction, title: event.target.value })} /><label htmlFor="value-direction" style={{ display: 'block', marginTop: 12 }}>人工调整方向说明</label><TextArea id="value-direction" aria-label="人工调整方向说明" rows={3} value={direction.description} onChange={(event) => setDirection({ ...direction, description: event.target.value })} /><label htmlFor="value-anchor" style={{ display: 'block', marginTop: 12 }}>情绪锚点</label><Input id="value-anchor" aria-label="情绪锚点" value={direction.anchor} onChange={(event) => setDirection({ ...direction, anchor: event.target.value })} /></>}
         <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 16 }}><button className="btn btn-ghost" onClick={() => setStep(1)}>← 换商品</button><button className="btn btn-primary" disabled={!direction || loading} onClick={handleGenerate}>{loading ? '生成中...' : '生成脚本和报告'}</button></div>
       </div></div>}
 
