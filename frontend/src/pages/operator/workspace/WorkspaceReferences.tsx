@@ -1,418 +1,278 @@
-/**
- * WorkspaceReferences — 6 类素材库管理
- *
- * 两视图切换：
- *   - 分类首页：2 组 × 3 块卡片（人设仿写 / 千川仿写）
- *   - 类型视图：添加表单 + 列表（可折叠/展开，可删除）
- *
- * API：GET/POST /api/tools/seeding-writer/references
- *      DELETE  /api/tools/seeding-writer/references/{id}
- */
-import { useState, useEffect, useCallback } from 'react';
-import { Popconfirm, App } from 'antd';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { App, Popconfirm } from 'antd';
 import {
+  CrownOutlined,
   FileTextOutlined,
+  FireOutlined,
   HeartOutlined,
   StarOutlined,
   ThunderboltOutlined,
-  FireOutlined,
-  CrownOutlined,
 } from '@ant-design/icons';
-import { get, post, del } from '../../../api/request';
+import {
+  createKolReference,
+  deleteKolReference,
+  flattenKolReferences,
+  getKolReferenceVideoPlayback,
+  getMaterialLibraryKolDetail,
+  parseKolReferenceDocument,
+  updateKolReference,
+  uploadKolReferenceVideo,
+} from '../../../api/materialLibrary';
+import type { KolReference } from '../../../api/materialLibrary';
 
 interface WorkspaceReferencesProps {
   kolId: number;
 }
 
-interface Reference {
-  id: number;
-  kol_id: number | null;
-  title: string;
-  content: string;
-  type: string | null;
-  likes: number | null;
-  created_at: string | null;
+interface TypeMeta {
+  icon: React.ReactNode;
+  color: string;
 }
 
-interface TypeGroup {
-  group: string;
-  types: { type: string; icon: React.ReactNode; color: string }[];
-}
-
-const TYPE_GROUPS: TypeGroup[] = [
+const TYPE_GROUPS = [
   {
     group: '人设仿写素材',
     types: [
-      { type: '红人爆款文案',   icon: <FireOutlined />,       color: 'var(--danger)' },
-      { type: '红人喜欢的内容', icon: <HeartOutlined />,      color: 'var(--pink)' },
-      { type: '风格参考',       icon: <StarOutlined />,       color: 'var(--brand)' },
+      { type: '红人爆款文案', icon: <FireOutlined />, color: 'var(--danger)' },
+      { type: '红人喜欢的内容', icon: <HeartOutlined />, color: 'var(--pink)' },
+      { type: '风格参考', icon: <StarOutlined />, color: 'var(--brand)' },
     ],
   },
   {
     group: '千川仿写素材',
     types: [
-      { type: '千川爆款文案',   icon: <ThunderboltOutlined />, color: 'var(--warning)' },
-      { type: '千川喜欢的内容', icon: <CrownOutlined />,       color: 'var(--purple)' },
-      { type: '千川风格参考',   icon: <FileTextOutlined />,    color: 'var(--info)' },
+      { type: '千川爆款文案', icon: <ThunderboltOutlined />, color: 'var(--warning)' },
+      { type: '千川喜欢的内容', icon: <CrownOutlined />, color: 'var(--purple)' },
+      { type: '千川风格参考', icon: <FileTextOutlined />, color: 'var(--info)' },
     ],
   },
-];
+] as const;
 
-// 所有类型的图标和颜色（用于类型视图顶部）
-const TYPE_META: Record<string, { icon: React.ReactNode; color: string }> = {};
-TYPE_GROUPS.forEach((g) => {
-  g.types.forEach((t) => {
-    TYPE_META[t.type] = { icon: t.icon, color: t.color };
-  });
+const TYPE_META: Record<string, TypeMeta> = Object.fromEntries(
+  TYPE_GROUPS.flatMap(({ types }) => types.map(({ type, icon, color }) => [type, { icon, color }])),
+);
+
+type FormState = {
+  title: string;
+  dataDescription: string;
+  content: string;
+  documentName: string;
+  documentType: string;
+  documentSize?: number;
+  video?: File;
+};
+
+const emptyForm = (): FormState => ({
+  title: '', dataDescription: '', content: '', documentName: '', documentType: '', documentSize: undefined,
 });
 
-function getTypeColor(type: string): string {
-  return TYPE_META[type]?.color ?? 'var(--brand)';
+function referenceForm(reference: KolReference): FormState {
+  return {
+    title: reference.title,
+    dataDescription: reference.data_description ?? '',
+    content: reference.content,
+    documentName: reference.document_name ?? '',
+    documentType: reference.document_type ?? '',
+    documentSize: reference.document_size ?? undefined,
+  };
+}
+
+function readableSize(size?: number | null): string {
+  if (!size) return '';
+  return size < 1024 * 1024 ? `${Math.ceil(size / 1024)} KB` : `${(size / 1024 / 1024).toFixed(1)} MB`;
 }
 
 export default function WorkspaceReferences({ kolId }: WorkspaceReferencesProps) {
   const { message } = App.useApp();
+  const [references, setReferences] = useState<KolReference[]>([]);
   const [activeType, setActiveType] = useState<string | null>(null);
-  const [references, setReferences] = useState<Reference[]>([]);
-  const [loading, setLoading] = useState(false);
-
-  // 添加表单
-  const [showForm, setShowForm] = useState(false);
-  const [formTitle, setFormTitle] = useState('');
-  const [formContent, setFormContent] = useState('');
-  const [formLikes, setFormLikes] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-
-  // 折叠状态（存每条 ref 的 id）
-  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const [playbackUrls, setPlaybackUrls] = useState<Record<number, string>>({});
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [formVisible, setFormVisible] = useState(false);
+  const [editing, setEditing] = useState<KolReference | null>(null);
+  const [form, setForm] = useState<FormState>(emptyForm);
 
   const loadReferences = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await get<Reference[]>('/api/tools/seeding-writer/references', { kol_id: kolId });
-      setReferences(data);
-    } catch (err: unknown) {
-      message.error(err instanceof Error ? err.message : '加载素材库失败');
+      const detail = await getMaterialLibraryKolDetail(kolId);
+      setReferences(flattenKolReferences(detail.references));
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '加载素材库失败');
     } finally {
       setLoading(false);
     }
   }, [kolId, message]);
 
-  useEffect(() => {
-    loadReferences();
-  }, [loadReferences]);
+  useEffect(() => { void loadReferences(); }, [loadReferences]);
 
-  // 按类型过滤
-  const filteredRefs = activeType
-    ? references.filter((r) => r.type === activeType)
-    : [];
+  const visibleReferences = useMemo(
+    () => references.filter((reference) => reference.type === activeType),
+    [activeType, references],
+  );
 
-  // 每种类型的数量（分类首页用）
-  function countByType(type: string): number {
-    return references.filter((r) => r.type === type).length;
-  }
-
-  // 重置表单
   function resetForm() {
-    setFormTitle('');
-    setFormContent('');
-    setFormLikes('');
-    setShowForm(false);
+    setEditing(null);
+    setForm(emptyForm());
+    setFormVisible(false);
   }
 
-  // 添加素材
-  async function handleAdd() {
-    if (!formTitle.trim()) { message.warning('请填写标题'); return; }
-    if (!formContent.trim()) { message.warning('请填写正文'); return; }
-    if (!activeType) return;
-    setSubmitting(true);
+  function openCreate() {
+    setEditing(null);
+    setForm(emptyForm());
+    setFormVisible(true);
+  }
+
+  function openEdit(reference: KolReference) {
+    setEditing(reference);
+    setForm(referenceForm(reference));
+    setFormVisible(true);
+  }
+
+  async function parseDocument(file?: File) {
+    if (!file) return;
     try {
-      await post('/api/tools/seeding-writer/references', {
-        kol_id: kolId,
-        title: formTitle.trim(),
-        content: formContent.trim(),
-        type: activeType,
-        likes: formLikes ? parseInt(formLikes, 10) : undefined,
-      });
-      message.success('素材已添加');
+      const parsed = await parseKolReferenceDocument(kolId, file);
+      setForm((previous) => ({
+        ...previous,
+        content: parsed.text,
+        documentName: parsed.document_name,
+        documentType: parsed.document_type ?? '',
+        documentSize: parsed.document_size,
+      }));
+      message.success('文档已解析，可在保存前修改正文');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '文档解析失败');
+    }
+  }
+
+  async function saveReference() {
+    if (!activeType || !form.title.trim() || !form.content.trim()) {
+      message.warning('请填写标题和脚本正文');
+      return;
+    }
+    setSaving(true);
+    try {
+      const metadata = {
+        title: form.title.trim(),
+        data_description: form.dataDescription.trim() || undefined,
+        content: form.content.trim(),
+        document_name: form.documentName || undefined,
+        document_type: form.documentType || undefined,
+        document_size: form.documentSize,
+      };
+      const saved = editing
+        ? await updateKolReference(kolId, editing.id, metadata)
+        : await createKolReference(kolId, { ...metadata, type: activeType });
+      const withVideo = form.video
+        ? await uploadKolReferenceVideo(kolId, saved.id, form.video)
+        : saved;
+      setReferences((previous) => editing
+        ? previous.map((reference) => reference.id === withVideo.id ? withVideo : reference)
+        : [withVideo, ...previous]);
+      message.success(editing ? '素材已更新，原视频保持不变' : '素材已添加');
       resetForm();
-      await loadReferences();
-    } catch (err: unknown) {
-      message.error(err instanceof Error ? err.message : '添加失败');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '保存素材失败');
     } finally {
-      setSubmitting(false);
+      setSaving(false);
     }
   }
 
-  // 删除素材
-  async function handleDelete(id: number) {
-    try {
-      await del(`/api/tools/seeding-writer/references/${id}`);
-      message.success('已删除');
-      setReferences((prev) => prev.filter((r) => r.id !== id));
-    } catch (err: unknown) {
-      message.error(err instanceof Error ? err.message : '删除失败');
-    }
-  }
-
-  // 折叠/展开
-  function toggleExpand(id: number) {
-    setExpandedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) { next.delete(id); } else { next.add(id); }
+  async function toggleExpanded(reference: KolReference) {
+    const isExpanded = expanded.has(reference.id);
+    setExpanded((previous) => {
+      const next = new Set(previous);
+      isExpanded ? next.delete(reference.id) : next.add(reference.id);
       return next;
     });
+    if (!isExpanded && reference.has_video && !playbackUrls[reference.id]) {
+      try {
+        const playback = await getKolReferenceVideoPlayback(kolId, reference.id);
+        setPlaybackUrls((previous) => ({ ...previous, [reference.id]: playback.url }));
+      } catch (error) {
+        message.error(error instanceof Error ? error.message : '视频播放地址获取失败');
+      }
+    }
   }
 
-  // ── 类型视图 ──────────────────────────────────────────────────────────────
-  if (activeType !== null) {
-    const meta = TYPE_META[activeType];
+  async function removeReference(reference: KolReference) {
+    try {
+      await deleteKolReference(kolId, reference.id);
+      setReferences((previous) => previous.filter((item) => item.id !== reference.id));
+      setPlaybackUrls((previous) => {
+        const next = { ...previous };
+        delete next[reference.id];
+        return next;
+      });
+      message.success('素材已删除');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '删除素材失败');
+    }
+  }
+
+  if (activeType === null) {
     return (
-      <div style={{ maxWidth: 800 }}>
+      <div style={{ maxWidth: 900 }}>
         <div className="page-header">
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', marginBottom: 4 }}>
-              <button
-                className="btn btn-ghost btn-sm"
-                onClick={() => { setActiveType(null); resetForm(); }}
-                style={{ display: 'flex', alignItems: 'center', gap: 4 }}
-              >
-                ← 返回
-              </button>
-            </div>
-            <h1 className="page-title" style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
-              <span style={{ color: getTypeColor(activeType) }}>{meta?.icon}</span>
-              {activeType}
-            </h1>
-            <p className="page-desc">{filteredRefs.length} 条素材</p>
-          </div>
-          <div className="page-actions">
-            {!showForm && (
-              <button className="btn btn-primary btn-sm" onClick={() => setShowForm(true)}>
-                + 添加
-              </button>
-            )}
-          </div>
+          <div><h1 className="page-title">素材库</h1><p className="page-desc">管理当前红人的六类脚本文档和视频原片</p></div>
         </div>
-
-        {/* 添加表单 */}
-        {showForm && (
-          <div className="card" style={{ marginBottom: 'var(--sp-4)' }}>
-            <div className="card-body">
-              <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 'var(--sp-3)' }}>添加素材</div>
-              <div style={{ marginBottom: 'var(--sp-2)' }}>
-                <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: 13 }}>
-                  标题 <span style={{ color: 'var(--danger)' }}>*</span>
-                </label>
-                <input
-                  type="text"
-                  value={formTitle}
-                  onChange={(e) => setFormTitle(e.target.value)}
-                  placeholder="请输入标题"
-                  style={{
-                    width: '100%',
-                    padding: 'var(--sp-2) var(--sp-3)',
-                    borderRadius: 'var(--radius-md)',
-                    border: '1px solid var(--border)',
-                    fontSize: 14,
-                    fontFamily: 'var(--font-sans)',
-                    boxSizing: 'border-box',
-                    color: 'var(--gray-800)',
-                  }}
-                />
-              </div>
-              <div style={{ marginBottom: 'var(--sp-2)' }}>
-                <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: 13 }}>
-                  点赞数（选填）
-                </label>
-                <input
-                  type="number"
-                  value={formLikes}
-                  onChange={(e) => setFormLikes(e.target.value)}
-                  placeholder="如 120000"
-                  style={{
-                    width: '100%',
-                    padding: 'var(--sp-2) var(--sp-3)',
-                    borderRadius: 'var(--radius-md)',
-                    border: '1px solid var(--border)',
-                    fontSize: 14,
-                    fontFamily: 'var(--font-sans)',
-                    boxSizing: 'border-box',
-                    color: 'var(--gray-800)',
-                  }}
-                />
-              </div>
-              <div style={{ marginBottom: 'var(--sp-3)' }}>
-                <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: 13 }}>
-                  正文 <span style={{ color: 'var(--danger)' }}>*</span>
-                </label>
-                <textarea
-                  rows={6}
-                  value={formContent}
-                  onChange={(e) => setFormContent(e.target.value)}
-                  placeholder="粘贴内容到这里..."
-                  style={{
-                    width: '100%',
-                    padding: 'var(--sp-3)',
-                    borderRadius: 'var(--radius-md)',
-                    border: '1px solid var(--border)',
-                    fontSize: 14,
-                    lineHeight: 1.6,
-                    fontFamily: 'var(--font-sans)',
-                    resize: 'vertical',
-                    boxSizing: 'border-box',
-                    color: 'var(--gray-800)',
-                  }}
-                />
-              </div>
-              <div style={{ display: 'flex', gap: 'var(--sp-2)' }}>
-                <button className="btn btn-primary btn-sm" onClick={handleAdd} disabled={submitting}>
-                  {submitting ? '保存中...' : '保存'}
-                </button>
-                <button className="btn btn-ghost btn-sm" onClick={resetForm} disabled={submitting}>
-                  取消
-                </button>
-              </div>
+        {loading ? <div className="empty-state"><div className="empty-state-text">加载中...</div></div> : TYPE_GROUPS.map((group) => (
+          <section key={group.group} style={{ marginBottom: 'var(--sp-6)' }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--gray-500)', marginBottom: 'var(--sp-3)' }}>{group.group}</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 'var(--sp-3)' }}>
+              {group.types.map((item) => {
+                const count = references.filter((reference) => reference.type === item.type).length;
+                return <button key={item.type} type="button" className="card" onClick={() => setActiveType(item.type)} style={{ cursor: 'pointer', textAlign: 'left' }}>
+                  <div className="card-body"><div style={{ color: item.color, fontSize: 24 }}>{item.icon}</div><strong>{item.type}</strong><div style={{ color: 'var(--gray-400)', fontSize: 12, marginTop: 6 }}>已有 {count} 条</div></div>
+                </button>;
+              })}
             </div>
-          </div>
-        )}
-
-        {/* 素材列表 */}
-        {loading ? (
-          <div className="empty-state">
-            <div className="empty-state-text">加载中...</div>
-          </div>
-        ) : filteredRefs.length === 0 ? (
-          <div className="empty-state">
-            <div className="empty-state-icon">📄</div>
-            <div className="empty-state-text">暂无素材，点击「+ 添加」开始录入</div>
-          </div>
-        ) : (
-          <div>
-            {filteredRefs.map((ref) => {
-              const isExpanded = expandedIds.has(ref.id);
-              return (
-                <div key={ref.id} className="card" style={{ marginBottom: 'var(--sp-3)' }}>
-                  <div className="card-body">
-                    {/* 标题行 */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--sp-2)' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', flex: 1, minWidth: 0 }}>
-                        <span style={{ fontWeight: 600, fontSize: 14, color: 'var(--gray-800)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {ref.title}
-                        </span>
-                        {ref.likes != null && (
-                          <span style={{ fontSize: 12, color: 'var(--gray-400)', flexShrink: 0 }}>
-                            {ref.likes >= 10000 ? `${(ref.likes / 10000).toFixed(1)}万赞` : `${ref.likes}赞`}
-                          </span>
-                        )}
-                      </div>
-                      <div style={{ display: 'flex', gap: 'var(--sp-2)', flexShrink: 0, marginLeft: 'var(--sp-2)' }}>
-                        <button
-                          className="btn btn-ghost btn-sm"
-                          onClick={() => toggleExpand(ref.id)}
-                          style={{ fontSize: 12 }}
-                        >
-                          {isExpanded ? '收起' : '展开'}
-                        </button>
-                        <Popconfirm
-                          title="确认删除这条素材？"
-                          onConfirm={() => handleDelete(ref.id)}
-                          okText="删除"
-                          cancelText="取消"
-                          okButtonProps={{ danger: true }}
-                        >
-                          <button className="btn btn-danger-ghost btn-sm">删除</button>
-                        </Popconfirm>
-                      </div>
-                    </div>
-                    {/* 内容（折叠/展开） */}
-                    {isExpanded && (
-                      <div
-                        style={{
-                          fontSize: 13,
-                          lineHeight: 1.8,
-                          color: 'var(--gray-700)',
-                          whiteSpace: 'pre-wrap',
-                          background: 'var(--bg-muted)',
-                          borderRadius: 'var(--radius-md)',
-                          padding: 'var(--sp-3)',
-                          marginTop: 'var(--sp-2)',
-                        }}
-                      >
-                        {ref.content}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
+          </section>
+        ))}
       </div>
     );
   }
 
-  // ── 分类首页 ──────────────────────────────────────────────────────────────
+  const meta = TYPE_META[activeType];
   return (
-    <div style={{ maxWidth: 800 }}>
+    <div style={{ maxWidth: 900 }}>
       <div className="page-header">
         <div>
-          <h1 className="page-title">素材库</h1>
-          <p className="page-desc">管理人设仿写与千川仿写的参考素材，点击分类进入</p>
+          <button className="btn btn-ghost btn-sm" onClick={() => { setActiveType(null); resetForm(); }}>← 返回</button>
+          <h1 className="page-title" style={{ marginTop: 8, color: meta?.color }}>{meta?.icon} {activeType}</h1>
+          <p className="page-desc">{visibleReferences.length} 条素材</p>
         </div>
+        <button className="btn btn-primary btn-sm" onClick={openCreate}>添加素材</button>
       </div>
 
-      {loading ? (
-        <div className="empty-state">
-          <div className="empty-state-text">加载中...</div>
+      {formVisible && <div className="card" style={{ marginBottom: 'var(--sp-4)' }}><div className="card-body">
+        <strong>{editing ? '编辑素材' : '添加素材'}</strong>
+        <div style={{ display: 'grid', gap: 12, marginTop: 12 }}>
+          <label>标题 *<input aria-label="素材标题" value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></label>
+          <label>数据说明（如点赞数、完播率）<input aria-label="数据说明" value={form.dataDescription} onChange={(event) => setForm({ ...form, dataDescription: event.target.value })} /></label>
+          <label>上传脚本文档（自动解析后仍可修改）<input aria-label="上传脚本文档" type="file" accept=".txt,.doc,.docx,.pdf" onChange={(event) => void parseDocument(event.target.files?.[0])} /></label>
+          {form.documentName && <span style={{ fontSize: 12, color: 'var(--gray-500)' }}>已解析：{form.documentName} {readableSize(form.documentSize)}</span>}
+          <label>脚本正文 *<textarea aria-label="脚本正文" rows={7} value={form.content} onChange={(event) => setForm({ ...form, content: event.target.value })} /></label>
+          <label>{editing?.has_video ? '替换视频（不选则保留现有视频）' : '视频原片（可选）'}<input aria-label="视频原片" type="file" accept="video/*" onChange={(event) => setForm({ ...form, video: event.target.files?.[0] })} /></label>
+          {editing?.has_video && <span style={{ fontSize: 12, color: 'var(--gray-500)' }}>当前视频：{editing.video_name}</span>}
+          <div style={{ display: 'flex', gap: 8 }}><button className="btn btn-primary btn-sm" disabled={saving} onClick={() => void saveReference()}>{saving ? '保存中...' : '保存'}</button><button className="btn btn-ghost btn-sm" disabled={saving} onClick={resetForm}>取消</button></div>
         </div>
-      ) : (
-        <div>
-          {TYPE_GROUPS.map((group) => (
-            <div key={group.group} style={{ marginBottom: 'var(--sp-6)' }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--gray-500)', marginBottom: 'var(--sp-3)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                {group.group}
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--sp-3)' }}>
-                {group.types.map((t) => {
-                  const count = countByType(t.type);
-                  return (
-                    <div
-                      key={t.type}
-                      className="card"
-                      onClick={() => setActiveType(t.type)}
-                      style={{
-                        cursor: 'pointer',
-                        transition: 'transform 0.15s, box-shadow 0.15s',
-                        marginBottom: 0,
-                      }}
-                      onMouseEnter={(e) => {
-                        (e.currentTarget as HTMLElement).style.transform = 'translateY(-2px)';
-                        (e.currentTarget as HTMLElement).style.boxShadow = 'var(--shadow-md)';
-                      }}
-                      onMouseLeave={(e) => {
-                        (e.currentTarget as HTMLElement).style.transform = '';
-                        (e.currentTarget as HTMLElement).style.boxShadow = '';
-                      }}
-                    >
-                      <div className="card-body" style={{ textAlign: 'center', padding: 'var(--sp-5)' }}>
-                        <div style={{ fontSize: 28, color: t.color, marginBottom: 'var(--sp-2)' }}>
-                          {t.icon}
-                        </div>
-                        <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--gray-800)', marginBottom: 'var(--sp-1)' }}>
-                          {t.type}
-                        </div>
-                        <div style={{ fontSize: 12, color: 'var(--gray-400)' }}>
-                          已有 {count} 条
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+      </div></div>}
+
+      {loading ? <div className="empty-state"><div className="empty-state-text">加载中...</div></div> : visibleReferences.length === 0 ? <div className="empty-state"><div className="empty-state-text">暂无素材，点击「添加素材」开始录入</div></div> : (
+        <div>{visibleReferences.map((reference) => {
+          const isExpanded = expanded.has(reference.id);
+          return <article key={reference.id} className="card" style={{ marginBottom: 'var(--sp-3)' }}><div className="card-body">
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'space-between' }}>
+              <div style={{ minWidth: 0 }}><strong>{reference.title}</strong><div style={{ fontSize: 12, color: 'var(--gray-500)', marginTop: 4 }}>{reference.data_description || (reference.likes !== null ? `${reference.likes} 赞` : '未填写数据说明')}</div><div style={{ fontSize: 12, color: 'var(--gray-400)', marginTop: 4 }}>{reference.has_video ? '有视频' : '无视频'}{reference.document_name ? ` · ${reference.document_name}` : ''}</div></div>
+              <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}><button className="btn btn-ghost btn-sm" onClick={() => void toggleExpanded(reference)}>{isExpanded ? '收起' : '展开'}</button><button className="btn btn-ghost btn-sm" onClick={() => openEdit(reference)}>编辑</button><Popconfirm title="确认删除这条素材？" onConfirm={() => void removeReference(reference)} okText="删除" cancelText="取消" okButtonProps={{ danger: true }}><button className="btn btn-danger-ghost btn-sm">删除</button></Popconfirm></div>
             </div>
-          ))}
-        </div>
+            {isExpanded && <div style={{ marginTop: 12 }}><div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.8, background: 'var(--bg-muted)', padding: 'var(--sp-3)', borderRadius: 'var(--radius-md)' }}>{reference.content}</div>{reference.has_video && <div style={{ marginTop: 12 }}><div style={{ fontSize: 12, color: 'var(--gray-500)', marginBottom: 4 }}>{reference.video_name} {readableSize(reference.video_size)}</div>{playbackUrls[reference.id] ? <video controls src={playbackUrls[reference.id]} style={{ width: '100%', maxWidth: 560 }} /> : <span style={{ fontSize: 12 }}>正在获取播放地址...</span>}</div>}</div>}
+          </div></article>;
+        })}</div>
       )}
     </div>
   );
