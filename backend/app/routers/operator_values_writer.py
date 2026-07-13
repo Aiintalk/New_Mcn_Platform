@@ -9,6 +9,7 @@ app/routers/operator_values_writer.py
   POST /api/operator/values-writer/save-output       — 保存产出（手动保存到历史）
 """
 import json
+import re
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -25,6 +26,7 @@ from app.models.log import OperationLog
 from app.models.output import Output
 from app.models.values_writer import ValuesWriterConfig
 from app.models.user import User
+from app.services.kol_context import get_current_product, get_kol_context
 from app.services.workspace_prompt import resolve_prompt
 
 router = APIRouter(prefix="/operator/values-writer", tags=["operator-values-writer"])
@@ -151,6 +153,19 @@ def _sse_done() -> str:
     return f"data: {json.dumps({'done': True})}\n\n"
 
 
+def _restore_locked_opening(content: str, opening_line: str) -> str:
+    """兜底恢复 <rewrite> 中被模型改动的锁定开头。"""
+    match = re.search(r"(<rewrite>)(.*?)(</rewrite>)", content, flags=re.DOTALL)
+    if match is None:
+        return content
+    rewrite = match.group(2)
+    if rewrite.startswith(opening_line):
+        return content
+    remainder = rewrite.split("\n", 1)[1] if "\n" in rewrite else ""
+    restored = opening_line if not remainder else f"{opening_line}\n{remainder}"
+    return f"{content[:match.start(2)]}{restored}{content[match.end(2):]}"
+
+
 # ---------------------------------------------------------------------------
 # Schemas
 # ---------------------------------------------------------------------------
@@ -177,6 +192,181 @@ class IterateRequest(BaseModel):
     kol_id: int
     content: str
     instruction: str
+
+
+class EmotionDirection(BaseModel):
+    type: str
+    title: str
+    description: str
+    anchor: str
+
+
+class DeriveDirectionsRequest(BaseModel):
+    kol_id: int
+    opening_line: str
+    original_script: str
+
+
+class GenerateValueScriptRequest(BaseModel):
+    kol_id: int
+    opening_line: str
+    original_script: str
+    direction: EmotionDirection
+
+
+def _product_prompt(product) -> str:
+    fields = (
+        ("产品昵称", product.nickname),
+        ("最主推卖点", product.core_selling_point),
+        ("可视化", product.visualization),
+        ("主推机制", product.mechanism),
+        ("推荐来源", product.endorsement),
+        ("用户反馈", product.user_feedback),
+        ("独家卖点", product.unique_selling),
+        ("获奖荣誉", product.awards),
+        ("功效承诺", product.efficacy_proof),
+        ("只有我有", "是" if product.mechanism_exclusive else None),
+    )
+    return "\n".join(f"{label}：{value}" for label, value in fields if value)
+
+
+def _profile_prompt(context) -> str:
+    sections = [("红人姓名", context.name), *context.prompt_sections()]
+    return "\n".join(f"{label}：{value}" for label, value in sections if value)
+
+
+def _parse_directions(ai_output: str) -> list[dict]:
+    cleaned = ai_output.replace("```json", "").replace("```", "").strip()
+    start, end = cleaned.find("["), cleaned.rfind("]")
+    if start == -1 or end == -1:
+        raise ValueError("未返回方向列表")
+    directions = json.loads(cleaned[start:end + 1])
+    if not isinstance(directions, list) or not 2 <= len(directions) <= 3:
+        raise ValueError("方向数量必须为 2 到 3 个")
+    required = {"type", "title", "description", "anchor"}
+    if any(not isinstance(item, dict) or not required.issubset(item) for item in directions):
+        raise ValueError("方向字段不完整")
+    return directions
+
+
+async def _require_current_product(db: AsyncSession, kol_id: int):
+    product = await get_current_product(db, kol_id)
+    if product is None:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "CURRENT_PRODUCT_REQUIRED", "message": "请先在产品库选择当前商品"},
+        )
+    return product
+
+
+# ---------------------------------------------------------------------------
+# 红人工作台旧版四步流程
+# ---------------------------------------------------------------------------
+
+@router.post("/derive-directions", response_model=None)
+async def derive_directions(
+    body: DeriveDirectionsRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_operator),
+):
+    """根据唯一当前商品和完整档案推导 2 至 3 个情绪方向。"""
+    if not body.opening_line.strip() or not body.original_script.strip():
+        raise HTTPException(status_code=400, detail={"code": "INVALID_INPUT", "message": "锁定开头和爆款全文均不能为空"})
+    context = await get_kol_context(db, body.kol_id)
+    product = await _require_current_product(db, body.kol_id)
+    config = await _get_config(db)
+    model_id, provider = await _resolve_model(config, db)
+    configured_prompt = (
+        await resolve_prompt(body.kol_id, TOOL_CODE, "emotion_direction_prompt", db)
+        or (config.emotion_direction_prompt if config and config.emotion_direction_prompt else "")
+    )
+    prompt = f"""{configured_prompt}
+
+你是短视频电商内容策略师。根据产品卖点、红人档案与爆款原文，推导 2 至 3 个价值观内容的情绪方向。
+规则：方向只能是焦虑型或诱惑型；不提产品名、成分、价格；不要输出任何商品直接信息。
+只输出 JSON 数组，每项必须包含 type、title、description、anchor。
+
+当前商品（仅用于推导情绪）：
+{_product_prompt(product)}
+
+红人档案：
+{_profile_prompt(context)}
+
+锁定开头：{body.opening_line}
+爆款全文：\n{body.original_script}
+"""
+    last_error = ""
+    for _ in range(3):
+        try:
+            async with AsyncSessionLocal() as ai_db:
+                output = await yunwu_adapter.chat(
+                    messages=[{"role": "user", "content": prompt}], db=ai_db,
+                    model_id=model_id, provider=provider, user_id=current_user.id,
+                    feature="values_writer_derive_directions",
+                )
+            return success_response(data={"directions": _parse_directions(output)})
+        except (RuntimeError, ValueError, json.JSONDecodeError) as exc:
+            last_error = str(exc)
+    raise HTTPException(
+        status_code=502,
+        detail={"code": "DIRECTION_PARSE_FAILED", "message": f"情绪方向生成失败，已重试 3 次：{last_error}"},
+    )
+
+
+@router.post("/generate")
+async def generate_value_script(
+    body: GenerateValueScriptRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_operator),
+):
+    """按旧版结构生成脚本与情绪检测报告，商品只在服务端读取。"""
+    if not body.opening_line.strip() or not body.original_script.strip():
+        raise HTTPException(status_code=400, detail={"code": "INVALID_INPUT", "message": "锁定开头和爆款全文均不能为空"})
+    context = await get_kol_context(db, body.kol_id)
+    product = await _require_current_product(db, body.kol_id)
+    config = await _get_config(db)
+    model_id, provider = await _resolve_model(config, db)
+    configured_prompt = (
+        await resolve_prompt(body.kol_id, TOOL_CODE, "writing_prompt", db)
+        or (config.writing_prompt if config and config.writing_prompt else "")
+    )
+    prompt = f"""{configured_prompt}
+
+你要将爆款价值观内容改写，并严格输出 <analysis>、<rewrite>、<report> 三段。
+硬规则：
+1. <rewrite> 的第一句必须逐字保留“{body.opening_line}”。
+2. 保留原文段落数量、各段功能和节奏，正文完全重写。
+3. <rewrite> 和 <report> 不得出现产品昵称“{product.nickname}”以及成分、价格、功效等直接商品信息。
+4. 改写必须服务于 {body.direction.type} 情绪，锚点是“{body.direction.anchor}”。
+5. <analysis> 写总字数、段落数和各段功能；<report> 写触发句、恐惧强度、诱惑强度、产品联想、开头核查和优化建议。
+
+当前商品仅用于推导情绪，不得写进最终脚本：
+{_product_prompt(product)}
+
+红人档案：
+{_profile_prompt(context)}
+
+爆款全文：
+{body.original_script}
+"""
+    user_id = current_user.id
+
+    async def generate():
+        async with AsyncSessionLocal() as stream_db:
+            try:
+                chunks = []
+                async for chunk in yunwu_adapter.chat_stream(
+                    messages=[{"role": "user", "content": prompt}], db=stream_db,
+                    model_id=model_id, provider=provider, user_id=user_id,
+                    feature="values_writer_generate",
+                ):
+                    chunks.append(chunk)
+                yield _sse_chunk(_restore_locked_opening("".join(chunks), body.opening_line))
+            except Exception as exc:
+                yield _sse_chunk(f"[ERROR] {exc}")
+        yield _sse_done()
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
 
 
 # ---------------------------------------------------------------------------

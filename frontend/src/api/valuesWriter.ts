@@ -30,6 +30,71 @@ export const extractValues = (kolId: number, extraContext?: string) =>
 export const saveOutput = (body: ValuesWriterSaveOutputRequest) =>
   post<{ output_id: number }>('/api/operator/values-writer/save-output', body);
 
+export interface EmotionDirection {
+  type: '焦虑型' | '诱惑型';
+  title: string;
+  description: string;
+  anchor: string;
+}
+
+/** 旧版四步流程第三步：服务端读取当前商品和完整红人档案。 */
+export const deriveDirections = (body: {
+  kol_id: number;
+  opening_line: string;
+  original_script: string;
+}) => post<{ directions: EmotionDirection[] }>('/api/operator/values-writer/derive-directions', body);
+
+/** 旧版四步流程第四步：流式返回 analysis/rewrite/report 三段结构。 */
+export async function generateValueScript(
+  body: {
+    kol_id: number;
+    opening_line: string;
+    original_script: string;
+    direction: EmotionDirection;
+  },
+  onDelta: (text: string) => void,
+): Promise<string> {
+  const { useAuthStore } = await import('../store/authStore');
+  const token = useAuthStore.getState().token;
+  const resp = await fetch(`${BASE_URL}/api/operator/values-writer/generate`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok || !resp.body) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error(err?.detail?.message ?? `生成脚本失败: ${resp.status}`);
+  }
+  return readSseStream(resp, onDelta);
+}
+
+async function readSseStream(resp: Response, onDelta: (text: string) => void): Promise<string> {
+  const reader = resp.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let full = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    buffer += decoder.decode(value, { stream: !done });
+    const events = buffer.split('\n\n');
+    buffer = events.pop() ?? '';
+    for (const event of events) {
+      const line = event.split('\n').find((item) => item.startsWith('data: '));
+      if (!line) continue;
+      const payload = JSON.parse(line.slice(6)) as { delta?: string; done?: boolean };
+      if (payload.delta) {
+        full += payload.delta;
+        onDelta(full);
+      }
+    }
+    if (done) break;
+  }
+  return full;
+}
+
 /** 生成情绪方向（SSE 流式） */
 export async function emotionDirectionStream(
   body: { kol_id: number; selected_values: string[]; tone?: string },
