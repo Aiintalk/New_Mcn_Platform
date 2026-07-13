@@ -6,7 +6,7 @@ from app.core.database import Base
 
 class KolActiveProduct(Base):
     __tablename__ = "kol_active_products"
-    __table_args__ = (UniqueConstraint("kol_id", "product_id", name="uq_kol_active_products"),)
+    __table_args__ = (UniqueConstraint("kol_id", name="uq_kol_active_products_kol"),)
 
     id         = Column(BigInteger, primary_key=True, autoincrement=True)
     kol_id     = Column(BigInteger, ForeignKey("kols.id", ondelete="CASCADE"), nullable=False)

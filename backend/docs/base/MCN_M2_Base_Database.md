@@ -1221,3 +1221,18 @@ migration 035 UPDATE：
 ### 35.3 迁移文件
 
 `045_retrospective.sql`
+
+---
+
+## 36. kol_active_products 当前商品关联（M2 核心工作流）
+
+`kol_active_products` 继续复用为红人与平台共享千川产品库的当前商品关联，不新增数据表。
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | BIGSERIAL | 是 | PK |
+| `kol_id` | BIGINT FK kols | 是 | 红人；UNIQUE，每名红人最多一条有效关联 |
+| `product_id` | BIGINT FK qianchuan_products | 是 | 当前选择的共享商品 |
+| `created_at` | TIMESTAMPTZ | 是 | 关联创建时间 |
+
+迁移文件：`049_kol_active_products_single_current_product.sql`。现有数据库升级时，迁移会先检测同一 `kol_id` 的历史重复关联；发现重复会明确中止，需人工确认后再清理，避免自动删除运营选择。应用层仍须在写入时整体替换旧关联，防止前端多选绕过业务规则。

@@ -2637,3 +2637,27 @@ Response：`Content-Type: text/event-stream`，格式：`data: {"delta": "..."}\
 导出复盘报告为 Word 文件。
 
 Response：`application/vnd.openxmlformats-officedocument.wordprocessingml.document`
+
+---
+
+## 29. 红人工作台当前商品（M2 核心工作流）
+
+接口前缀：`/api/operator/workspace/{kol_id}`。鉴权：operator/admin。所有响应使用标准信封。
+
+### GET `/api/operator/workspace/{kol_id}/active-products`
+
+为兼容现有调用保留数组响应，但数组最多包含一个当前商品。商品详情来自平台共享产品库，软删除商品不会返回。
+
+### PUT `/api/operator/workspace/{kol_id}/active-products`
+
+设置或解除当前商品。写入 OperationLog（`action=update_kol_active_products`）。
+
+Request Body：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `product_ids` | int[] | 允许空数组解除关联，或只含一个产品 ID；传入多个 ID 返回 422 |
+
+Response `data`：`{ "active_product_ids": [] }` 或 `{"active_product_ids": [123]}`。
+
+业务规则：写入时整体替换旧关联；商品 ID 必须存在且未软删除；删除当前商品前必须先解除或替换关联，删除接口会返回 400 和明确提示。

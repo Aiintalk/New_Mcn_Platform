@@ -434,6 +434,20 @@ describe('WorkspaceDashboard', () => {
       expect(screen.getByText('只有我有')).toBeInTheDocument();
     });
   });
+
+  it('keeps only the newly selected current product', async () => {
+    const user = userEvent.setup();
+    renderWorkspacePage();
+
+    await user.click(await screen.findByRole('button', { name: '选择商品' }));
+    await screen.findByText('美白面膜');
+    await user.click(screen.getByText('美白面膜'));
+    await user.click(screen.getByRole('button', { name: /保\s*存/ }));
+
+    await waitFor(() => {
+      expect(mockUpdateActiveProducts).toHaveBeenCalledWith(1, [11]);
+    });
+  });
 });
 
 // ── QianchuanProductsModule 单独测试 ──────────────────────────────────────────

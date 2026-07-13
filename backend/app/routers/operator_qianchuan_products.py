@@ -18,6 +18,7 @@ from sqlalchemy import func, select, update
 from app.core.database import AsyncSessionLocal
 from app.core.response import ErrorCode, error_response, success_response
 from app.middlewares.auth import get_current_user
+from app.models.kol_active_product import KolActiveProduct
 from app.models.log import OperationLog
 from app.models.qianchuan_product import QianchuanProduct
 from app.models.user import User
@@ -239,6 +240,18 @@ async def delete_product(
             raise HTTPException(
                 status_code=404,
                 detail={"code": ErrorCode.RESOURCE_NOT_FOUND, "message": "产品不存在"},
+            )
+
+        active_link = await session.execute(
+            select(KolActiveProduct.id).where(KolActiveProduct.product_id == product_id)
+        )
+        if active_link.scalar() is not None:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "code": "ACTIVE_PRODUCT_IN_USE",
+                    "message": "该产品仍是某位红人的当前商品，请先解除或替换当前商品后再删除",
+                },
             )
 
         await session.execute(

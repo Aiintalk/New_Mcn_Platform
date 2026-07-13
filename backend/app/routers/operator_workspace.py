@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -312,6 +312,13 @@ async def delete_benchmark(
 
 class ActiveProductsRequest(BaseModel):
     product_ids: list[int]
+
+    @field_validator("product_ids")
+    @classmethod
+    def require_at_most_one_current_product(cls, product_ids: list[int]) -> list[int]:
+        if len(product_ids) > 1:
+            raise ValueError("一个红人一次只能选择一个当前商品")
+        return product_ids
 
 
 @router.get("/{kol_id}/active-products", response_model=None)
