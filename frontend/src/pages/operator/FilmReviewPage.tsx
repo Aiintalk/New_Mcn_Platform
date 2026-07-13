@@ -44,6 +44,7 @@ export function FilmReviewModule({ kolId: _kolId }: { kolId: number }) {
   const [analysisSteps, setAnalysisSteps] = useState<string[]>([]);
   const [analyzing, setAnalyzing] = useState(false);
   const [report, setReport] = useState('');
+  const [analysisFailed, setAnalysisFailed] = useState(false);
   const [taskId, setTaskId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -65,6 +66,7 @@ export function FilmReviewModule({ kolId: _kolId }: { kolId: number }) {
     }
     updateState(role, { file, status: 'selected', error: null });
     setReport('');
+    setAnalysisFailed(false);
     setTaskId(null);
     setAnalysisStatus('视频已选择，等待上传');
     setAnalysisSteps([]);
@@ -77,6 +79,7 @@ export function FilmReviewModule({ kolId: _kolId }: { kolId: number }) {
     }
     setAnalyzing(true);
     setReport('');
+    setAnalysisFailed(false);
     setTaskId(null);
     setOriginal((current) => ({ ...current, status: 'uploading', error: null }));
     setEdited((current) => ({ ...current, status: 'uploading', error: null }));
@@ -99,33 +102,44 @@ export function FilmReviewModule({ kolId: _kolId }: { kolId: number }) {
       const decoder = new TextDecoder();
       let buffer = '';
       let streamedReport = '';
-      const consumeLine = (line: string) => {
-        if (line.startsWith('__STATUS__')) {
-          const status = line.slice('__STATUS__'.length).trim();
-          if (status) {
-            setAnalysisStatus(status);
-            setAnalysisSteps((steps) => [...steps, status]);
-          }
+      let streamError = '';
+      const consumeEvent = (block: string) => {
+        const lines = block.split(/\r?\n/);
+        const event = lines.find((line) => line.startsWith('event:'))?.slice('event:'.length).trim();
+        const data = lines.filter((line) => line.startsWith('data:')).map((line) => line.slice('data:'.length).trim()).join('\n');
+        if (!event || !data) return;
+        let payload: { message?: string; text?: string };
+        try {
+          payload = JSON.parse(data) as { message?: string; text?: string };
+        } catch {
           return;
         }
-        if (!streamedReport && !line) return;
-        streamedReport = streamedReport ? `${streamedReport}\n${line}` : line;
-        setReport(streamedReport);
+        if (event === 'status' && payload.message) {
+          setAnalysisStatus(payload.message);
+          setAnalysisSteps((steps) => [...steps, payload.message as string]);
+        }
+        if (event === 'report' && payload.text) {
+          streamedReport += payload.text;
+          setReport(streamedReport);
+        }
+        if (event === 'error' && payload.message) streamError = payload.message;
       };
       while (true) {
         const { done, value } = await reader.read();
         buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
-        const lines = buffer.split(/\r?\n/);
-        buffer = done ? '' : (lines.pop() || '');
-        lines.forEach(consumeLine);
+        const blocks = buffer.split(/\r?\n\r?\n/);
+        buffer = done ? '' : (blocks.pop() || '');
+        blocks.forEach(consumeEvent);
         if (done) break;
       }
+      if (streamError) throw new Error(streamError);
       setOriginal((current) => ({ ...current, status: 'completed' }));
       setEdited((current) => ({ ...current, status: 'completed' }));
       setAnalysisStatus('完整视频分析完成');
       setAnalysisSteps((steps) => [...steps, '完整视频分析完成']);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '完整视频分析失败';
+      setAnalysisFailed(true);
       setAnalysisStatus(`分析失败：${errorMessage}`);
       setAnalysisSteps((steps) => [...steps, `分析失败：${errorMessage}`]);
       setOriginal((current) => ({ ...current, status: 'failed', error: errorMessage }));
@@ -244,7 +258,7 @@ export function FilmReviewModule({ kolId: _kolId }: { kolId: number }) {
         </div>
       )}
 
-      {report && (
+      {report && !analysisFailed && (
         <div className="card">
           <div className="card-header">
             <h2 className="card-title">预审报告</h2>

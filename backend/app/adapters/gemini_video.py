@@ -223,9 +223,16 @@ async def stream_full_video_analysis(
                 for file_data in uploaded:
                     try:
                         await _delete_file(cleanup_client, base_url=base_url, api_key=api_key, file_data=file_data)
-                    except Exception:
-                        # 主调用日志保留；清理失败不得覆盖原始分析结果或错误。
-                        pass
+                    except Exception as cleanup_error:
+                        db.add(ExternalServiceLog(
+                            service="gemini",
+                            action="qianchuan_preview_full_video_cleanup",
+                            task_id=task_id,
+                            credential_id=None,
+                            request_body={"gemini_file": _file_name(file_data)},
+                            status="error",
+                            error_message=str(cleanup_error)[:500],
+                        ))
         finally:
             await credential_pool._release(credential_id, db)
             latency_ms = int((time.monotonic() - start) * 1000)
@@ -242,7 +249,7 @@ async def stream_full_video_analysis(
                 service="gemini",
                 action="qianchuan_preview_full_video",
                 task_id=task_id,
-                credential_id=credential_id,
+                credential_id=None,
                 request_body={"mode": "full_video", "file_count": 2},
                 duration_ms=latency_ms,
                 status=status,

@@ -18,7 +18,7 @@ async def seed_preview_config(test_session):
     ))).scalar_one()
     await test_session.execute(sa_text(
         "INSERT INTO qianchuan_preview_configs (config_key, system_prompt, is_active) "
-        "VALUES ('default', '完整视频测试提示词', true) "
+        "VALUES ('full_video', '完整视频测试提示词', true) "
         "ON CONFLICT (config_key) DO UPDATE SET system_prompt=EXCLUDED.system_prompt, ai_model_id=:model_id"
     ), {"model_id": model_id})
     await test_session.commit()
@@ -91,6 +91,7 @@ class TestVideoAnalyze:
 
         assert response.status_code == 200
         assert response.headers["x-task-id"]
+        assert "event: report" in response.text
         assert "完整视频预审报告" in response.text
         assert len(uploaded_keys) == 2
         assert set(uploaded_keys) == set(deleted_keys)
@@ -125,13 +126,36 @@ class TestVideoAnalyze:
             )
 
         assert response.status_code == 200
-        assert "分析失败" in response.text
+        assert "event: error" in response.text
+        assert "event: failed" in response.text
         task_id = int(response.headers["x-task-id"])
         row = (await test_session.execute(sa_text(
             "SELECT status, error_code FROM task_jobs WHERE id=:id"
         ), {"id": task_id})).fetchone()
-        assert row == ("error", "EXTERNAL_SERVICE_ERROR")
+        assert row == ("failed", "EXTERNAL_SERVICE_ERROR")
         assert delete_temporary_objects.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_local_temp_write_failure_marks_task_failed(self, test_client, operator_token, test_session, kol_id):
+        with patch(
+            "app.routers.operator_qianchuan_preview._write_video_to_temp",
+            side_effect=OSError("磁盘不可写"),
+        ):
+            response = await test_client.post(
+                "/api/tools/qianchuan-preview/analyze-video",
+                data={"kol_id": str(kol_id)},
+                files={
+                    "original": ("source.mp4", b"original", "video/mp4"),
+                    "edited": ("edited.mp4", b"edited", "video/mp4"),
+                },
+                headers={"Authorization": f"Bearer {operator_token}"},
+            )
+
+        assert response.status_code == 500
+        row = (await test_session.execute(sa_text(
+            "SELECT status, error_code FROM task_jobs WHERE tool_code='qianchuan-preview' ORDER BY id DESC LIMIT 1"
+        ))).fetchone()
+        assert row == ("failed", "INTERNAL_ERROR")
 
 
 class TestVideoReportSave:
@@ -160,6 +184,32 @@ class TestVideoReportSave:
         )
         assert response.status_code == 200
         assert response.json()["data"]["output_id"]
+
+    @pytest.mark.asyncio
+    async def test_rejects_report_save_when_video_task_failed(self, test_client, operator_token, operator_user, test_session, kol_id):
+        await test_session.execute(sa_text(
+            "INSERT INTO task_jobs (task_no, tool_code, tool_name, status, input_payload, created_by) "
+            "VALUES ('QV-SAVE-FAILED', 'qianchuan-preview', '千川成片预审', 'failed', "
+            "CAST(:payload AS jsonb), :user_id)"
+        ), {"user_id": operator_user.id, "payload": json.dumps({"mode": "full_video", "kol_id": kol_id})})
+        await test_session.commit()
+        task_id = (await test_session.execute(sa_text(
+            "SELECT id FROM task_jobs WHERE task_no='QV-SAVE-FAILED'"
+        ))).scalar_one()
+
+        response = await test_client.post(
+            "/api/tools/qianchuan-preview/save-video-report",
+            json={
+                "task_id": task_id,
+                "report": "# 只生成了一半的报告",
+                "original_filename": "source.mp4",
+                "edited_filename": "edited.mov",
+            },
+            headers={"Authorization": f"Bearer {operator_token}"},
+        )
+        assert response.status_code == 200
+        assert response.json()["success"] is False
+        assert response.json()["code"] == "VALIDATION_ERROR"
 
     @pytest.mark.asyncio
     async def test_rejects_a_nonexistent_kol_before_accepting_video(self, test_client, operator_token):
