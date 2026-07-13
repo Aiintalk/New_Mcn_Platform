@@ -2709,6 +2709,8 @@ Response：`Content-Type: text/event-stream`。流事件为 `status`（上传、
 
 分析所用 Prompt、模型和 Gemini 凭证均由管理端既有 `qianchuan_preview_configs`、`ai_models`、`credentials` 统一管理。完整视频固定读取独立的 `full_video` 配置键，既有 `default` 配置键仍只用于文案预审；绑定模型必须是状态为 `active`、provider 为 `gemini` 的模型；无配置、供应商处理失败或超时会返回明确错误，绝不改为关键帧分析。`task_jobs.input_payload` 只记录临时对象键和文件元数据，处理结束后删除对象存储和 Gemini 临时文件；Gemini 清理失败会单独写入关联任务的外部服务日志。只有任务状态为 `success` 的完整报告可保存。
 
+工作台页签代码为 `film-review`、显示名为“千川成片预审”。`kol_workspace_configs.enabled_tabs` 的默认值和 `052_enable_qianchuan_full_video_workspace_tab.sql` 都会包含此页签；迁移只补充系统页签，不改变历史红人、商品、素材或产出数据。
+
 ### POST `/api/tools/qianchuan-preview/save-video-report`
 
 将完整视频预审报告写入全局 `outputs`，不迁移旧数据。红人归属只从 `task_id` 对应任务的 `input_payload.kol_id` 读取并写进 `outputs.content_json`，前端不能另传或覆盖。
