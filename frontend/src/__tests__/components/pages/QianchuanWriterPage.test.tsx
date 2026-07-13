@@ -251,8 +251,41 @@ describe('QianchuanWriterPage', () => {
     await user.click(screen.getByRole('button', { name: /发\s*送/ }));
 
     await waitFor(() => expect(mockSubmitReview).toHaveBeenCalledTimes(2));
-    expect(screen.getAllByText('人工微调稿')).toHaveLength(2);
+    expect(mockChatStream.mock.calls.at(-1)?.[0]).toEqual(expect.objectContaining({
+      messages: [expect.objectContaining({ content: expect.stringContaining('初稿') })],
+    }));
+    expect(screen.getByLabelText('运营直接编辑当前最佳稿')).toHaveValue('人工微调稿');
     expect(screen.getByRole('button', { name: '运营确认最终稿' })).toBeInTheDocument();
+  });
+
+  it('reviews an operator edited best draft exactly once without regenerating it', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<QianchuanWriterPage />);
+    await runFullWorkflow(user, '初稿');
+    await reviewAndConfirm(user);
+
+    const editor = screen.getByLabelText('运营直接编辑当前最佳稿');
+    await user.clear(editor);
+    await user.type(editor, '运营编辑后的最佳稿');
+    await user.click(screen.getByRole('button', { name: '编辑稿预审一次' }));
+
+    await waitFor(() => expect(mockSubmitReview).toHaveBeenCalledTimes(2));
+    expect(mockSubmitReview).toHaveBeenLastCalledWith(expect.objectContaining({
+      adapted_script: '运营编辑后的最佳稿',
+    }));
+    expect(mockChatStream).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the current draft when a review request fails', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<QianchuanWriterPage />);
+    await runFullWorkflow(user, '初稿');
+    mockSubmitReview.mockRejectedValueOnce(new Error('预审服务异常'));
+
+    await user.click(screen.getByRole('button', { name: '开始逐轮预审' }));
+
+    await waitFor(() => expect(screen.getByLabelText('运营直接编辑当前最佳稿')).toHaveValue('初稿'));
+    expect(screen.getByText(/轮次用尽或预审中断/)).toBeInTheDocument();
   });
 
   // Test 7: 保存历史按钮调用 saveOutput
@@ -358,6 +391,28 @@ describe('selectBestReviewCandidate', () => {
     ]);
 
     expect(result?.text).toBe('同样好但更新');
+  });
+
+  it('keeps the better second round when the fourth round is worse', () => {
+    const result = selectBestReviewCandidate([
+      { text: '第一轮', review: { rating: 'fail', must_fix: [{ type: '价格', quote: '', fix: '' }] } },
+      { text: '第二轮最佳', review: { rating: 'minor', must_fix: [] } },
+      { text: '第三轮', review: { rating: 'minor', must_fix: [{ type: '卖点', quote: '', fix: '' }] } },
+      { text: '第四轮较差', review: { rating: 'minor', must_fix: [{ type: '卖点', quote: '', fix: '' }, { type: '结构', quote: '', fix: '' }] } },
+    ]);
+
+    expect(result?.text).toBe('第二轮最佳');
+  });
+
+  it('selects the best candidate after four failed reviews', () => {
+    const result = selectBestReviewCandidate([
+      { text: '第一轮', review: { rating: 'fail', must_fix: [{ type: '价格', quote: '', fix: '' }, { type: '卖点', quote: '', fix: '' }] } },
+      { text: '第二轮最佳', review: { rating: 'fail', must_fix: [] } },
+      { text: '第三轮', review: { rating: 'fail', must_fix: [{ type: '结构', quote: '', fix: '' }] } },
+      { text: '第四轮', review: { rating: 'fail', must_fix: [{ type: '价格', quote: '', fix: '' }] } },
+    ]);
+
+    expect(result?.text).toBe('第二轮最佳');
   });
 });
 
