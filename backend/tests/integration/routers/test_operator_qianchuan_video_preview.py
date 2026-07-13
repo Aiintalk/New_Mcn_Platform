@@ -1,5 +1,6 @@
 """完整视频成片预审：只用测试替身，不访问真实 Gemini 或 OSS。"""
 import json
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -16,11 +17,15 @@ async def seed_preview_config(test_session):
     model_id = (await test_session.execute(sa_text(
         "SELECT id FROM ai_models WHERE model_id='gemini-test-model'"
     ))).scalar_one()
-    await test_session.execute(sa_text(
-        "INSERT INTO qianchuan_preview_configs (config_key, system_prompt, is_active) "
-        "VALUES ('full_video', '完整视频测试提示词', true) "
-        "ON CONFLICT (config_key) DO UPDATE SET system_prompt=EXCLUDED.system_prompt, ai_model_id=:model_id"
+    updated = await test_session.execute(sa_text(
+        "UPDATE qianchuan_preview_configs SET system_prompt='完整视频测试提示词', "
+        "ai_model_id=:model_id, is_active=true WHERE config_key='full_video'"
     ), {"model_id": model_id})
+    if not updated.rowcount:
+        await test_session.execute(sa_text(
+            "INSERT INTO qianchuan_preview_configs (config_key, system_prompt, ai_model_id, is_active) "
+            "VALUES ('full_video', '完整视频测试提示词', :model_id, true)"
+        ), {"model_id": model_id})
     await test_session.commit()
     yield
 
@@ -134,6 +139,84 @@ class TestVideoAnalyze:
         ), {"id": task_id})).fetchone()
         assert row == ("failed", "EXTERNAL_SERVICE_ERROR")
         assert delete_temporary_objects.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_missing_gemini_credential_fails_task_and_cannot_save_partial_report(
+        self, test_client, operator_token, test_session, kol_id
+    ):
+        config = (await test_session.execute(sa_text(
+            "SELECT system_prompt, ai_model_id FROM qianchuan_preview_configs WHERE config_key='full_video'"
+        ))).fetchone()
+        assert config and config[0] and config[1]
+        with patch(
+            "app.routers.operator_qianchuan_preview.oss_adapter.upload_file_from_path",
+            new=AsyncMock(side_effect=lambda key, *args: key),
+        ), patch(
+            "app.routers.operator_qianchuan_preview.oss_adapter.delete_file",
+            new=AsyncMock(),
+        ), patch(
+            "app.adapters.gemini_video.credential_pool._pick_and_lock",
+            new=AsyncMock(return_value=None),
+        ):
+            response = await test_client.post(
+                "/api/tools/qianchuan-preview/analyze-video",
+                data={"kol_id": str(kol_id)},
+                files={
+                    "original": ("source.mp4", b"original", "video/mp4"),
+                    "edited": ("edited.mp4", b"edited", "video/mp4"),
+                },
+                headers={"Authorization": f"Bearer {operator_token}"},
+            )
+
+        assert response.status_code == 200, response.text
+        assert "event: error" in response.text
+        assert "未配置可用的 Gemini 统一凭证" in response.text
+        task_id = int(response.headers["x-task-id"])
+        row = (await test_session.execute(sa_text(
+            "SELECT status FROM task_jobs WHERE id=:id"
+        ), {"id": task_id})).fetchone()
+        assert row == ("failed",)
+
+        save_response = await test_client.post(
+            "/api/tools/qianchuan-preview/save-video-report",
+            json={
+                "task_id": task_id,
+                "report": "# 未完成报告",
+                "original_filename": "source.mp4",
+                "edited_filename": "edited.mp4",
+            },
+            headers={"Authorization": f"Bearer {operator_token}"},
+        )
+        assert save_response.json()["success"] is False
+        assert save_response.json()["code"] == "VALIDATION_ERROR"
+
+    @pytest.mark.asyncio
+    async def test_video_over_maximum_bytes_marks_task_failed_and_removes_temp_directory(
+        self, test_client, operator_token, test_session, kol_id, tmp_path: Path
+    ):
+        temp_directory = tmp_path / "qianchuan-preview-over-limit"
+        temp_directory.mkdir()
+        with patch("app.routers.operator_qianchuan_preview.VIDEO_MAX_BYTES", 1), patch(
+            "app.routers.operator_qianchuan_preview.mkdtemp",
+            return_value=str(temp_directory),
+        ):
+            response = await test_client.post(
+                "/api/tools/qianchuan-preview/analyze-video",
+                data={"kol_id": str(kol_id)},
+                files={
+                    "original": ("source.mp4", b"too-large", "video/mp4"),
+                    "edited": ("edited.mp4", b"edited", "video/mp4"),
+                },
+                headers={"Authorization": f"Bearer {operator_token}"},
+            )
+
+        assert response.status_code == 400
+        assert response.json()["code"] == "VALIDATION_ERROR"
+        row = (await test_session.execute(sa_text(
+            "SELECT status FROM task_jobs WHERE tool_code='qianchuan-preview' ORDER BY id DESC LIMIT 1"
+        ))).fetchone()
+        assert row == ("failed",)
+        assert not temp_directory.exists()
 
     @pytest.mark.asyncio
     async def test_local_temp_write_failure_marks_task_failed(self, test_client, operator_token, test_session, kol_id):
