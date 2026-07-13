@@ -105,7 +105,9 @@ export default function QianchuanPreviewConfigTab() {
           <Form.Item label="AI 模型" name="ai_model_id">
             <Select
               placeholder="选择已配置的 AI 模型（留空使用默认）"
-              options={models.filter(m => m.status === 'active' && m.provider === 'gemini').map(m => ({
+              options={models.filter(m => m.status === 'active' && (
+                editingConfig?.config_key !== 'full_video' || m.provider === 'gemini'
+              )).map(m => ({
                 value: m.id,
                 label: `${m.name} (${m.provider} · ${m.model_id})`,
               }))}
