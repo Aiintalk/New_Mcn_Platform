@@ -2012,7 +2012,7 @@ Request Body：
 - 参考素材存于新表 `kol_references`（详见 `MCN_M2_Base_Database.md` §28）。
 - AI 配置存于新表 `material_library_configs`（详见 §29）。
 
-### 24.2 运营端接口（7 个）
+### 24.2 运营端接口（11 个）
 
 基础路径：`/api/tools/material-library`（operator / admin 鉴权，需已改密）
 
@@ -2025,6 +2025,10 @@ Request Body：
 | 5 | DELETE | `/kols/{kol_id}/references/{ref_id}` | 软删参考素材 | 标准 | 是 |
 | 6 | GET | `/kols/{kol_id}/intake` | 红人最新入驻问卷数据 | 标准 | 否 |
 | 7 | POST | `/kols/{kol_id}/generate-soul` | AI 生成 soul.md 初稿（不自动保存）| 标准 | 否 |
+| 8 | PUT | `/kols/{kol_id}/references/{ref_id}` | 编辑标题、数据说明和正文 | 标准 | 是 |
+| 9 | POST | `/kols/{kol_id}/references/parse-document` | 解析脚本文档，返回可编辑正文和文档元数据 | 标准 | 是 |
+| 10 | POST | `/kols/{kol_id}/references/{ref_id}/video` | 上传或明确替换视频原片 | 标准 | 是 + OSS 调用日志 |
+| 11 | GET | `/kols/{kol_id}/references/{ref_id}/video/playback` | 鉴权后返回短时视频播放地址 | 标准 | OSS 调用日志 |
 
 #### GET /kols?search=
 Response.data：`KolListItem[]`
@@ -2080,8 +2084,22 @@ Request Body：
 Response.data：`{ "id": 456 }`
 写 OperationLog（action=`create_kol_reference`）。
 
+`data_description`、`document_name`、`document_type`、`document_size` 均为可选字段。文档内容解析后由前端在此接口提交，服务端只保存解析结果与元数据，不保存文档的本地永久路径。
+
+#### PUT /kols/{kol_id}/references/{ref_id}
+Request Body 可更新 `title`、`data_description`、`content`；不传的视频字段保持原视频不变。`ref_id` 必须属于路径中的 `kol_id`，否则按不存在处理。
+
+#### POST /kols/{kol_id}/references/parse-document
+`multipart/form-data`，字段名 `file`。支持平台既有文档解析格式，返回 `{ text, document_name, document_type, document_size }`，用于运营在保存素材前修改正文。红人不存在或已删除时不可解析。
+
+#### POST /kols/{kol_id}/references/{ref_id}/video
+`multipart/form-data`，字段名 `file`。仅接受 `video/*` 文件；先上传新对象，成功后替换素材的视频元数据，再删除旧对象。数据库只保存私有对象键与文件元数据，不返回或保存长期公开地址。
+
+#### GET /kols/{kol_id}/references/{ref_id}/video/playback
+仅当素材属于该红人且未软删、存在视频对象键时返回短时签名地址：`{ "url": "...", "expires_in": 900 }`。地址由后端生成，不写入素材详情或数据库。
+
 #### DELETE /kols/{kol_id}/references/{ref_id}
-软删（`deleted_at = NOW()`）。Response.data：`{ "success": true }`
+软删（`deleted_at = NOW()`）；若有关联视频对象，软删后调用平台对象存储适配层删除对象并自动写服务调用日志。Response.data：`{ "success": true }`
 写 OperationLog（action=`delete_kol_reference`）。
 
 #### GET /kols/{kol_id}/intake
@@ -2592,7 +2610,7 @@ Request Body（所有字段可选）：
 
 #### GET `/api/operator/workspace/{kol_id}/retrospective`
 
-分页查询该红人的复盘列表（仅当前用户创建的）。鉴权：operator/admin。
+分页查询该红人的复盘列表。鉴权：operator/admin；资源按红人编号隔离，不额外引入未定义的红人授权映射。
 
 Query：`page`（默认1）、`page_size`（10/20/50，默认10）。
 

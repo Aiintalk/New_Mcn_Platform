@@ -129,7 +129,7 @@ class SessionUpsertRequest(BaseModel):
     material_data: Optional[str] = None
     review_text: Optional[str] = None
     live_script: Optional[str] = None
-    material_scripts: Optional[dict] = None
+    material_scripts: Optional[list[dict[str, str]]] = None
     result: Optional[str] = None
 
 
