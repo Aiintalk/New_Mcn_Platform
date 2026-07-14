@@ -169,8 +169,8 @@ describe('WorkspaceRetrospective', () => {
     const user = userEvent.setup();
     await user.click(screen.getByText('新建复盘'));
 
-    expect(screen.getByTestId('file-input-live_data')).toHaveAttribute('accept', expect.stringContaining('.xls'));
-    expect(screen.getByTestId('file-input-material_data')).toHaveAttribute('accept', expect.stringContaining('.xls'));
+    expect(screen.getByTestId('file-input-live_data').getAttribute('accept')?.split(',')).toContain('.xls');
+    expect(screen.getByTestId('file-input-material_data').getAttribute('accept')?.split(',')).toContain('.xls');
   });
 
   it('以四张材料卡和一张多文件卡展示上传区，并能单独移除已解析脚本', async () => {
