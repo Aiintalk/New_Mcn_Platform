@@ -34,12 +34,12 @@ const detail = {
   persona: '',
   content_plan: '',
   references: {
-    '红人爆款文案': [{
+    '千川爆款文案': [{
       id: 10,
       title: '夏季护肤心得',
       likes: 50000,
       source: '抖音',
-      type: '红人爆款文案',
+      type: '千川爆款文案',
       content: '夏天的护肤要点。',
       data_description: '5 万点赞，完播率 28%',
       document_name: '夏季脚本.docx',
@@ -53,7 +53,6 @@ const detail = {
     }],
     '红人喜欢的内容': [],
     '风格参考': [],
-    '千川爆款文案': [],
     '千川喜欢的内容': [],
     '千川风格参考': [],
   },
@@ -68,32 +67,46 @@ describe('WorkspaceReferences', () => {
     vi.clearAllMocks();
     mockGetKolDetail.mockResolvedValue(detail);
     mockGetPlayback.mockResolvedValue({ url: 'https://signed.example/video.mp4', expires_in: 900 });
-    mockCreateReference.mockResolvedValue({ ...detail.references['红人爆款文案'][0], id: 11 });
-    mockUpdateReference.mockResolvedValue(detail.references['红人爆款文案'][0]);
+    mockCreateReference.mockResolvedValue({ ...detail.references['千川爆款文案'][0], id: 11 });
+    mockUpdateReference.mockResolvedValue(detail.references['千川爆款文案'][0]);
     mockDeleteReference.mockResolvedValue({});
     mockParseDocument.mockResolvedValue({ text: '解析后的正文', document_name: '脚本.docx', document_type: 'application/docx', document_size: 123 });
-    mockUploadVideo.mockResolvedValue(detail.references['红人爆款文案'][0]);
+    mockUploadVideo.mockResolvedValue(detail.references['千川爆款文案'][0]);
   });
 
-  it('loads only the current kol materials and shows their media summary', async () => {
-    const user = userEvent.setup();
+  it('直接展示千川爆款素材上传区和当前红人的已有素材，不再显示六类入口', async () => {
     renderPage();
 
     await waitFor(() => expect(mockGetKolDetail).toHaveBeenCalledWith(1));
     expect(screen.getByText('素材库')).toBeInTheDocument();
-    await user.click(screen.getByText('红人爆款文案'));
-    expect(screen.getByText('夏季护肤心得')).toBeInTheDocument();
+    expect(await screen.findByText('上传千川爆款素材')).toBeInTheDocument();
+    expect(screen.getByText('已有素材')).toBeInTheDocument();
+    expect(screen.queryByText('红人爆款文案')).not.toBeInTheDocument();
+    expect(screen.queryByText('红人喜欢的内容')).not.toBeInTheDocument();
+    expect(screen.queryByText('红人爆款文案')).not.toBeInTheDocument();
+  });
+
+  it('只展示当前红人的千川爆款素材，并保留折叠态摘要和媒体信息', async () => {
+    const user = userEvent.setup();
+    mockGetKolDetail.mockResolvedValue({
+      ...detail,
+      references: detail.references,
+    });
+    renderPage();
+
+    expect(await screen.findByText('夏季护肤心得')).toBeInTheDocument();
     expect(screen.getByText('5 万点赞，完播率 28%')).toBeInTheDocument();
     expect(screen.getByText(/有视频/)).toBeInTheDocument();
-    expect(screen.getByText(/分类：.*红人爆款文案/)).toBeInTheDocument();
+    expect(screen.getByText(/分类：千川爆款素材/)).toBeInTheDocument();
     expect(screen.getByText(/摘要：.*夏天的护肤要点/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '展开' }));
+    expect(await screen.findByText(/summer\.mp4/)).toBeInTheDocument();
   });
 
   it('gets a short-lived playback URL only after the operator expands a video material', async () => {
     const user = userEvent.setup();
     renderPage();
 
-    await user.click(await screen.findByText('红人爆款文案'));
     await user.click(await screen.findByRole('button', { name: '展开' }));
 
     await waitFor(() => expect(mockGetPlayback).toHaveBeenCalledWith(1, 10));
@@ -104,11 +117,10 @@ describe('WorkspaceReferences', () => {
     const user = userEvent.setup();
     renderPage();
 
-    await user.click(await screen.findByText('红人爆款文案'));
     await user.click(await screen.findByRole('button', { name: '编辑' }));
     await user.clear(screen.getByLabelText('数据说明'));
     await user.type(screen.getByLabelText('数据说明'), '更新后的数据说明');
-    await user.click(screen.getByRole('button', { name: '保存' }));
+    await user.click(screen.getByRole('button', { name: '保存修改' }));
 
     await waitFor(() => expect(mockUpdateReference).toHaveBeenCalledWith(
       1, 10, expect.objectContaining({ data_description: '更新后的数据说明' }),
@@ -117,11 +129,8 @@ describe('WorkspaceReferences', () => {
   });
 
   it('puts parsed document text into the editable script body before save', async () => {
-    const user = userEvent.setup();
     renderPage();
 
-    await user.click(await screen.findByText('红人爆款文案'));
-    await user.click(screen.getByRole('button', { name: '添加素材' }));
     const input = screen.getByLabelText('上传脚本文档');
     fireEvent.change(input, { target: { files: [new File(['source'], '脚本.docx', { type: 'application/docx' })] } });
 
@@ -133,14 +142,13 @@ describe('WorkspaceReferences', () => {
     const user = userEvent.setup();
     renderPage();
 
-    await user.click(await screen.findByText('红人爆款文案'));
-    await user.click(screen.getByRole('button', { name: '编辑' }));
+    await user.click(await screen.findByRole('button', { name: '编辑' }));
     expect(screen.getByText(/最大 500MB/)).toBeInTheDocument();
 
     const oversizedVideo = new File(['video'], 'oversized.mp4', { type: 'video/mp4' });
     Object.defineProperty(oversizedVideo, 'size', { value: 500 * 1024 * 1024 + 1 });
     fireEvent.change(screen.getByLabelText('视频原片'), { target: { files: [oversizedVideo] } });
-    await user.click(screen.getByRole('button', { name: '保存' }));
+    await user.click(screen.getByRole('button', { name: '保存修改' }));
 
     await waitFor(() => expect(mockUpdateReference).toHaveBeenCalled());
     expect(mockUploadVideo).not.toHaveBeenCalled();

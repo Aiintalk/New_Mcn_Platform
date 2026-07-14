@@ -242,7 +242,7 @@ describe('KolWorkspacePage', () => {
     });
     await user.click(screen.getByTestId('nav-item-products'));
     await waitFor(() => {
-      expect(screen.getByText('千川产品库')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: '产品库' })).toBeInTheDocument();
     });
     expect(mockGetQianchuanProducts).toHaveBeenCalled();
   });
@@ -252,7 +252,7 @@ describe('KolWorkspacePage', () => {
     renderWorkspacePage();
 
     await user.click(await screen.findByTestId('nav-item-references'));
-    expect(await screen.findByText('管理当前红人的六类脚本文档和视频原片')).toBeInTheDocument();
+    expect(await screen.findByText('管理当前红人的千川爆款文案和视频原片')).toBeInTheDocument();
     expect(mockGetMaterialLibraryKolDetail).toHaveBeenCalledWith(1);
   });
 
@@ -311,14 +311,14 @@ describe('KolWorkspacePage', () => {
     });
     await user.click(screen.getByTestId('nav-item-products'));
     await waitFor(() => {
-      expect(screen.getByText('千川产品库')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: '产品库' })).toBeInTheDocument();
     });
     // 点击新建产品按钮（page-header 区域）
     const createBtns = screen.getAllByText('新建产品');
     await user.click(createBtns[0]);
     // Modal 应出现（等待 placeholder 出现）
     await waitFor(() => {
-      expect(screen.getByPlaceholderText('请输入产品名称（用于区分识别）')).toBeInTheDocument();
+      expect(screen.getByPlaceholderText('请输入产品昵称')).toBeInTheDocument();
     });
     // 直接触发表单 submit（模拟点击确定按钮）
     // AntD Modal 的 OK 按钮是 data-testid="modal-ok-button" 或用 fireEvent 直接提交表单
@@ -386,7 +386,7 @@ describe('KolWorkspacePage', () => {
     await user.click(screen.getByTestId('nav-item-qianchuan-writer'));
     // 千川仿写模块展示（加载产品卖点步骤出现）
     await waitFor(() => {
-      expect(screen.getByText('千川文案写作')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: '千川仿写' })).toBeInTheDocument();
     });
   });
 
@@ -521,7 +521,7 @@ describe('QianchuanProductsModule', () => {
     });
     await user.click(screen.getByTestId('nav-item-products'));
     await waitFor(() => {
-      expect(screen.getByText('千川产品库')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: '产品库' })).toBeInTheDocument();
     });
     return user;
   }
@@ -537,17 +537,17 @@ describe('QianchuanProductsModule', () => {
   it('calls createQianchuanProduct when form is submitted with valid data', async () => {
     const user = await navigateToProducts();
     await waitFor(() => {
-      expect(screen.getByText('千川产品库')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: '产品库' })).toBeInTheDocument();
     });
     // 点新建 - 使用页面操作按钮（page-actions 中的新建产品）
     const createBtns = screen.getAllByText('新建产品');
     await user.click(createBtns[0]);
     // 等待 Modal 出现（等待 placeholder 出现）
     await waitFor(() => {
-      expect(screen.getByPlaceholderText('请输入产品名称（用于区分识别）')).toBeInTheDocument();
+      expect(screen.getByPlaceholderText('请输入产品昵称')).toBeInTheDocument();
     });
     // 填写 nickname
-    const nicknameInput = screen.getByPlaceholderText('请输入产品名称（用于区分识别）');
+    const nicknameInput = screen.getByPlaceholderText('请输入产品昵称');
     await user.type(nicknameInput, '测试新产品');
     // 提交：直接触发 form submit
     const form = document.querySelector('.ant-modal-body form');
@@ -571,7 +571,7 @@ describe('QianchuanProductsModule', () => {
     await user.click(screen.getByTestId('nav-item-products'));
     // 不会 crash（loading state 后显示空状态或 error toast）
     await waitFor(() => {
-      expect(screen.getByText('千川产品库')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: '产品库' })).toBeInTheDocument();
     });
   });
 });

@@ -12,12 +12,23 @@ import {
 
 const PAGE_SIZE = 20;
 
-function ProductDetail({ label, value }: { label: string; value: string | null }) {
+const PRODUCT_FIELDS: { key: keyof QianchuanProduct; label: string; tone: string }[] = [
+  { key: 'core_selling_point', label: '最主推卖点', tone: 'var(--pink)' },
+  { key: 'visualization', label: '可视化', tone: 'var(--info)' },
+  { key: 'mechanism', label: '主推机制', tone: 'var(--warning)' },
+  { key: 'endorsement', label: '推荐来源', tone: 'var(--brand)' },
+  { key: 'user_feedback', label: '用户反馈', tone: 'var(--success)' },
+  { key: 'unique_selling', label: '独家卖点', tone: 'var(--danger)' },
+  { key: 'awards', label: '获奖荣誉', tone: 'var(--purple)' },
+  { key: 'efficacy_proof', label: '功效承诺', tone: 'var(--info)' },
+];
+
+function ProductDetail({ label, value, tone }: { label: string; value: string | null; tone: string }) {
   if (!value) return null;
   return (
-    <div>
-      <div style={{ fontSize: 12, color: 'var(--gray-400)', marginBottom: 3 }}>{label}</div>
-      <div style={{ fontSize: 13, lineHeight: 1.65, color: 'var(--gray-700)', whiteSpace: 'pre-wrap' }}>{value}</div>
+    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 13, lineHeight: 1.65 }}>
+      <span style={{ flexShrink: 0, color: tone, background: `color-mix(in srgb, ${tone} 10%, white)`, borderRadius: 4, padding: '1px 6px', fontSize: 12, fontWeight: 600 }}>{label}</span>
+      <span style={{ color: 'var(--gray-700)', whiteSpace: 'pre-wrap' }}>{value}</span>
     </div>
   );
 }
@@ -51,14 +62,8 @@ function ProductScanCard({ product, onEdit, onDelete }: {
           </Popconfirm>
         </div>
       </div>
-      <div className="card-body" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 'var(--sp-4)' }}>
-        <ProductDetail label="可视化演示点" value={product.visualization} />
-        <ProductDetail label="主推机制（价格钩子、买赠、破价、限时赠品）" value={product.mechanism} />
-        <ProductDetail label="推荐来源 / 背书" value={product.endorsement} />
-        <ProductDetail label="用户反馈" value={product.user_feedback} />
-        <ProductDetail label="独家卖点" value={product.unique_selling} />
-        <ProductDetail label="获奖荣誉" value={product.awards} />
-        <ProductDetail label="功效承诺" value={product.efficacy_proof} />
+      <div className="card-body" style={{ display: 'grid', gap: 8 }}>
+        {PRODUCT_FIELDS.map((field) => <ProductDetail key={field.key} label={field.label} value={product[field.key] as string | null} tone={field.tone} />)}
       </div>
     </div>
   );
@@ -139,8 +144,8 @@ export default function QianchuanProductsModule() {
       {/* 页面标题区 */}
       <div className="page-header">
         <div>
-          <h1 className="page-title">千川产品库</h1>
-          <p className="page-desc">管理全局千川产品信息，可在工作台首页设置在售商品</p>
+          <h1 className="page-title">产品库</h1>
+          <p className="page-desc">所有脚本工具都会从这里读取产品信息</p>
         </div>
         <div className="page-actions">
           <button className="btn btn-primary" onClick={openCreate}>
@@ -149,7 +154,7 @@ export default function QianchuanProductsModule() {
         </div>
       </div>
 
-      <div className="card">
+      <div>
         {/* 搜索栏 */}
         <div className="filter-bar">
           <input

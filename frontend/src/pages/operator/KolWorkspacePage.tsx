@@ -19,6 +19,7 @@ import {
 } from '@ant-design/icons';
 import type { WorkspaceTab } from '../../types/kolWorkspace';
 import { getKolWorkspaceConfig } from '../../api/kolWorkspaceConfig';
+import { getWorkspaceDashboard } from '../../api/kolWorkspace';
 import type { WorkspaceTabCode } from '../../types/kolWorkspaceConfig';
 import WorkspaceDashboard from './workspace/WorkspaceDashboard';
 import QianchuanProductsModule from './workspace/QianchuanProductsModule';
@@ -79,6 +80,15 @@ export default function KolWorkspacePage() {
     getKolWorkspaceConfig(kolId)
       .then(cfg => setEnabledTabs(cfg.enabled_tabs as WorkspaceTabCode[]))
       .catch(() => setEnabledTabs(null)); // 失败时降级显示全部 tab
+  }, [kolId]);
+
+  useEffect(() => {
+    getWorkspaceDashboard(kolId)
+      .then((dashboard) => {
+        setKolName(dashboard.kol.name);
+        setKolAvatar(dashboard.kol.avatar_url);
+      })
+      .catch(() => undefined);
   }, [kolId]);
 
   // kol_id 非法处理
@@ -177,7 +187,7 @@ export default function KolWorkspacePage() {
             />
           )}
           {activeTab === 'products' && <QianchuanProductsModule />}
-          {activeTab === 'persona' && <WorkspacePersona kolId={kolId} />}
+          {activeTab === 'persona' && <WorkspacePersona kolId={kolId} kolName={kolName || '当前红人'} />}
           {activeTab === 'references' && <WorkspaceReferences kolId={kolId} />}
           {activeTab === 'qianchuan-writer' && <QianchuanWriterModule kolId={kolId} />}
           {activeTab === 'seeding-writer' && <SeedingWriterModule kolId={kolId} />}

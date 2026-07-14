@@ -371,7 +371,7 @@ function LivestreamWriterInner({ initKolId }: { initKolId?: number }) {
         } : setStep}
         style={{ marginBottom: 32 }}
         items={isModule
-          ? [{ title: '确认商品' }, { title: '锁定对标' }, { title: '生成方案' }]
+          ? [{ title: '粘贴卖点' }, { title: '粘贴对标' }, { title: '生成方案' }]
           : [{ title: '选达人' }, { title: '上传卖点' }, { title: '锁定对标' }, { title: '生成方案' }]
         }
       />
@@ -411,7 +411,7 @@ function LivestreamWriterInner({ initKolId }: { initKolId?: number }) {
       {/* Step 2 · 上传卖点（独立入口）或确认当前商品（工作台） */}
       {step === 1 && isModule && (
         <div className="card" style={{ padding: 24 }}>
-          <h3 style={{ marginBottom: 16, fontWeight: 600 }}>当前商品</h3>
+          <h3 style={{ marginBottom: 16, fontWeight: 600 }}>当前红人和产品卖点</h3>
           <label htmlFor="livestream-current-product" style={{ display: 'block', marginBottom: 8 }}>选择已有商品</label>
           <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
             <Select id="livestream-current-product" value={currentProduct?.id} placeholder="请选择已有商品" style={{ flex: 1 }} options={availableProducts.map((item) => ({ value: item.id, label: item.nickname }))} onChange={(id) => void selectCurrentProduct(id)} loading={productLoading} />
@@ -429,6 +429,8 @@ function LivestreamWriterInner({ initKolId }: { initKolId?: number }) {
           ) : (
             <div style={{ color: 'var(--text-secondary)' }}><span>还没有当前商品</span>，请在上方选择已有商品或完整新建后选中。</div>
           )}
+          <label htmlFor="livestream-selling-points" style={{ display: 'block', marginTop: 16, marginBottom: 8 }}>卖点卡正文（可直接编辑）</label>
+          <TextArea id="livestream-selling-points" aria-label="卖点卡正文" rows={7} value={sellingPoints || [currentProduct?.core_selling_point, currentProduct?.mechanism, currentProduct?.unique_selling].filter(Boolean).join('\n')} onChange={(event) => setSellingPoints(event.target.value)} placeholder="当前商品卖点会自动带入，可按本次直播调整" />
           <div style={{ marginTop: 16 }}>
             <div style={{ marginBottom: 8, fontWeight: 500 }}>卖点顺序：</div>
             <Radio.Group value={spOrder} onChange={e => setSpOrder(e.target.value)}>
@@ -493,19 +495,16 @@ function LivestreamWriterInner({ initKolId }: { initKolId?: number }) {
       {/* Step 3 · 锁定对标 */}
       {step === 2 && (
         <div className="card" style={{ padding: 24 }}>
-          <h3 style={{ marginBottom: 16, fontWeight: 600 }}>上传对标直播间文案</h3>
+          <h3 style={{ marginBottom: 16, fontWeight: 600 }}>粘贴对标直播间文案</h3>
           {!refScriptLocked && (
             <>
-              <Upload
-                accept=".txt,.md,.docx,.pages"
-                showUploadList={false}
-                beforeUpload={(file) => { handleFileUpload(file as unknown as UploadFile, 'ref'); return false; }}
-              >
-                <Button icon={<UploadOutlined />} loading={refUploading}>
-                  上传文件（.txt/.md/.docx/.pages）
-                </Button>
-              </Upload>
-              <div style={{ margin: '12px 0', color: 'var(--text-secondary)', fontSize: 13 }}>或直接粘贴对标文案：</div>
+              <div className="workspace-upload-tile" style={{ marginBottom: 12 }}>
+                <Upload accept=".txt,.md,.docx,.pages" showUploadList={false} beforeUpload={(file) => { handleFileUpload(file as unknown as UploadFile, 'ref'); return false; }}>
+                  <Button icon={<UploadOutlined />} loading={refUploading}>点击上传或拖拽对标文案</Button>
+                </Upload>
+                <span>支持 txt / md / docx</span>
+              </div>
+              <div style={{ margin: '12px 0', color: 'var(--text-secondary)', fontSize: 13 }}>或直接粘贴文本：</div>
               <TextArea
                 rows={10}
                 placeholder="粘贴对标直播间文案..."
@@ -547,6 +546,7 @@ function LivestreamWriterInner({ initKolId }: { initKolId?: number }) {
           {/* 生成按钮 */}
           {chatMessages.length === 0 && (
             <div className="card" style={{ padding: 24, textAlign: 'center' }}>
+              <div style={{ marginBottom: 16, color: 'var(--success)', fontWeight: 600 }}>对标文案已锁定（{countChars(refScript)} 字） <Button type="link" size="small" onClick={() => { setRefScriptLocked(false); setStep(2); }}>修改对标</Button></div>
               <p style={{ marginBottom: 16, color: 'var(--text-secondary)' }}>
                 达人：<strong>{selectedPersona?.name}</strong> &nbsp;|&nbsp;
                 产品：<strong>{currentProduct?.nickname || productName || '（未识别）'}</strong> &nbsp;|&nbsp;
@@ -602,8 +602,7 @@ function LivestreamWriterInner({ initKolId }: { initKolId?: number }) {
           {/* 操作栏 */}
           {chatMessages.length > 0 && (
             <div className="card" style={{ padding: 16 }}>
-              <TextArea
-                rows={3}
+              <Input
                 placeholder="告诉 AI 哪里需要修改，或继续追问..."
                 value={userInput}
                 onChange={e => setUserInput(e.target.value)}

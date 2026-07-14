@@ -119,8 +119,8 @@ export function ValuesWriterModule({ kolId }: { kolId: number }) {
     }
   }
 
-  async function handleGenerate() {
-    if (!direction) return;
+  async function handleGenerate(selectedDirection = direction) {
+    if (!selectedDirection) return;
     setLoading(true);
     setError('');
     setRawResult('');
@@ -131,7 +131,7 @@ export function ValuesWriterModule({ kolId }: { kolId: number }) {
         kol_id: kolId,
         opening_line: openingLine,
         original_script: originalScript,
-        direction,
+        direction: selectedDirection,
       }, setRawResult);
       const parsed = parseValueScriptResult(content);
       if (!parsed) {
@@ -208,8 +208,7 @@ export function ValuesWriterModule({ kolId }: { kolId: number }) {
 
       {step === 0 && <div className="card"><div className="card-body">
         <h2 className="card-title">输入爆款原文</h2>
-        <label htmlFor="value-opening" style={{ display: 'block', marginTop: 16 }}>锁定开头</label>
-        <TextArea id="value-opening" aria-label="锁定开头" rows={2} value={openingLine} onChange={(event) => setOpeningLine(event.target.value)} placeholder="粘贴爆款的第一句话，生成时将逐字保留" />
+        <div style={{ background: 'var(--brand-light)', borderLeft: '3px solid var(--brand)', padding: 'var(--sp-3)', marginTop: 16 }}><strong>锁定开头</strong><div style={{ fontSize: 12, marginTop: 4 }}>这句话会逐字保留在生成脚本开头。</div><TextArea id="value-opening" aria-label="锁定开头" rows={2} value={openingLine} onChange={(event) => setOpeningLine(event.target.value)} placeholder="粘贴爆款的第一句话" style={{ marginTop: 8 }} /></div>
         <label htmlFor="value-original" style={{ display: 'block', marginTop: 16 }}>爆款全文</label>
         <TextArea id="value-original" aria-label="爆款全文" rows={10} value={originalScript} onChange={(event) => setOriginalScript(event.target.value)} placeholder="粘贴完整爆款原文" />
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}><button className="btn btn-primary" disabled={!openingLine.trim() || !originalScript.trim()} onClick={() => setStep(1)}>下一步：选择产品 →</button></div>
@@ -225,29 +224,23 @@ export function ValuesWriterModule({ kolId }: { kolId: number }) {
       </div></div>}
 
       {step === 2 && <div className="card"><div className="card-body">
-        <h2 className="card-title">选择并调整情绪方向</h2>
-        <p>先选择 AI 分析，再按实际内容调整说明或情绪锚点。</p>
-        {directions.map((item) => <button key={`${item.type}-${item.title}`} className="card" style={{ width: '100%', textAlign: 'left', marginTop: 12, borderColor: direction === item ? 'var(--primary)' : undefined }} onClick={() => setDirection({ ...item })}><strong>{item.type} · {item.title}</strong><p>{item.description}</p><small>情绪锚点：{item.anchor}</small></button>)}
-        {direction && <><label htmlFor="value-direction-title" style={{ display: 'block', marginTop: 16 }}>方向标题</label><Input id="value-direction-title" aria-label="方向标题" value={direction.title} onChange={(event) => setDirection({ ...direction, title: event.target.value })} /><label htmlFor="value-direction" style={{ display: 'block', marginTop: 12 }}>人工调整方向说明</label><TextArea id="value-direction" aria-label="人工调整方向说明" rows={3} value={direction.description} onChange={(event) => setDirection({ ...direction, description: event.target.value })} /><label htmlFor="value-anchor" style={{ display: 'block', marginTop: 12 }}>情绪锚点</label><Input id="value-anchor" aria-label="情绪锚点" value={direction.anchor} onChange={(event) => setDirection({ ...direction, anchor: event.target.value })} /></>}
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 16 }}><button className="btn btn-ghost" onClick={() => setStep(1)}>← 换商品</button><button className="btn btn-primary" disabled={!direction || loading} onClick={handleGenerate}>{loading ? '生成中...' : '生成脚本和报告'}</button></div>
+        <h2 className="card-title">选择情绪方向</h2>
+        <p>点击方向卡后立即生成脚本和情绪检测报告。</p>
+        <div style={{ display: 'grid', gap: 12 }}>{directions.map((item) => <button key={`${item.type}-${item.title}`} className="card" style={{ width: '100%', textAlign: 'left', borderColor: direction?.title === item.title ? 'var(--brand)' : undefined }} onClick={() => { setDirection(item); void handleGenerate(item); }} disabled={loading}><strong>{item.type} · {item.title}</strong><p>{item.description}</p><small>情绪锚点：{item.anchor}</small></button>)}</div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 16 }}><button className="btn btn-ghost" onClick={() => setStep(1)}>← 换商品</button><span style={{ fontSize: 12, color: 'var(--gray-500)' }}>点击方向卡即开始生成</span></div>
       </div></div>}
 
       {step === 3 && <div className="card"><div className="card-body">
         <div style={{ display: 'flex', justifyContent: 'space-between' }}><h2 className="card-title">脚本和情绪检测报告</h2><div><button className="btn btn-ghost btn-sm" onClick={() => setStep(2)}>重新选择方向</button><button className="btn btn-ghost btn-sm" onClick={handleSave}>保存到产出中心</button></div></div>
-        {similarity !== null && <p>与原文相似度：<strong>{similarity}%</strong>（{similarityText}）</p>}
+        {result && <div style={{ margin: '12px 0', background: 'var(--info-light)', borderLeft: '3px solid var(--info)', padding: 'var(--sp-3)' }}><strong>原文结构分析</strong><div style={{ marginTop: 4 }}>{result.analysis}</div></div>}
+        {similarity !== null && <p>与原文相似度：<strong style={{ color: similarity > 50 ? 'var(--danger)' : similarity > 35 ? 'var(--warning)' : 'var(--success)' }}>{similarity}%</strong>（{similarityText}）</p>}
         <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}><button className="btn btn-ghost btn-sm" onClick={() => setActiveResult('script')}>脚本</button><button className="btn btn-ghost btn-sm" onClick={() => setActiveResult('report')}>情绪检测报告</button></div>
         {activeResult === 'script' ? <TextArea aria-label="改写脚本" rows={14} value={result?.rewrite ?? rawResult} onChange={(event) => result && setResult({ ...result, rewrite: event.target.value })} /> : <TextArea aria-label="情绪检测报告" rows={14} value={result?.report ?? rawResult} onChange={(event) => result && setResult({ ...result, report: event.target.value })} />}
-        {result && <p style={{ marginTop: 12 }}>原文结构分析：{result.analysis}</p>}
-        <div style={{ marginTop: 16, display: 'grid', gap: 8 }}>
-          <label htmlFor="value-revision">修改要求</label>
-          <TextArea id="value-revision" aria-label="修改要求" rows={3} value={revisionInstruction} onChange={(event) => setRevisionInstruction(event.target.value)} placeholder="例如：把语气改得更克制，保留原有节奏" />
-          <div><button className="btn btn-primary" disabled={loading || !revisionInstruction.trim()} onClick={handleIteration}>{loading ? '修改中...' : '发送修改要求'}</button></div>
+        <div style={{ marginTop: 16, display: 'flex', gap: 8 }}>
+          <Input id="value-revision" aria-label="修改要求" value={revisionInstruction} onChange={(event) => setRevisionInstruction(event.target.value)} onPressEnter={() => void handleIteration()} placeholder="例如：把语气改得更克制，保留原有节奏" />
+          <button className="btn btn-primary" disabled={loading || !revisionInstruction.trim()} onClick={handleIteration}>{loading ? '修改中...' : '发送'}</button>
         </div>
-        <div aria-label="修改历史" style={{ marginTop: 16, display: 'grid', gap: 8 }}>
-          <strong>人工智能修改历史</strong>
-          <div className="card" style={{ margin: 0 }}><div className="card-body"><strong>初稿</strong><p style={{ margin: '6px 0 0' }}>相似度：{calculateBigramSimilarity(originalScript, result?.rewrite ?? '')}%</p></div></div>
-          {revisionHistory.map((item, index) => <div className="card" style={{ margin: 0 }} key={`${index}-${item.instruction}`}><div className="card-body"><strong>第 {index + 1} 次 AI 修改</strong><p style={{ margin: '6px 0' }}>修改要求：{item.instruction}</p><p style={{ margin: '6px 0' }}>相似度：{calculateBigramSimilarity(originalScript, item.result.rewrite)}%</p><p style={{ margin: 0 }}>情绪报告：{item.result.report}</p></div></div>)}
-        </div>
+        <details aria-label="修改历史" style={{ marginTop: 16 }}><summary>修改历史（{revisionHistory.length + 1}）</summary><div style={{ marginTop: 8 }}><strong>初稿</strong><p>相似度：{calculateBigramSimilarity(originalScript, result?.rewrite ?? '')}%</p>{revisionHistory.map((item, index) => <div key={`${index}-${item.instruction}`}><strong>第 {index + 1} 次人工智能修改</strong><p>修改要求：{item.instruction}；相似度：{calculateBigramSimilarity(originalScript, item.result.rewrite)}%</p></div>)}</div></details>
         <button className="btn btn-primary" style={{ marginTop: 12 }} disabled={!result} onClick={() => result && downloadText(`=== 价值观脚本 ===\n\n${result.rewrite}\n\n=== 情绪检测报告 ===\n\n${result.report}`, currentProduct?.nickname ?? '')}>导出文本</button>
       </div></div>}
     </div>

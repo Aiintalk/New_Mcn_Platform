@@ -48,5 +48,8 @@ describe('QianchuanProductsModule', () => {
     expect(screen.getByText('2026 虚拟美妆榜单')).toBeInTheDocument();
     expect(screen.getByText('28 天持妆测试数据')).toBeInTheDocument();
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    expect(screen.getByText('产品库')).toBeInTheDocument();
+    expect(screen.getByText('所有脚本工具都会从这里读取产品信息')).toBeInTheDocument();
+    expect(screen.getByTestId('product-card-1').querySelector('[style*="gridTemplateColumns"]')).toBeNull();
   });
 });

@@ -49,18 +49,18 @@ export default function ProductFormModal({
       destroyOnHidden
     >
       <Form form={form} layout="vertical" onFinish={onSubmit} style={{ marginTop: 16 }}>
-        <Form.Item label="产品昵称" name="nickname" rules={[{ required: true, message: '请输入产品昵称' }]}>
-          <Input placeholder="请输入产品名称（用于区分识别）" />
+        <Form.Item label="产品昵称" name="nickname" rules={[{ required: true, message: '请输入产品昵称' }]} extra="脚本里统一怎么称呼它（如：大红瓶、番茄精华、小棕瓶）">
+          <Input placeholder="请输入产品昵称" />
         </Form.Item>
-        <Form.Item label="最主推卖点" name="core_selling_point"><Input placeholder="例：控油持妆 12 小时" /></Form.Item>
-        <Form.Item label="可视化演示点" name="visualization"><Input.TextArea rows={3} placeholder="填写可直观展示的卖点" /></Form.Item>
-        <Form.Item label="主推机制" name="mechanism"><Input.TextArea rows={3} placeholder="填写价格钩子、买赠、破价、限时赠品等促销机制" /></Form.Item>
-        <Form.Item name="mechanism_exclusive" valuePropName="checked"><Checkbox>只有我有（独家机制）</Checkbox></Form.Item>
-        <Form.Item label="推荐来源 / 背书" name="endorsement"><Input.TextArea rows={3} placeholder="明星、权威机构、媒体背书等" /></Form.Item>
-        <Form.Item label="用户反馈" name="user_feedback"><Input.TextArea rows={3} placeholder="真实用户口碑/评价" /></Form.Item>
-        <Form.Item label="独家卖点" name="unique_selling"><Input.TextArea rows={3} placeholder="区别于竞品的独特优势" /></Form.Item>
-        <Form.Item label="获奖荣誉" name="awards"><Input placeholder="获奖/认证/上榜信息" /></Form.Item>
-        <Form.Item label="功效承诺" name="efficacy_proof"><Input.TextArea rows={3} placeholder="可量化的功效数据/承诺" /></Form.Item>
+        <Form.Item label="最主推卖点" name="core_selling_point" extra="几个字即可，如：美白 / 舒缓 / 缩小毛孔（价值观创作会自动读取这里）"><Input /></Form.Item>
+        <Form.Item label="可视化" name="visualization" extra="员工实测中可拍摄的产品演示点，如：涂上去湿润，一会就干了；用一用皮肤变化肉眼可见"><Input.TextArea rows={3} /></Form.Item>
+        <Form.Item label="主推机制" name="mechanism" extra="这次主推的价格钩子或促销力度（如：买一送一、破价、限时赠品）"><Input.TextArea rows={3} /></Form.Item>
+        <Form.Item name="mechanism_exclusive" valuePropName="checked"><Checkbox>只有我有（脚本必须写出「只有我有」）</Checkbox></Form.Item>
+        <Form.Item label="推荐来源" name="endorsement" extra="如：明星同款、头部达人推荐、知名线下连锁渠道入驻"><Input.TextArea rows={3} /></Form.Item>
+        <Form.Item label="用户反馈" name="user_feedback" extra="如：小红书素人测评、多年老用户真实反馈、复购率数据"><Input.TextArea rows={3} /></Form.Item>
+        <Form.Item label="独家卖点" name="unique_selling" extra="这个产品为什么有效果？和同类产品相比最与众不同的是什么？（如：独家专利成分、特殊工艺、临床验证数据）"><Input.TextArea rows={3} /></Form.Item>
+        <Form.Item label="获奖荣誉" name="awards" extra="如：xxx 大奖、xxx 榜单第一（没有可留空）"><Input /></Form.Item>
+        <Form.Item label="功效承诺" name="efficacy_proof" extra="有功效测试报告时填写，如：28 天实测亮度提升 30%、SGS 检测报告显示…（没有可留空）"><Input.TextArea rows={3} /></Form.Item>
       </Form>
     </Modal>
   );
