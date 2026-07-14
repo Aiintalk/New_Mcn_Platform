@@ -152,6 +152,16 @@ describe('WorkspaceRetrospective', () => {
     ] }));
   });
 
+  it('允许在复盘页面选择 Markdown 格式的虚拟素材', async () => {
+    mockGetSessions.mockResolvedValue({ items: [], pagination: { ...samplePagination, total: 0, total_pages: 0 } });
+    renderModule();
+    await screen.findByText('新建复盘');
+    const user = userEvent.setup();
+    await user.click(screen.getByText('新建复盘'));
+
+    expect(screen.getByTestId('file-input-material_scripts')).toHaveAttribute('accept', expect.stringContaining('.md'));
+  });
+
   // ── Test 3: 编辑视图 - 标题输入 + 保存草稿 ────────────────────────────────────
   it('Test 3: 编辑视图：标题输入 + 「保存草稿」按钮', async () => {
     mockGetSessions.mockResolvedValue({

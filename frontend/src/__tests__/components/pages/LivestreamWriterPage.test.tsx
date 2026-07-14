@@ -7,6 +7,9 @@ const mockGetKolPersonas = vi.fn();
 const mockChatStream = vi.fn();
 const mockGetActiveProducts = vi.fn();
 const mockGetWorkspaceDashboard = vi.fn();
+const mockGetQianchuanProducts = vi.fn();
+const mockCreateQianchuanProduct = vi.fn();
+const mockUpdateActiveProducts = vi.fn();
 
 vi.mock('../../../api/livestreamWriter', () => ({
   getKolPersonas: (...args: unknown[]) => mockGetKolPersonas(...args),
@@ -16,7 +19,13 @@ vi.mock('../../../api/livestreamWriter', () => ({
 
 vi.mock('../../../api/kolWorkspace', () => ({
   getActiveProducts: (...args: unknown[]) => mockGetActiveProducts(...args),
+  updateActiveProducts: (...args: unknown[]) => mockUpdateActiveProducts(...args),
   getWorkspaceDashboard: (...args: unknown[]) => mockGetWorkspaceDashboard(...args),
+}));
+
+vi.mock('../../../api/qianchuanProducts', () => ({
+  getQianchuanProducts: (...args: unknown[]) => mockGetQianchuanProducts(...args),
+  createQianchuanProduct: (...args: unknown[]) => mockCreateQianchuanProduct(...args),
 }));
 
 vi.mock('../../../store/authStore', () => ({
@@ -62,6 +71,8 @@ describe('LivestreamWriterModule', () => {
       awards: null,
       efficacy_proof: null,
     }]);
+    mockGetQianchuanProducts.mockResolvedValue({ items: [{ id: 32, nickname: '可选面霜', core_selling_point: '舒缓', mechanism: '买赠', mechanism_exclusive: false }], pagination: {} });
+    mockUpdateActiveProducts.mockResolvedValue({});
   });
 
   it('工作台内嵌模式展示当前商品并只提交标识和已确认对标文案', async () => {
@@ -119,7 +130,7 @@ describe('LivestreamWriterModule', () => {
     }));
   });
 
-  it('没有当前商品时明确提示，且不能进入生成', async () => {
+  it('没有当前商品时可在当前流程选择已有商品或打开完整新建表单', async () => {
     const user = userEvent.setup();
     mockGetActiveProducts.mockResolvedValue([]);
 
@@ -127,8 +138,11 @@ describe('LivestreamWriterModule', () => {
 
     await waitFor(() => expect(screen.getByText('还没有当前商品')).toBeInTheDocument());
     expect(screen.getByRole('button', { name: '下一步' })).toBeDisabled();
-    expect(screen.getByRole('link', { name: '前往产品库选择或新建商品' })).toHaveAttribute('href', '/workspace/7?tab=products');
+    expect(screen.getByLabelText('选择已有商品')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '新建商品' }));
+    expect(await screen.findByLabelText('最主推卖点')).toBeInTheDocument();
+    expect(screen.getByLabelText('主推机制')).toBeInTheDocument();
+    expect(screen.getByText('背书→种草→机制')).toBeInTheDocument();
     expect(mockGetActiveProducts).toHaveBeenCalledWith(7);
-    await user.click(screen.getByRole('button', { name: '下一步' }));
   });
 });

@@ -36,7 +36,7 @@ export interface ChatRequest {
   };
 }
 
-export type SpOrder = '背书→机制→种草' | '机制→背书→种草' | '种草→背书→机制';
+export type SpOrder = '背书→机制→种草' | '机制→背书→种草' | '背书→种草→机制';
 
 export type Step = 1 | 2 | 3 | 4;
 

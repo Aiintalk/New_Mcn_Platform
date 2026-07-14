@@ -17,6 +17,7 @@ import {
 import type { QianchuanWriterPersona, QianchuanChatMessage } from '../../types/qianchuanWriter';
 import { getActiveProducts, updateActiveProducts } from '../../api/kolWorkspace';
 import { createQianchuanProduct, getQianchuanProducts } from '../../api/qianchuanProducts';
+import ProductFormModal, { type ProductFormValues } from '../../components/qianchuan/ProductFormModal';
 import { submitReview } from '../../api/scriptReview';
 import type { QianchuanProduct } from '../../types/kolWorkspace';
 import type { ReviewResult, ReviewRating } from '../../types/scriptReview';
@@ -78,7 +79,7 @@ function downloadBlob(content: string, filename: string, mime: string): void {
 // ── 核心 Module（接受外部 kolId，跳过 Step 1 选达人）───────────────────────
 export function QianchuanWriterModule({ kolId }: { kolId: number }) {
   const { message } = App.useApp();
-  const [currentStep, setCurrentStep] = useState(2);
+  const [currentStep, setCurrentStep] = useState(1);
 
   // 从接口加载达人信息
   const [selectedPersona, setSelectedPersona] = useState<QianchuanWriterPersona | null>(null);
@@ -98,7 +99,6 @@ export function QianchuanWriterModule({ kolId }: { kolId: number }) {
   const [switchProductId, setSwitchProductId] = useState<number | null>(null);
   const [showProductPicker, setShowProductPicker] = useState(false);
   const [showCreateProduct, setShowCreateProduct] = useState(false);
-  const [newProductName, setNewProductName] = useState('');
   const [switchingProduct, setSwitchingProduct] = useState(false);
 
   // 商品摘要只用于展示，不作为模型输入来源。
@@ -114,6 +114,7 @@ export function QianchuanWriterModule({ kolId }: { kolId: number }) {
   const [streaming, setStreaming] = useState(false);
   const [streamDisplay, setStreamDisplay] = useState('');
   const [reviewHistory, setReviewHistory] = useState<Array<{ round: number; review: ReviewResult }>>([]);
+  const [versionTimeline, setVersionTimeline] = useState<Array<{ type: string; detail: string }>>([]);
   const [finalDraft, setFinalDraft] = useState('');
   const [hasFinalDraft, setHasFinalDraft] = useState(false);
   const [finalReview, setFinalReview] = useState<Pick<ReviewResult, 'rating' | 'must_fix'> | null>(null);
@@ -165,17 +166,11 @@ export function QianchuanWriterModule({ kolId }: { kolId: number }) {
     }
   }
 
-  async function createAndSelectProduct(): Promise<void> {
-    if (!newProductName.trim()) return;
+  async function createAndSelectProduct(values: ProductFormValues): Promise<void> {
     setSwitchingProduct(true);
     try {
-      const product = await createQianchuanProduct({
-        nickname: newProductName.trim(), core_selling_point: null, visualization: null,
-        mechanism: null, mechanism_exclusive: false, endorsement: null, user_feedback: null,
-        unique_selling: null, awards: null, efficacy_proof: null,
-      });
+      const product = await createQianchuanProduct(values);
       await updateActiveProducts(kolId, [product.id]);
-      setNewProductName('');
       setShowCreateProduct(false);
       await loadCurrentProduct();
       message.success('商品已新建并设为当前商品');
@@ -213,10 +208,11 @@ export function QianchuanWriterModule({ kolId }: { kolId: number }) {
   // Step 4: 生成仿写
   async function handleGenerate(): Promise<void> {
     if (!selectedPersona || !currentProduct || !originalScript.trim()) return;
-    setCurrentStep(4);
+    setCurrentStep(3);
     setStreaming(true);
     setStreamDisplay('');
     setReviewHistory([]);
+    setVersionTimeline([]);
     setFinalDraft('');
     setHasFinalDraft(false);
     setFinalReview(null);
@@ -242,6 +238,7 @@ export function QianchuanWriterModule({ kolId }: { kolId: number }) {
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const full = await readStream(resp, (text) => setStreamDisplay(text));
       setChatMessages([...newMessages, { role: 'assistant', content: full }]);
+      setVersionTimeline([{ type: '初稿', detail: full }]);
       setStreamDisplay('');
     } catch (err: unknown) {
       message.error(err instanceof Error ? `生成失败：${err.message}` : '生成失败');
@@ -284,6 +281,7 @@ export function QianchuanWriterModule({ kolId }: { kolId: number }) {
       const full = await readStream(resp, (text) => setStreamDisplay(text));
       setChatMessages([...newMessages, { role: 'assistant', content: full }]);
       setStreamDisplay('');
+      setVersionTimeline((items) => [...items, { type: '运营修改稿', detail: full }]);
       if (isFinalAdjustment) {
         try {
           const review = await submitReview({
@@ -291,6 +289,7 @@ export function QianchuanWriterModule({ kolId }: { kolId: number }) {
             kol_id: kolId, product_id: currentProduct.id,
           });
           setReviewHistory((history) => [...history, { round: history.length + 1, review }]);
+          setVersionTimeline((items) => [...items, { type: `第 ${reviewHistory.length + 1} 轮预审`, detail: review.rating }]);
           setFinalDraft(full);
           setHasFinalDraft(true);
           setFinalReview(review);
@@ -356,9 +355,11 @@ export function QianchuanWriterModule({ kolId }: { kolId: number }) {
         });
         candidates.push({ text: draft, review });
         setReviewHistory((history) => [...history, { round, review }]);
+        setVersionTimeline((items) => [...items, { type: `第 ${round} 轮预审`, detail: review.rating }]);
         if (review.rating === 'pass' || round === 4) break;
         draft = await generateRevision(draft, review);
         setChatMessages((messages) => [...messages, { role: 'assistant', content: draft }]);
+        setVersionTimeline((items) => [...items, { type: `第 ${round} 轮自动修改稿`, detail: draft }]);
         setStreamDisplay('');
       }
       const best = selectBestReviewCandidate(candidates);
@@ -387,6 +388,7 @@ export function QianchuanWriterModule({ kolId }: { kolId: number }) {
         kol_id: kolId, product_id: currentProduct.id,
       });
       setReviewHistory((history) => [...history, { round: history.length + 1, review }]);
+      setVersionTimeline((items) => [...items, { type: `第 ${reviewHistory.length + 1} 轮预审`, detail: review.rating }]);
       setFinalReview(review);
       setNeedsManualReview(review.rating !== 'pass');
     } catch (err: unknown) {
@@ -458,7 +460,7 @@ export function QianchuanWriterModule({ kolId }: { kolId: number }) {
       </div>
 
       <Steps
-        current={currentStep - 2}
+        current={currentStep - 1}
         items={[
           { title: '加载产品' },
           { title: '输入脚本' },
@@ -467,17 +469,17 @@ export function QianchuanWriterModule({ kolId }: { kolId: number }) {
         style={{ marginBottom: 'var(--sp-6)' }}
       />
 
-      {/* Step 2 · 当前商品 */}
-      {currentStep >= 2 && (
+      {/* Step 1 · 当前商品 */}
+      {currentStep >= 1 && (
         <div className="card workspace-step-card" style={{ marginBottom: 'var(--sp-4)' }}>
-          <h3 style={{ marginBottom: 'var(--sp-3)' }}>Step 2 · 当前商品</h3>
+          <h3 style={{ marginBottom: 'var(--sp-3)' }}>Step 1 · 当前商品</h3>
           {currentProduct ? (
             <>
               <div style={{ whiteSpace: 'pre-wrap', background: 'var(--gray-50)', padding: 'var(--sp-3)', borderRadius: 'var(--radius-md)', marginBottom: 'var(--sp-3)' }}>
                 {productText}
               </div>
               <Button onClick={() => setShowProductPicker(true)}>切换商品</Button>
-              {currentStep === 2 && <Button type="primary" style={{ marginLeft: 'var(--sp-2)' }} onClick={() => setCurrentStep(3)}>下一步：输入原版脚本 →</Button>}
+              {currentStep === 1 && <Button type="primary" style={{ marginLeft: 'var(--sp-2)' }} onClick={() => setCurrentStep(2)}>下一步：输入原版脚本 →</Button>}
             </>
           ) : (
             <Alert
@@ -495,14 +497,19 @@ export function QianchuanWriterModule({ kolId }: { kolId: number }) {
         <Select style={{ width: '100%' }} placeholder="选择共享商品" value={switchProductId ?? undefined} onChange={setSwitchProductId} options={products.map((product) => ({ value: product.id, label: `${product.nickname}${product.core_selling_point ? ` · ${product.core_selling_point}` : ''}` }))} />
         <Button type="link" style={{ paddingLeft: 0, marginTop: 12 }} onClick={() => { setShowProductPicker(false); setShowCreateProduct(true); }}>没有合适的商品？直接新建</Button>
       </Modal>
-      <Modal title="新建并设为当前商品" open={showCreateProduct} onCancel={() => setShowCreateProduct(false)} onOk={createAndSelectProduct} confirmLoading={switchingProduct} okButtonProps={{ disabled: !newProductName.trim() }}>
-        <Input placeholder="商品昵称" value={newProductName} onChange={(event) => setNewProductName(event.target.value)} />
-      </Modal>
+      <ProductFormModal
+        open={showCreateProduct}
+        title="新建并设为当前商品"
+        submitText="新建并选中"
+        loading={switchingProduct}
+        onCancel={() => setShowCreateProduct(false)}
+        onSubmit={createAndSelectProduct}
+      />
 
-      {/* Step 3 · 输入脚本 */}
-      {currentStep >= 3 && (
+      {/* Step 2 · 输入脚本 */}
+      {currentStep >= 2 && (
         <div className="card workspace-step-card" style={{ marginBottom: 'var(--sp-4)' }}>
-          <h3 style={{ marginBottom: 'var(--sp-3)' }}>Step 3 · 输入原版脚本</h3>
+          <h3 style={{ marginBottom: 'var(--sp-3)' }}>Step 2 · 输入原版脚本</h3>
           <Upload {...originalScriptUploadProps}>
             <Button icon={<UploadOutlined />}>上传原版脚本文件</Button>
           </Upload>
@@ -518,7 +525,7 @@ export function QianchuanWriterModule({ kolId }: { kolId: number }) {
               {charCount(originalScript)} 字
             </div>
           )}
-          {currentStep === 3 && (
+          {currentStep === 2 && (
             <Button
               type="primary"
               disabled={!step3Ok || !currentProduct || streaming}
@@ -531,10 +538,12 @@ export function QianchuanWriterModule({ kolId }: { kolId: number }) {
         </div>
       )}
 
-      {/* Step 4 · 生成仿写 */}
-      {currentStep >= 4 && (
+      {/* Step 3 · 生成仿写 */}
+      {currentStep >= 3 && (
         <div className="card workspace-step-card">
-          <h3 style={{ marginBottom: 'var(--sp-3)' }}>Step 4 · 生成仿写</h3>
+          <h3 style={{ marginBottom: 'var(--sp-3)' }}>Step 3 · 生成仿写</h3>
+
+          {versionTimeline.length > 0 && <div aria-label="版本时间线" style={{ marginBottom: 'var(--sp-3)' }}><strong>版本时间线</strong>{versionTimeline.map((item, index) => <div key={`${item.type}-${index}`} style={{ fontSize: 13, padding: 'var(--sp-1) 0' }}>V{index + 1} · {item.type}：{item.detail.slice(0, 80)}</div>)}</div>}
 
           {/* 消息列表 */}
           <div

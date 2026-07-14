@@ -9,6 +9,20 @@ from app.core.response import ErrorCode
 
 class TestLogin:
     @pytest.mark.asyncio
+    async def test_login_operator_credentials_returns_token(
+        self, test_client, operator_user,
+    ):
+        resp = await test_client.post(
+            "/api/auth/login",
+            json={"username": operator_user.username, "password": "Test@123456"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        assert data["data"]["user"]["role"] == "operator"
+        assert data["data"]["access_token"]
+
+    @pytest.mark.asyncio
     async def test_login_valid_credentials_returns_token(self, test_client, admin_user):
         resp = await test_client.post(
             "/api/auth/login",

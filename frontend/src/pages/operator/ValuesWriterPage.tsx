@@ -3,6 +3,7 @@ import { App, Input, Select, Steps } from 'antd';
 import {
   deriveDirections,
   generateValueScript,
+  iterateValueScript,
   saveOutput,
   type EmotionDirection,
 } from '../../api/valuesWriter';
@@ -18,6 +19,11 @@ export interface ValueScriptResult {
   analysis: string;
   rewrite: string;
   report: string;
+}
+
+interface ValueScriptRevision {
+  instruction: string;
+  result: ValueScriptResult;
 }
 
 export function calculateBigramSimilarity(original: string, rewritten: string): number {
@@ -70,6 +76,8 @@ export function ValuesWriterModule({ kolId }: { kolId: number }) {
   const [loading, setLoading] = useState(false);
   const [rawResult, setRawResult] = useState('');
   const [result, setResult] = useState<ValueScriptResult | null>(null);
+  const [revisionInstruction, setRevisionInstruction] = useState('');
+  const [revisionHistory, setRevisionHistory] = useState<ValueScriptRevision[]>([]);
   const [activeResult, setActiveResult] = useState<'script' | 'report'>('script');
   const [error, setError] = useState('');
 
@@ -117,6 +125,7 @@ export function ValuesWriterModule({ kolId }: { kolId: number }) {
     setError('');
     setRawResult('');
     setResult(null);
+    setRevisionHistory([]);
     try {
       const content = await generateValueScript({
         kol_id: kolId,
@@ -134,6 +143,38 @@ export function ValuesWriterModule({ kolId }: { kolId: number }) {
       setStep(3);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : '脚本生成失败');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleIteration() {
+    if (!result || !direction || !revisionInstruction.trim()) return;
+    setLoading(true);
+    setError('');
+    setRawResult('');
+    const instruction = revisionInstruction.trim();
+    try {
+      const content = await iterateValueScript({
+        kol_id: kolId,
+        opening_line: openingLine,
+        original_script: originalScript,
+        direction,
+        current_result: result,
+        instruction,
+        history: revisionHistory,
+      }, setRawResult);
+      const parsed = parseValueScriptResult(content);
+      if (!parsed) {
+        setError('修改结果缺少结构分析、改写脚本或情绪检测报告，请重新发送要求');
+        return;
+      }
+      setRevisionHistory((items) => [...items, { instruction, result: parsed }]);
+      setResult(parsed);
+      setRevisionInstruction('');
+      setActiveResult('script');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : '脚本修改失败');
     } finally {
       setLoading(false);
     }
@@ -197,6 +238,16 @@ export function ValuesWriterModule({ kolId }: { kolId: number }) {
         <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}><button className="btn btn-ghost btn-sm" onClick={() => setActiveResult('script')}>脚本</button><button className="btn btn-ghost btn-sm" onClick={() => setActiveResult('report')}>情绪检测报告</button></div>
         {activeResult === 'script' ? <TextArea aria-label="改写脚本" rows={14} value={result?.rewrite ?? rawResult} onChange={(event) => result && setResult({ ...result, rewrite: event.target.value })} /> : <TextArea aria-label="情绪检测报告" rows={14} value={result?.report ?? rawResult} onChange={(event) => result && setResult({ ...result, report: event.target.value })} />}
         {result && <p style={{ marginTop: 12 }}>原文结构分析：{result.analysis}</p>}
+        <div style={{ marginTop: 16, display: 'grid', gap: 8 }}>
+          <label htmlFor="value-revision">修改要求</label>
+          <TextArea id="value-revision" aria-label="修改要求" rows={3} value={revisionInstruction} onChange={(event) => setRevisionInstruction(event.target.value)} placeholder="例如：把语气改得更克制，保留原有节奏" />
+          <div><button className="btn btn-primary" disabled={loading || !revisionInstruction.trim()} onClick={handleIteration}>{loading ? '修改中...' : '发送修改要求'}</button></div>
+        </div>
+        <div aria-label="修改历史" style={{ marginTop: 16, display: 'grid', gap: 8 }}>
+          <strong>人工智能修改历史</strong>
+          <div className="card" style={{ margin: 0 }}><div className="card-body"><strong>初稿</strong><p style={{ margin: '6px 0 0' }}>相似度：{calculateBigramSimilarity(originalScript, result?.rewrite ?? '')}%</p></div></div>
+          {revisionHistory.map((item, index) => <div className="card" style={{ margin: 0 }} key={`${index}-${item.instruction}`}><div className="card-body"><strong>第 {index + 1} 次 AI 修改</strong><p style={{ margin: '6px 0' }}>修改要求：{item.instruction}</p><p style={{ margin: '6px 0' }}>相似度：{calculateBigramSimilarity(originalScript, item.result.rewrite)}%</p><p style={{ margin: 0 }}>情绪报告：{item.result.report}</p></div></div>)}
+        </div>
         <button className="btn btn-primary" style={{ marginTop: 12 }} disabled={!result} onClick={() => result && downloadText(`=== 价值观脚本 ===\n\n${result.rewrite}\n\n=== 情绪检测报告 ===\n\n${result.report}`, currentProduct?.nickname ?? '')}>导出文本</button>
       </div></div>}
     </div>

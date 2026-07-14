@@ -84,6 +84,11 @@ function readableSize(size?: number | null): string {
   return size < 1024 * 1024 ? `${Math.ceil(size / 1024)} KB` : `${(size / 1024 / 1024).toFixed(1)} MB`;
 }
 
+function contentSummary(content: string): string {
+  const normalized = content.replace(/\s+/g, ' ').trim();
+  return normalized.length > 80 ? `${normalized.slice(0, 80)}…` : normalized;
+}
+
 export default function WorkspaceReferences({ kolId }: WorkspaceReferencesProps) {
   const { message } = App.useApp();
   const [references, setReferences] = useState<KolReference[]>([]);
@@ -278,7 +283,7 @@ export default function WorkspaceReferences({ kolId }: WorkspaceReferencesProps)
           const isExpanded = expanded.has(reference.id);
           return <article key={reference.id} className="card" style={{ marginBottom: 'var(--sp-3)' }}><div className="card-body">
             <div style={{ display: 'flex', gap: 8, justifyContent: 'space-between' }}>
-              <div style={{ minWidth: 0 }}><strong>{reference.title}</strong><div style={{ fontSize: 12, color: 'var(--gray-500)', marginTop: 4 }}>{reference.data_description || (reference.likes !== null ? `${reference.likes} 赞` : '未填写数据说明')}</div><div style={{ fontSize: 12, color: 'var(--gray-400)', marginTop: 4 }}>{reference.has_video ? '有视频' : '无视频'}{reference.document_name ? ` · ${reference.document_name}` : ''}</div></div>
+              <div style={{ minWidth: 0 }}><strong>{reference.title}</strong><div style={{ fontSize: 12, color: 'var(--gray-500)', marginTop: 4 }}>{reference.data_description || (reference.likes !== null ? `${reference.likes} 赞` : '未填写数据说明')}</div><div style={{ fontSize: 12, color: 'var(--gray-400)', marginTop: 4 }}>分类：{reference.type} · {reference.has_video ? '有视频' : '无视频'}{reference.document_name ? ` · ${reference.document_name}` : ''}</div><div style={{ fontSize: 12, color: 'var(--gray-500)', marginTop: 4 }}>摘要：{contentSummary(reference.content)}</div></div>
               <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}><button className="btn btn-ghost btn-sm" onClick={() => void toggleExpanded(reference)}>{isExpanded ? '收起' : '展开'}</button><button className="btn btn-ghost btn-sm" onClick={() => openEdit(reference)}>编辑</button><Popconfirm title="确认删除这条素材？" onConfirm={() => void removeReference(reference)} okText="删除" cancelText="取消" okButtonProps={{ danger: true }}><button className="btn btn-danger-ghost btn-sm">删除</button></Popconfirm></div>
             </div>
             {isExpanded && <div style={{ marginTop: 12 }}><div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.8, background: 'var(--bg-muted)', padding: 'var(--sp-3)', borderRadius: 'var(--radius-md)' }}>{reference.content}</div>{reference.has_video && <div style={{ marginTop: 12 }}><div style={{ fontSize: 12, color: 'var(--gray-500)', marginBottom: 4 }}>{reference.video_name} {readableSize(reference.video_size)}</div>{playbackUrls[reference.id] ? <video controls src={playbackUrls[reference.id]} style={{ width: '100%', maxWidth: 560 }} /> : <span style={{ fontSize: 12 }}>正在获取播放地址...</span>}</div>}</div>}

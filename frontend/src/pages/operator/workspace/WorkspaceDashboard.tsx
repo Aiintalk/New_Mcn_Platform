@@ -12,6 +12,8 @@ import {
 } from '../../../api/kolWorkspace';
 import type { BenchmarkAccountPreview } from '../../../api/kolWorkspace';
 import { getQianchuanProducts } from '../../../api/qianchuanProducts';
+import { createQianchuanProduct } from '../../../api/qianchuanProducts';
+import ProductFormModal, { type ProductFormValues } from '../../../components/qianchuan/ProductFormModal';
 
 interface WorkspaceDashboardProps {
   kolId: number;
@@ -210,6 +212,7 @@ export default function WorkspaceDashboard({ kolId, onKolLoaded }: WorkspaceDash
   const [productTotalPages, setProductTotalPages] = useState(1);
   const [productQuery, setProductQuery]   = useState('');
   const [manageLoading, setManageLoading] = useState(false);
+  const [createProductOpen, setCreateProductOpen] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -350,6 +353,24 @@ export default function WorkspaceDashboard({ kolId, onKolLoaded }: WorkspaceDash
       load();
     } catch {
       message.error('保存失败');
+    } finally {
+      setManageLoading(false);
+    }
+  }
+
+  async function createAndSelectCurrentProduct(values: ProductFormValues) {
+    setManageLoading(true);
+    try {
+      const product = await createQianchuanProduct(values);
+      await updateActiveProducts(kolId, [product.id]);
+      setSelectedProductId(product.id);
+      setCreateProductOpen(false);
+      setManageOpen(false);
+      await loadAllProducts(1, '');
+      load();
+      message.success('商品已新建并设为当前商品');
+    } catch (error: unknown) {
+      message.error(error instanceof Error ? error.message : '新建商品失败');
     } finally {
       setManageLoading(false);
     }
@@ -560,6 +581,10 @@ export default function WorkspaceDashboard({ kolId, onKolLoaded }: WorkspaceDash
         confirmLoading={manageLoading}
         width={760}
       >
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 'var(--sp-3)', marginBottom: 'var(--sp-3)' }}>
+          <span style={{ fontSize: 13, color: 'var(--gray-500)' }}>选择已有商品，或新建完整商品后选中。</span>
+          <button className="btn btn-primary btn-sm" onClick={() => setCreateProductOpen(true)}>新建商品</button>
+        </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--sp-5)', minHeight: 340 }}>
           {/* 左：全量产品列表 */}
           <div>
@@ -666,6 +691,15 @@ export default function WorkspaceDashboard({ kolId, onKolLoaded }: WorkspaceDash
           </div>
         </div>
       </Modal>
+
+      <ProductFormModal
+        open={createProductOpen}
+        title="新建商品并设为当前商品"
+        submitText="新建并选中"
+        loading={manageLoading}
+        onCancel={() => setCreateProductOpen(false)}
+        onSubmit={createAndSelectCurrentProduct}
+      />
     </>
   );
 }

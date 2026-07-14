@@ -5,10 +5,12 @@ import { App } from 'antd';
 
 const mockDeriveDirections = vi.fn();
 const mockGenerateValueScript = vi.fn();
+const mockIterateValueScript = vi.fn();
 
 vi.mock('../../../api/valuesWriter', () => ({
   deriveDirections: (...args: unknown[]) => mockDeriveDirections(...args),
   generateValueScript: (...args: unknown[]) => mockGenerateValueScript(...args),
+  iterateValueScript: (...args: unknown[]) => mockIterateValueScript(...args),
   saveOutput: vi.fn(),
 }));
 vi.mock('../../../api/kolWorkspace', () => ({
@@ -59,6 +61,43 @@ describe('ValuesWriterModule', () => {
     await screen.findByLabelText('改写脚本');
     expect(mockDeriveDirections).toHaveBeenCalledWith({ kol_id: 1, opening_line: '锁定开头', original_script: '锁定开头\n原文第二段' });
     expect(mockGenerateValueScript.mock.calls[0][0]).toMatchObject({ kol_id: 1, direction: { title: '人工标题', description: '人工确认的方向' } });
+  });
+
+  it('记录每次人工智能修改要求及更新后的脚本、报告和相似度', async () => {
+    const user = userEvent.setup();
+    mockDeriveDirections.mockResolvedValue({ directions: [{ type: '诱惑型', title: '被看见', description: '展示生活优势', anchor: '轻松被偏爱' }] });
+    mockGenerateValueScript.mockImplementation(async (_body: unknown, onDelta: (value: string) => void) => {
+      const value = '<analysis>初稿结构</analysis><rewrite>锁定开头\n初稿表达</rewrite><report>初稿报告</report>';
+      onDelta(value);
+      return value;
+    });
+    mockIterateValueScript.mockImplementation(async (_body: unknown, onDelta: (value: string) => void) => {
+      const value = '<analysis>修改后结构</analysis><rewrite>锁定开头\n修改后表达</rewrite><report>修改后报告</report>';
+      onDelta(value);
+      return value;
+    });
+    renderModule();
+    await user.type(screen.getByLabelText('锁定开头'), '锁定开头');
+    await user.type(screen.getByLabelText('爆款全文'), '锁定开头\n原文第二段');
+    await user.click(screen.getByRole('button', { name: /下一步：选择产品/ }));
+    await user.click(screen.getByRole('button', { name: '生成情绪方向' }));
+    await user.click(await screen.findByText('诱惑型 · 被看见'));
+    await user.click(screen.getByRole('button', { name: '生成脚本和报告' }));
+    await screen.findByLabelText('改写脚本');
+
+    await user.type(screen.getByLabelText('修改要求'), '把语气改得更克制');
+    await user.click(screen.getByRole('button', { name: '发送修改要求' }));
+
+    expect(await screen.findByText('第 1 次 AI 修改')).toBeInTheDocument();
+    expect(screen.getByLabelText('改写脚本')).toHaveValue('锁定开头\n修改后表达');
+    expect(screen.getByText(/修改后报告/)).toBeInTheDocument();
+    expect(screen.getByText(/与原文相似度：/)).toBeInTheDocument();
+    expect(mockIterateValueScript).toHaveBeenCalledWith(expect.objectContaining({
+      kol_id: 1,
+      instruction: '把语气改得更克制',
+      current_result: expect.objectContaining({ rewrite: '锁定开头\n初稿表达' }),
+      history: [],
+    }), expect.any(Function));
   });
 
   it('只接受完整的结构化生成结果，并按旧版双字算法给出百分比', () => {

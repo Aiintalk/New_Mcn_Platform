@@ -17,13 +17,15 @@ import {
   parseFile,
   chatStream,
 } from '../../api/livestreamWriter';
-import { getActiveProducts } from '../../api/kolWorkspace';
+import { getActiveProducts, updateActiveProducts } from '../../api/kolWorkspace';
+import { createQianchuanProduct, getQianchuanProducts } from '../../api/qianchuanProducts';
+import ProductFormModal, { type ProductFormValues } from '../../components/qianchuan/ProductFormModal';
 import type { Persona, SpOrder, LivestreamWriterConfig } from '../../types/livestreamWriter';
 import type { QianchuanProduct } from '../../types/kolWorkspace';
 
 const { TextArea } = Input;
 
-const SP_ORDER_OPTIONS: SpOrder[] = ['背书→机制→种草', '机制→背书→种草', '种草→背书→机制'];
+const SP_ORDER_OPTIONS: SpOrder[] = ['背书→机制→种草', '机制→背书→种草', '背书→种草→机制'];
 
 function extractProductName(spText: string): string {
   const m = spText.match(/一句话总结[：:]\s*(.+)/);
@@ -66,6 +68,9 @@ function LivestreamWriterInner({ initKolId }: { initKolId?: number }) {
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [selectedPersona, setSelectedPersona] = useState<Persona | null>(null);
   const [currentProduct, setCurrentProduct] = useState<QianchuanProduct | null>(null);
+  const [availableProducts, setAvailableProducts] = useState<QianchuanProduct[]>([]);
+  const [productLoading, setProductLoading] = useState(false);
+  const [createProductOpen, setCreateProductOpen] = useState(false);
 
   // Step 2
   const [sellingPoints, setSellingPoints] = useState('');
@@ -88,9 +93,12 @@ function LivestreamWriterInner({ initKolId }: { initKolId?: number }) {
   // 加载配置和达人列表
   useEffect(() => {
     async function init() {
-      const productsPromise = isModule && initKolId
+      const activeProductsPromise = isModule && initKolId
         ? getActiveProducts(initKolId)
         : Promise.resolve([] as QianchuanProduct[]);
+      const catalogPromise = isModule
+        ? getQianchuanProducts({ page_size: 100 })
+        : Promise.resolve({ items: [] as QianchuanProduct[] });
       try {
         const cfg = await getLivestreamWriterConfig();
         setConfig(cfg);
@@ -119,8 +127,9 @@ function LivestreamWriterInner({ initKolId }: { initKolId?: number }) {
       }
 
       try {
-        const products = await productsPromise;
+        const [products, catalog] = await Promise.all([activeProductsPromise, catalogPromise]);
         setCurrentProduct(products[0] ?? null);
+        setAvailableProducts(catalog.items ?? []);
       } catch (e) {
         message.error('当前商品加载失败，请刷新重试');
       } finally {
@@ -129,6 +138,37 @@ function LivestreamWriterInner({ initKolId }: { initKolId?: number }) {
     }
     init();
   }, [isModule, initKolId]);
+
+  async function selectCurrentProduct(productId: number) {
+    if (!initKolId) return;
+    setProductLoading(true);
+    try {
+      await updateActiveProducts(initKolId, [productId]);
+      setCurrentProduct(availableProducts.find((item) => item.id === productId) ?? null);
+      message.success('当前商品已更新');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '选择当前商品失败');
+    } finally {
+      setProductLoading(false);
+    }
+  }
+
+  async function createAndSelectCurrentProduct(values: ProductFormValues) {
+    if (!initKolId) return;
+    setProductLoading(true);
+    try {
+      const product = await createQianchuanProduct(values);
+      await updateActiveProducts(initKolId, [product.id]);
+      setAvailableProducts((items) => [product, ...items]);
+      setCurrentProduct(product);
+      setCreateProductOpen(false);
+      message.success('已新建并设为当前商品');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '新建当前商品失败');
+    } finally {
+      setProductLoading(false);
+    }
+  }
 
   // 自动滚动到底部
   useEffect(() => {
@@ -372,6 +412,11 @@ function LivestreamWriterInner({ initKolId }: { initKolId?: number }) {
       {step === 1 && isModule && (
         <div className="card" style={{ padding: 24 }}>
           <h3 style={{ marginBottom: 16, fontWeight: 600 }}>当前商品</h3>
+          <label htmlFor="livestream-current-product" style={{ display: 'block', marginBottom: 8 }}>选择已有商品</label>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+            <Select id="livestream-current-product" value={currentProduct?.id} placeholder="请选择已有商品" style={{ flex: 1 }} options={availableProducts.map((item) => ({ value: item.id, label: item.nickname }))} onChange={(id) => void selectCurrentProduct(id)} loading={productLoading} />
+            <Button onClick={() => setCreateProductOpen(true)}>新建商品</Button>
+          </div>
           {currentProduct ? (
             <div style={{ padding: 16, background: 'var(--gray-50)', borderRadius: 8 }}>
               <div style={{ fontWeight: 600, marginBottom: 8 }}>{currentProduct.nickname}</div>
@@ -382,13 +427,14 @@ function LivestreamWriterInner({ initKolId }: { initKolId?: number }) {
               )}
             </div>
           ) : (
-            <div style={{ color: 'var(--text-secondary)' }}>
-              <span>还没有当前商品</span>，请先在商品库选择或新建一个当前商品。
-              <a href={`/workspace/${initKolId}?tab=products`} style={{ display: 'block', marginTop: 8 }}>
-                前往产品库选择或新建商品
-              </a>
-            </div>
+            <div style={{ color: 'var(--text-secondary)' }}><span>还没有当前商品</span>，请在上方选择已有商品或完整新建后选中。</div>
           )}
+          <div style={{ marginTop: 16 }}>
+            <div style={{ marginBottom: 8, fontWeight: 500 }}>卖点顺序：</div>
+            <Radio.Group value={spOrder} onChange={e => setSpOrder(e.target.value)}>
+              {SP_ORDER_OPTIONS.map(o => <Radio.Button key={o} value={o}>{o}</Radio.Button>)}
+            </Radio.Group>
+          </div>
           <div style={{ marginTop: 24, display: 'flex', justifyContent: 'flex-end' }}>
             <Button type="primary" disabled={!currentProduct} onClick={() => setStep(2)}>
               下一步
@@ -396,6 +442,8 @@ function LivestreamWriterInner({ initKolId }: { initKolId?: number }) {
           </div>
         </div>
       )}
+
+      <ProductFormModal open={createProductOpen} title="新建并设为当前商品" submitText="新建并选中" loading={productLoading} onCancel={() => setCreateProductOpen(false)} onSubmit={createAndSelectCurrentProduct} />
 
       {step === 1 && !isModule && (
         <div className="card" style={{ padding: 24 }}>

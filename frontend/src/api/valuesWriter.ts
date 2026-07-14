@@ -72,6 +72,33 @@ export async function generateValueScript(
   return readSseStream(resp, onDelta);
 }
 
+/** 旧版结果页人工修改：流式返回新的 analysis/rewrite/report 三段结构。 */
+export async function iterateValueScript(
+  body: {
+    kol_id: number;
+    opening_line: string;
+    original_script: string;
+    direction: EmotionDirection;
+    current_result: { analysis: string; rewrite: string; report: string };
+    instruction: string;
+    history: Array<{ instruction: string; result: { analysis: string; rewrite: string; report: string } }>;
+  },
+  onDelta: (text: string) => void,
+): Promise<string> {
+  const { useAuthStore } = await import('../store/authStore');
+  const token = useAuthStore.getState().token;
+  const resp = await fetch(`${BASE_URL}/api/operator/values-writer/iterate-structured`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok || !resp.body) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error(err?.detail?.message ?? `修改脚本失败: ${resp.status}`);
+  }
+  return readSseStream(resp, onDelta);
+}
+
 async function readSseStream(resp: Response, onDelta: (text: string) => void): Promise<string> {
   const reader = resp.body!.getReader();
   const decoder = new TextDecoder();
