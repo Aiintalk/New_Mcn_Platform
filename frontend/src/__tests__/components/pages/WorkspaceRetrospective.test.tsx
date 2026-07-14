@@ -162,6 +162,17 @@ describe('WorkspaceRetrospective', () => {
     expect(screen.getByTestId('file-input-material_scripts')).toHaveAttribute('accept', expect.stringContaining('.md'));
   });
 
+  it('允许为两类数据材料选择旧版 Excel 文件', async () => {
+    mockGetSessions.mockResolvedValue({ items: [], pagination: { ...samplePagination, total: 0, total_pages: 0 } });
+    renderModule();
+    await screen.findByText('新建复盘');
+    const user = userEvent.setup();
+    await user.click(screen.getByText('新建复盘'));
+
+    expect(screen.getByTestId('file-input-live_data')).toHaveAttribute('accept', expect.stringContaining('.xls'));
+    expect(screen.getByTestId('file-input-material_data')).toHaveAttribute('accept', expect.stringContaining('.xls'));
+  });
+
   it('以四张材料卡和一张多文件卡展示上传区，并能单独移除已解析脚本', async () => {
     mockGetSessions.mockResolvedValue({ items: [], pagination: { ...samplePagination, total: 0, total_pages: 0 } });
     mockParseFiles.mockResolvedValue({ files: [{ name: '待删除.md', text: '待删除正文' }] });

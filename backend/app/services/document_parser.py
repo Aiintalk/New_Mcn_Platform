@@ -1,7 +1,7 @@
 """
 app/services/document_parser.py
 
-文档解析 service：支持 PDF / DOCX / XLSX / PPTX / TXT / MD 五种格式。
+文档解析 service：支持 PDF / DOCX / XLSX / XLS / PPTX / TXT / MD 格式。
 
 用法：
     from app.services.document_parser import parse_files_to_text
@@ -96,9 +96,7 @@ def _extract_by_extension(filename: str, content_bytes: bytes) -> str:
     if lower.endswith(".xlsx"):
         return _extract_xlsx(content_bytes)
     if lower.endswith(".xls"):
-        raise ValueError(
-            "不支持 .xls 老格式，请转换为 .xlsx 后上传"
-        )
+        return _extract_xls(content_bytes)
     if lower.endswith(".pptx"):
         return _extract_pptx(content_bytes)
     # .txt, .md, .csv, and unknown extensions: try utf-8 decode
@@ -139,6 +137,21 @@ def _extract_xlsx(content_bytes: bytes) -> str:
             rows.append(",".join(cells))
         sheets.append(f"[{sheet_name}]\n" + "\n".join(rows))
     wb.close()
+    return "\n\n".join(sheets)
+
+
+def _extract_xls(content_bytes: bytes) -> str:
+    """用 xlrd 提取旧版 XLS 文本（所有 sheet 转 CSV 拼接）。"""
+    import xlrd
+
+    workbook = xlrd.open_workbook(file_contents=content_bytes)
+    sheets = []
+    for worksheet in workbook.sheets():
+        rows = []
+        for row_index in range(worksheet.nrows):
+            cells = [str(cell) if cell is not None else "" for cell in worksheet.row_values(row_index)]
+            rows.append(",".join(cells))
+        sheets.append(f"[{worksheet.name}]\n" + "\n".join(rows))
     return "\n\n".join(sheets)
 
 

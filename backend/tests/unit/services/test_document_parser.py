@@ -12,6 +12,8 @@ Covers:
 - All files fail → raises ValueError
 """
 import io
+import sys
+from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
 
 import pytest
@@ -143,7 +145,24 @@ async def test_unsupported_extension_treated_as_text():
 
 
 @pytest.mark.asyncio
-async def test_xls_old_format_raises_value_error():
-    f = _FakeUploadFile("old.xls", b"fake xls")
-    with pytest.raises(ValueError, match="不支持 .xls"):
-        await parse_files_to_text([f])
+async def test_xls_old_format_extracts_every_sheet_with_xlrd(monkeypatch):
+    class FakeSheet:
+        name = "直播数据"
+        nrows = 2
+
+        def row_values(self, index):
+            return [["日期", "成交额"], ["7月15日", 1234]][index]
+
+    class FakeWorkbook:
+        def sheets(self):
+            return [FakeSheet()]
+
+    monkeypatch.setitem(sys.modules, "xlrd", SimpleNamespace(open_workbook=lambda **_: FakeWorkbook()))
+    f = _FakeUploadFile("old.xls", b"legacy xls bytes")
+
+    result = await parse_files_to_text([f])
+
+    assert "=== 文件: old.xls ===" in result
+    assert "[直播数据]" in result
+    assert "日期,成交额" in result
+    assert "7月15日,1234" in result
