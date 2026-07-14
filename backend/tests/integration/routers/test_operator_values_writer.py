@@ -225,6 +225,71 @@ class TestLegacyValuesWorkflow:
         assert "[ERROR] 生成结果包含商品直接信息" in response.text
 
     @pytest.mark.asyncio
+    async def test_generate_repairs_incomplete_structure_before_recording_success(
+        self, test_client, operator_headers, test_session
+    ):
+        kol_id = await _create_kol(test_session, name="结构修复达人")
+        await _set_current_product(test_session, kol_id)
+        attempts = 0
+
+        async def _mock_stream(*args, **kwargs):
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                yield "模型漏掉了标签的原始回答"
+            else:
+                yield "<analysis>结构完整</analysis><rewrite>锁定开头。\n修复后的表达。</rewrite><report>修复后的报告</report>"
+
+        with patch("app.routers.operator_values_writer.yunwu_adapter.chat_stream", side_effect=_mock_stream):
+            response = await test_client.post(
+                "/api/operator/values-writer/generate",
+                json={
+                    "kol_id": kol_id,
+                    "opening_line": "锁定开头。",
+                    "original_script": "锁定开头。\n原文正文。",
+                    "direction": {"type": "诱惑型", "title": "被看见", "description": "说明", "anchor": "锚点"},
+                },
+                headers=operator_headers,
+            )
+
+        assert attempts == 2
+        assert "<report>修复后的报告</report>" in response.text
+        task = (await test_session.execute(text(
+            "SELECT status FROM task_jobs WHERE tool_code = 'values-writer' ORDER BY id DESC LIMIT 1"
+        ))).scalar_one()
+        assert task == "success"
+
+    @pytest.mark.asyncio
+    async def test_generate_returns_clear_error_without_recording_success_after_three_invalid_responses(
+        self, test_client, operator_headers, test_session
+    ):
+        kol_id = await _create_kol(test_session, name="结构失败达人")
+        await _set_current_product(test_session, kol_id)
+
+        async def _mock_stream(*args, **kwargs):
+            yield "没有三段结构的回答"
+
+        with patch("app.routers.operator_values_writer.yunwu_adapter.chat_stream", side_effect=_mock_stream) as mock_stream:
+            response = await test_client.post(
+                "/api/operator/values-writer/generate",
+                json={
+                    "kol_id": kol_id,
+                    "opening_line": "锁定开头。",
+                    "original_script": "锁定开头。\n原文正文。",
+                    "direction": {"type": "诱惑型", "title": "被看见", "description": "说明", "anchor": "锚点"},
+                },
+                headers=operator_headers,
+            )
+
+        assert mock_stream.call_count == 3
+        assert "[ERROR] 结构化生成失败，已重试 3 次" in response.text
+        count = (await test_session.execute(text(
+            "SELECT COUNT(*) FROM task_jobs WHERE tool_code = 'values-writer' AND status = 'success' "
+            "AND input_payload->>'kol_id' = :kol_id"
+        ), {"kol_id": str(kol_id)})).scalar_one()
+        assert count == 0
+
+    @pytest.mark.asyncio
     async def test_derive_directions_retries_three_times_then_returns_clear_error_for_invalid_type(
         self, test_client, operator_headers, test_session
     ):
@@ -303,6 +368,40 @@ class TestLegacyValuesWorkflow:
         assert "<report>修改后报告</report>" in generated
         for value in ("内容计划", "真实经历", "关系网", "独家经历", "补充信息", "把语气改得更克制", "初稿表达", "历史表达"):
             assert value in seen["prompt"]
+
+    @pytest.mark.asyncio
+    async def test_structured_iteration_repairs_incomplete_structure_before_returning_result(
+        self, test_client, operator_headers, test_session
+    ):
+        kol_id = await _create_kol(test_session, name="修改结构修复达人")
+        await _set_current_product(test_session, kol_id)
+        attempts = 0
+
+        async def _mock_stream(*args, **kwargs):
+            nonlocal attempts
+            attempts += 1
+            yield (
+                "缺少标签" if attempts == 1 else
+                "<analysis>修改结构</analysis><rewrite>锁定开头。\n修改后表达。</rewrite><report>修改后报告</report>"
+            )
+
+        with patch("app.routers.operator_values_writer.yunwu_adapter.chat_stream", side_effect=_mock_stream):
+            response = await test_client.post(
+                "/api/operator/values-writer/iterate-structured",
+                json={
+                    "kol_id": kol_id,
+                    "opening_line": "锁定开头。",
+                    "original_script": "锁定开头。\n原文正文。",
+                    "direction": {"type": "诱惑型", "title": "被看见", "description": "说明", "anchor": "锚点"},
+                    "current_result": {"analysis": "初稿结构", "rewrite": "锁定开头。\n初稿表达。", "report": "初稿报告"},
+                    "instruction": "把语气改得更克制",
+                    "history": [],
+                },
+                headers=operator_headers,
+            )
+
+        assert attempts == 2
+        assert "<report>修改后报告</report>" in response.text
 
 
 # ---------------------------------------------------------------------------
