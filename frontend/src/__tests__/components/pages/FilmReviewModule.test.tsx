@@ -25,6 +25,7 @@ describe('FilmReviewModule', () => {
 
     expect(screen.getByText('原片')).toBeInTheDocument();
     expect(screen.getByText('已剪辑成片')).toBeInTheDocument();
+    expect(screen.getAllByText('未选择')).toHaveLength(2);
     expect(screen.getByText('支持 mp4、mov。建议 500MB 以内，实际服务端限制为 500MB。')).toBeInTheDocument();
     expect(screen.getByTestId('film-file-original')).toHaveAttribute('accept', '.mp4,.mov,video/mp4,video/quicktime');
     expect(screen.getByTestId('film-file-edited')).toHaveAttribute('accept', '.mp4,.mov,video/mp4,video/quicktime');

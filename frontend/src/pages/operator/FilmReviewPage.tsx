@@ -32,7 +32,9 @@ function isSupportedVideo(file: File): boolean {
   return ACCEPTED_VIDEO_TYPES.includes(file.type) || ACCEPTED_VIDEO_EXTENSIONS.some((extension) => name.endsWith(extension));
 }
 
-function statusLabel(status: FilmVideoStatus): string {
+function statusLabel(video: VideoCardState): string {
+  if (!video.file) return '未选择';
+  const { status } = video;
   if (status === 'uploading') return '上传中';
   if (status === 'analyzing') return '完整视频分析中';
   if (status === 'completed') return '分析完成，临时文件已清理';
@@ -201,7 +203,7 @@ export function FilmReviewModule({ kolId: _kolId }: { kolId: number }) {
         <div className="card-header">
           <h2 className="card-title">{title}</h2>
           <Tag color={current.status === 'completed' ? 'success' : current.status === 'failed' ? 'error' : 'default'}>
-            {statusLabel(current.status)}
+            {statusLabel(current)}
           </Tag>
         </div>
         <div className="card-body">
