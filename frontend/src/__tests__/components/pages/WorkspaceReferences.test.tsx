@@ -103,6 +103,15 @@ describe('WorkspaceReferences', () => {
     expect(await screen.findByText(/summer\.mp4/)).toBeInTheDocument();
   });
 
+  it('以旧版主操作层级呈现全宽标题、正文和保存按钮', async () => {
+    renderPage();
+    await screen.findByText('上传千川爆款素材');
+    expect(screen.getByLabelText('素材标题')).toHaveStyle({ width: '100%' });
+    expect(screen.getByLabelText('数据说明')).toHaveStyle({ width: '100%' });
+    expect(screen.getByLabelText('脚本正文')).toHaveAttribute('rows', '14');
+    expect(screen.getByRole('button', { name: '保存素材' })).toHaveStyle({ width: '100%' });
+  });
+
   it('gets a short-lived playback URL only after the operator expands a video material', async () => {
     const user = userEvent.setup();
     renderPage();

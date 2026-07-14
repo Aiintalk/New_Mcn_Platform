@@ -211,8 +211,8 @@ export default function WorkspaceReferences({ kolId }: WorkspaceReferencesProps)
       {formVisible && <section className="card" style={{ marginBottom: 'var(--sp-5)' }}><div className="card-body">
         <h2 className="card-title">{editing ? '编辑千川爆款素材' : '上传千川爆款素材'}</h2>
         <div style={{ display: 'grid', gap: 12, marginTop: 12 }}>
-          <label>标题 *<input aria-label="素材标题" value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></label>
-          <label>数据说明（如点赞数、完播率）<input aria-label="数据说明" value={form.dataDescription} onChange={(event) => setForm({ ...form, dataDescription: event.target.value })} /></label>
+          <label>标题 *<input aria-label="素材标题" style={{ width: '100%', boxSizing: 'border-box', marginTop: 6 }} value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></label>
+          <label>数据说明（如点赞数、完播率）<input aria-label="数据说明" style={{ width: '100%', boxSizing: 'border-box', marginTop: 6 }} value={form.dataDescription} onChange={(event) => setForm({ ...form, dataDescription: event.target.value })} /></label>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
             <div role="button" tabIndex={0} className="workspace-upload-tile" onClick={() => documentInput.current?.click()} onKeyDown={(event) => { if (event.key === 'Enter') documentInput.current?.click(); }}>
               <UploadOutlined /><strong>{documentParsing ? '脚本文档解析中…' : '上传脚本文档'}</strong><span>{form.documentName ? `已解析：${form.documentName} ${readableSize(form.documentSize)}` : 'docx / doc / txt / md（可选 pdf）'}</span>
@@ -223,10 +223,10 @@ export default function WorkspaceReferences({ kolId }: WorkspaceReferencesProps)
               <input ref={videoInput} aria-label="视频原片" type="file" accept="video/*" style={{ display: 'none' }} onChange={(event) => selectVideo(event.target.files?.[0])} />
             </div>
           </div>
-          <label>脚本内容 *<textarea aria-label="脚本正文" rows={7} value={form.content} onChange={(event) => setForm({ ...form, content: event.target.value })} /></label>
+          <label>脚本内容 *<textarea aria-label="脚本正文" rows={14} style={{ width: '100%', boxSizing: 'border-box', marginTop: 6 }} value={form.content} onChange={(event) => setForm({ ...form, content: event.target.value })} /></label>
           <span style={{ fontSize: 12, color: 'var(--gray-500)' }}>正文 {form.content.replace(/\s/g, '').length} 字，解析后可继续修改。</span>
           {editing?.has_video && <span style={{ fontSize: 12, color: 'var(--gray-500)' }}>当前视频：{editing.video_name}</span>}
-          <div style={{ display: 'flex', gap: 8 }}><button className="btn btn-primary btn-sm" disabled={saving} onClick={() => void saveReference()}>{saving ? '保存中...' : editing ? '保存修改' : '保存素材'}</button>{editing && <button className="btn btn-ghost btn-sm" disabled={saving} onClick={resetForm}>取消编辑</button>}</div>
+          <div style={{ display: 'flex', gap: 8 }}><button className="btn btn-primary" style={{ width: '100%' }} disabled={saving} onClick={() => void saveReference()}>{saving ? '保存中...' : editing ? '保存修改' : '保存素材'}</button>{editing && <button className="btn btn-ghost btn-sm" disabled={saving} onClick={resetForm}>取消编辑</button>}</div>
         </div>
       </div></section>}
 
