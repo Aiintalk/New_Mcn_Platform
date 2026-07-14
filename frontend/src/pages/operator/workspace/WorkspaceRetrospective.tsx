@@ -28,8 +28,8 @@ type View = 'list' | 'edit' | 'detail';
 
 // 5 类材料定义
 const MATERIAL_FIELDS = [
-  { key: 'live_data',         label: '直播汇总数据', accept: '.xlsx,.csv,.md',   multiple: false },
-  { key: 'material_data',     label: '素材明细数据', accept: '.xlsx,.csv,.md',   multiple: false },
+  { key: 'live_data',         label: '直播汇总数据', accept: '.xlsx,.xls,.csv,.md',   multiple: false },
+  { key: 'material_data',     label: '素材明细数据', accept: '.xlsx,.xls,.csv,.md',   multiple: false },
   { key: 'review_text',       label: '团队复盘文字', accept: '.docx,.txt,.md',   multiple: false },
   { key: 'live_script',       label: '直播间脚本',   accept: '.docx,.txt,.md',   multiple: false },
   { key: 'material_scripts',  label: '千川素材脚本', accept: '.docx,.txt,.md',   multiple: true  },
