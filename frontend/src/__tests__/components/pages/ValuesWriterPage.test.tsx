@@ -38,7 +38,7 @@ describe('ValuesWriterModule', () => {
     expect(screen.getByRole('button', { name: /下一步：选择产品/ })).toBeDisabled();
   });
 
-  it('根据当前商品推导方向，并允许人工调整后生成', async () => {
+  it('根据当前商品推导方向，点击方向卡立即生成', async () => {
     const user = userEvent.setup();
     mockDeriveDirections.mockResolvedValue({ directions: [{ type: '诱惑型', title: '被看见', description: '展示生活优势', anchor: '轻松被偏爱' }] });
     mockGenerateValueScript.mockImplementation(async (_body: unknown, onDelta: (value: string) => void) => {
@@ -53,14 +53,9 @@ describe('ValuesWriterModule', () => {
     await user.click(screen.getByRole('button', { name: '生成情绪方向' }));
     await screen.findByText('诱惑型 · 被看见');
     await user.click(screen.getByText('诱惑型 · 被看见'));
-    await user.clear(screen.getByLabelText('方向标题'));
-    await user.type(screen.getByLabelText('方向标题'), '人工标题');
-    await user.clear(screen.getByLabelText('人工调整方向说明'));
-    await user.type(screen.getByLabelText('人工调整方向说明'), '人工确认的方向');
-    await user.click(screen.getByRole('button', { name: '生成脚本和报告' }));
     await screen.findByLabelText('改写脚本');
     expect(mockDeriveDirections).toHaveBeenCalledWith({ kol_id: 1, opening_line: '锁定开头', original_script: '锁定开头\n原文第二段' });
-    expect(mockGenerateValueScript.mock.calls[0][0]).toMatchObject({ kol_id: 1, direction: { title: '人工标题', description: '人工确认的方向' } });
+    expect(mockGenerateValueScript.mock.calls[0][0]).toMatchObject({ kol_id: 1, direction: { title: '被看见', description: '展示生活优势' } });
   });
 
   it('记录每次人工智能修改要求及更新后的脚本、报告和相似度', async () => {
@@ -82,15 +77,15 @@ describe('ValuesWriterModule', () => {
     await user.click(screen.getByRole('button', { name: /下一步：选择产品/ }));
     await user.click(screen.getByRole('button', { name: '生成情绪方向' }));
     await user.click(await screen.findByText('诱惑型 · 被看见'));
-    await user.click(screen.getByRole('button', { name: '生成脚本和报告' }));
     await screen.findByLabelText('改写脚本');
 
     await user.type(screen.getByLabelText('修改要求'), '把语气改得更克制');
-    await user.click(screen.getByRole('button', { name: '发送修改要求' }));
+    await user.click(screen.getByRole('button', { name: '发送' }));
 
-    expect(await screen.findByText('第 1 次 AI 修改')).toBeInTheDocument();
+    expect(screen.getByText(/修改历史/)).toBeInTheDocument();
     expect(screen.getByLabelText('改写脚本')).toHaveValue('锁定开头\n修改后表达');
-    expect(screen.getByText(/修改后报告/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '情绪检测报告' }));
+    expect(screen.getByLabelText('情绪检测报告')).toHaveValue('修改后报告');
     expect(screen.getByText(/与原文相似度：/)).toBeInTheDocument();
     expect(mockIterateValueScript).toHaveBeenCalledWith(expect.objectContaining({
       kol_id: 1,
@@ -110,7 +105,6 @@ describe('ValuesWriterModule', () => {
     await user.click(screen.getByRole('button', { name: /下一步：选择产品/ }));
     await user.click(screen.getByRole('button', { name: '生成情绪方向' }));
     await user.click(await screen.findByText('诱惑型 · 被看见'));
-    await user.click(screen.getByRole('button', { name: '生成脚本和报告' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('结构化生成失败，已重试 3 次');
   });
 

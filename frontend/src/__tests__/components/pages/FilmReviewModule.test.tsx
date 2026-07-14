@@ -39,7 +39,7 @@ describe('FilmReviewModule', () => {
     const edited = new File(['video'], 'edited.mov', { type: 'video/quicktime' });
     await user.upload(screen.getByTestId('film-file-original'), original);
     await user.upload(screen.getByTestId('film-file-edited'), edited);
-    await user.click(screen.getByRole('button', { name: /开始完整视频预审/ }));
+    await user.click(screen.getByRole('button', { name: /开始剪辑分析/ }));
 
     expect(await screen.findByText('origin.mp4')).toBeInTheDocument();
     expect((await screen.findAllByRole('alert')).length).toBeGreaterThanOrEqual(2);
@@ -59,7 +59,7 @@ describe('FilmReviewModule', () => {
     const edited = new File(['edited'], 'edited.mov', { type: 'video/quicktime' });
     await user.upload(screen.getByTestId('film-file-original'), original);
     await user.upload(screen.getByTestId('film-file-edited'), edited);
-    await user.click(screen.getByRole('button', { name: /开始完整视频预审/ }));
+    await user.click(screen.getByRole('button', { name: /开始剪辑分析/ }));
 
     await waitFor(() => expect(mockAnalyzeFilm).toHaveBeenCalledWith(7, original, edited));
     expect(await screen.findByText('正在读取两条完整视频')).toBeInTheDocument();
@@ -84,7 +84,7 @@ describe('FilmReviewModule', () => {
 
     await user.upload(screen.getByTestId('film-file-original'), new File(['origin'], 'origin.mp4', { type: 'video/mp4' }));
     await user.upload(screen.getByTestId('film-file-edited'), new File(['edited'], 'edited.mov', { type: 'video/quicktime' }));
-    await user.click(screen.getByRole('button', { name: /开始完整视频预审/ }));
+    await user.click(screen.getByRole('button', { name: /开始剪辑分析/ }));
 
     expect((await screen.findAllByText('分析失败，可重试')).length).toBe(2);
     expect(screen.getAllByText(/Gemini 服务超时/).length).toBeGreaterThan(0);

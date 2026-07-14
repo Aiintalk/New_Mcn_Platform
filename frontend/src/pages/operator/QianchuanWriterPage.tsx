@@ -454,25 +454,27 @@ export function QianchuanWriterModule({ kolId }: { kolId: number }) {
     <div style={{ maxWidth: 900, margin: '0 auto', padding: 'var(--sp-6)' }}>
       <div className="page-header">
         <div>
-          <h1 className="page-title">千川文案写作</h1>
-          <p className="page-desc">加载产品卖点 · 输入原版脚本 · AI 仿写</p>
+          <h1 className="page-title">千川仿写</h1>
+          <p className="page-desc">选产品 · 输入脚本 · 仿写结果</p>
         </div>
       </div>
 
       <Steps
         current={currentStep - 1}
         items={[
-          { title: '加载产品' },
+          { title: '选产品' },
           { title: '输入脚本' },
-          { title: '生成仿写' },
+          { title: '仿写结果' },
         ]}
         style={{ marginBottom: 'var(--sp-6)' }}
       />
 
+      {currentStep > 1 && <div style={{ display: 'flex', gap: 8, marginBottom: 'var(--sp-4)', fontSize: 13, color: 'var(--gray-600)' }}><span>✓ 当前商品：{currentProduct?.nickname ?? '未选择'}</span>{currentStep > 2 && <span>✓ 原版脚本：{charCount(originalScript)} 字</span>}</div>}
+
       {/* Step 1 · 当前商品 */}
-      {currentStep >= 1 && (
+      {currentStep === 1 && (
         <div className="card workspace-step-card" style={{ marginBottom: 'var(--sp-4)' }}>
-          <h3 style={{ marginBottom: 'var(--sp-3)' }}>Step 1 · 当前商品</h3>
+          <h3 style={{ marginBottom: 'var(--sp-3)' }}>选产品</h3>
           {currentProduct ? (
             <>
               <div style={{ whiteSpace: 'pre-wrap', background: 'var(--gray-50)', padding: 'var(--sp-3)', borderRadius: 'var(--radius-md)', marginBottom: 'var(--sp-3)' }}>
@@ -507,13 +509,11 @@ export function QianchuanWriterModule({ kolId }: { kolId: number }) {
       />
 
       {/* Step 2 · 输入脚本 */}
-      {currentStep >= 2 && (
+      {currentStep === 2 && (
         <div className="card workspace-step-card" style={{ marginBottom: 'var(--sp-4)' }}>
-          <h3 style={{ marginBottom: 'var(--sp-3)' }}>Step 2 · 输入原版脚本</h3>
-          <Upload {...originalScriptUploadProps}>
-            <Button icon={<UploadOutlined />}>上传原版脚本文件</Button>
-          </Upload>
-          <div style={{ fontSize: 12, color: 'var(--gray-400)', margin: 'var(--sp-2) 0' }}>或直接粘贴原版脚本</div>
+          <h3 style={{ marginBottom: 'var(--sp-3)' }}>输入原版脚本</h3>
+          <div className="workspace-upload-tile" style={{ marginBottom: 12 }}><Upload {...originalScriptUploadProps}><Button icon={<UploadOutlined />}>点击上传或拖拽文件</Button></Upload><span>支持 docx / doc / txt / md</span></div>
+          <div style={{ fontSize: 12, color: 'var(--gray-400)', margin: 'var(--sp-2) 0' }}>或者直接粘贴文本</div>
           <TextArea
             rows={8}
             placeholder="把原版千川脚本粘贴到这里..."
@@ -539,7 +539,7 @@ export function QianchuanWriterModule({ kolId }: { kolId: number }) {
       )}
 
       {/* Step 3 · 生成仿写 */}
-      {currentStep >= 3 && (
+      {currentStep === 3 && (
         <div className="card workspace-step-card">
           <h3 style={{ marginBottom: 'var(--sp-3)' }}>Step 3 · 生成仿写</h3>
 
@@ -607,9 +607,11 @@ export function QianchuanWriterModule({ kolId }: { kolId: number }) {
           {reviewHistory.length > 0 && (
             <div style={{ marginBottom: 'var(--sp-3)' }}>
               {reviewHistory.map(({ round, review }) => (
-                <div key={round} style={{ fontSize: 13, padding: 'var(--sp-2)', borderBottom: '1px solid var(--border)' }}>
-                  第 {round} 轮预审：{review.rating === 'pass' ? '通过' : review.rating === 'minor' ? '小改' : '不通过'}；必须修改 {review.must_fix.length} 项
-                </div>
+                <details key={round} style={{ fontSize: 13, padding: 'var(--sp-2)', borderBottom: '1px solid var(--border)' }} open={review.rating !== 'pass'}>
+                  <summary>第 {round} 轮预审：{review.rating === 'pass' ? '通过' : review.rating === 'minor' ? '小改' : '不通过'}；必须修改 {review.must_fix.length} 项</summary>
+                  {review.must_fix.map((item, index) => <div key={`${round}-${index}`} style={{ marginTop: 8, padding: 8, background: 'var(--bg-muted)' }}><strong>[{item.type}]</strong>{item.quote && <> 原文「{item.quote}」</>} → {item.fix}</div>)}
+                  {review.suggestions?.map((item, index) => <div key={`${round}-suggestion-${index}`} style={{ marginTop: 4 }}>优化建议：{item}</div>)}
+                </details>
               ))}
             </div>
           )}

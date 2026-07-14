@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { App, Button, Tag } from 'antd';
 import { DownloadOutlined, SaveOutlined, VideoCameraOutlined } from '@ant-design/icons';
 import {
@@ -17,6 +17,10 @@ interface VideoCardState {
 const EMPTY_VIDEO: VideoCardState = { file: null, status: 'selected', error: null };
 const ACCEPTED_VIDEO_TYPES = ['video/mp4', 'video/quicktime'];
 const ACCEPTED_VIDEO_EXTENSIONS = ['.mp4', '.mov'];
+
+function ReportMarkdown({ content }: { content: string }) {
+  return <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.8 }}>{content.split('\n').map((line, index) => line.startsWith('## ') ? <h2 key={index} style={{ fontSize: 18, margin: '16px 0 8px' }}>{line.slice(3)}</h2> : line.startsWith('### ') ? <h3 key={index} style={{ fontSize: 15, margin: '12px 0 6px' }}>{line.slice(4)}</h3> : <p key={index} style={{ margin: '4px 0' }}>{line || ' '}</p>)}</div>;
+}
 
 function formatSize(bytes: number): string {
   if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
@@ -48,6 +52,8 @@ export function FilmReviewModule({ kolId: _kolId }: { kolId: number }) {
   const [taskId, setTaskId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const originalInput = useRef<HTMLInputElement>(null);
+  const editedInput = useRef<HTMLInputElement>(null);
 
   function stateFor(role: FilmVideoRole): VideoCardState {
     return role === 'original' ? original : edited;
@@ -189,8 +195,9 @@ export function FilmReviewModule({ kolId: _kolId }: { kolId: number }) {
 
   function renderVideoCard(role: FilmVideoRole, title: string) {
     const current = stateFor(role);
+    const input = role === 'original' ? originalInput : editedInput;
     return (
-      <div className="card" style={{ marginBottom: 0 }} data-testid={`film-card-${role}`}>
+      <div className="card workspace-upload-tile" style={{ marginBottom: 0, alignItems: 'stretch', textAlign: 'left' }} data-testid={`film-card-${role}`} role="button" tabIndex={0} onClick={() => input.current?.click()} onKeyDown={(event) => { if (event.key === 'Enter') input.current?.click(); }}>
         <div className="card-header">
           <h2 className="card-title">{title}</h2>
           <Tag color={current.status === 'completed' ? 'success' : current.status === 'failed' ? 'error' : 'default'}>
@@ -199,11 +206,14 @@ export function FilmReviewModule({ kolId: _kolId }: { kolId: number }) {
         </div>
         <div className="card-body">
           <input
+            ref={input}
             data-testid={`film-file-${role}`}
             type="file"
             accept=".mp4,.mov,video/mp4,video/quicktime"
             onChange={(event) => selectFile(role, event.target.files?.[0] || null)}
+            style={{ display: 'none' }}
           />
+          {!current.file && <div style={{ color: 'var(--gray-500)', fontSize: 13 }}>点击选择 mp4 或 mov 视频</div>}
           {current.file && (
             <div style={{ marginTop: 'var(--sp-3)', fontSize: 13, color: 'var(--gray-700)' }}>
               <div>{current.file.name}</div>
@@ -212,7 +222,7 @@ export function FilmReviewModule({ kolId: _kolId }: { kolId: number }) {
           )}
           {current.error && <div role="alert" style={{ marginTop: 'var(--sp-2)', color: 'var(--danger)', fontSize: 13 }}>{current.error}</div>}
           <div style={{ marginTop: 'var(--sp-3)', color: 'var(--gray-500)', fontSize: 12 }}>
-            两条视频会在点击“开始完整视频预审”后一起上传并分析。
+            两条视频会在点击主按钮后一起上传并分析。
           </div>
         </div>
       </div>
@@ -241,14 +251,9 @@ export function FilmReviewModule({ kolId: _kolId }: { kolId: number }) {
         {renderVideoCard('edited', '已剪辑成片')}
       </div>
 
-      <div className="card">
-        <div className="card-body" style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)', flexWrap: 'wrap' }}>
-          <Button type="primary" icon={<VideoCameraOutlined />} loading={analyzing} disabled={!canAnalyze} onClick={startAnalysis}>
-            开始完整视频预审
-          </Button>
-          <span aria-live="polite" style={{ fontSize: 13, color: 'var(--gray-600)' }}>{analysisStatus}</span>
-        </div>
-      </div>
+      <Button type="primary" block icon={<VideoCameraOutlined />} loading={analyzing} disabled={!canAnalyze} onClick={startAnalysis} style={{ marginBottom: 'var(--sp-4)' }}>
+        {analyzing ? analysisStatus : '开始剪辑分析'}
+      </Button>
 
       {analysisSteps.length > 0 && (
         <div className="card">
@@ -261,14 +266,14 @@ export function FilmReviewModule({ kolId: _kolId }: { kolId: number }) {
       {report && !analysisFailed && (
         <div className="card">
           <div className="card-header">
-            <h2 className="card-title">预审报告</h2>
+            <h2 className="card-title">分镜预审报告</h2>
             <div style={{ display: 'flex', gap: 'var(--sp-2)' }}>
               <Button size="small" icon={<SaveOutlined />} loading={saving} disabled={!taskId} onClick={saveReport}>保存报告</Button>
               <Button size="small" icon={<DownloadOutlined />} loading={exporting} onClick={exportReport}>导出办公文档</Button>
             </div>
           </div>
           <div className="card-body">
-            <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontFamily: 'var(--font-sans)', lineHeight: 1.7 }}>{report}</pre>
+            <ReportMarkdown content={report} />
           </div>
         </div>
       )}

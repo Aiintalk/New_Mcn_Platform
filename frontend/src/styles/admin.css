@@ -266,6 +266,34 @@
   margin-top: 0;
 }
 
+.workspace-upload-tile {
+  min-height: 116px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 16px;
+  border: 1px dashed var(--gray-300);
+  border-radius: var(--radius-lg);
+  color: var(--gray-600);
+  cursor: pointer;
+  text-align: center;
+  background: var(--bg-card);
+}
+
+.workspace-upload-tile:hover,
+.workspace-upload-tile:focus-visible {
+  border-color: var(--brand);
+  background: var(--brand-light);
+  outline: none;
+}
+
+.workspace-upload-tile > span {
+  font-size: 12px;
+  color: var(--gray-400);
+}
+
 .workspace-tool-module .page-header {
   margin-bottom: var(--sp-4);
 }
