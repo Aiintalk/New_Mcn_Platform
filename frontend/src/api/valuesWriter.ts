@@ -120,6 +120,9 @@ async function readSseStream(resp: Response, onDelta: (text: string) => void): P
     }
     if (done) break;
   }
+  if (full.startsWith('[ERROR]')) {
+    throw new Error(full.replace(/^\[ERROR\]\s*/, ''));
+  }
   return full;
 }
 

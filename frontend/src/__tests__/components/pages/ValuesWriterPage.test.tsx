@@ -100,6 +100,20 @@ describe('ValuesWriterModule', () => {
     }), expect.any(Function));
   });
 
+  it('展示服务端结构化生成失败的明确原因', async () => {
+    const user = userEvent.setup();
+    mockDeriveDirections.mockResolvedValue({ directions: [{ type: '诱惑型', title: '被看见', description: '展示生活优势', anchor: '轻松被偏爱' }] });
+    mockGenerateValueScript.mockRejectedValue(new Error('结构化生成失败，已重试 3 次：缺少或为空的结构段：<report>'));
+    renderModule();
+    await user.type(screen.getByLabelText('锁定开头'), '锁定开头');
+    await user.type(screen.getByLabelText('爆款全文'), '锁定开头\n原文第二段');
+    await user.click(screen.getByRole('button', { name: /下一步：选择产品/ }));
+    await user.click(screen.getByRole('button', { name: '生成情绪方向' }));
+    await user.click(await screen.findByText('诱惑型 · 被看见'));
+    await user.click(screen.getByRole('button', { name: '生成脚本和报告' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('结构化生成失败，已重试 3 次');
+  });
+
   it('只接受完整的结构化生成结果，并按旧版双字算法给出百分比', () => {
     expect(parseValueScriptResult('<rewrite>脚本</rewrite><report>报告</report>')).toBeNull();
     expect(parseValueScriptResult('<analysis>结构</analysis><rewrite>脚本</rewrite><report>报告</report>')).toEqual({ analysis: '结构', rewrite: '脚本', report: '报告' });
