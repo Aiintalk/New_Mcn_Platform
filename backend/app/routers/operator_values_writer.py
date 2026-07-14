@@ -235,6 +235,27 @@ class GenerateValueScriptRequest(BaseModel):
     direction: EmotionDirection
 
 
+class StructuredValueScriptResult(BaseModel):
+    analysis: str
+    rewrite: str
+    report: str
+
+
+class StructuredIterationHistoryItem(BaseModel):
+    instruction: str
+    result: StructuredValueScriptResult
+
+
+class StructuredIterateRequest(BaseModel):
+    kol_id: int
+    opening_line: str
+    original_script: str
+    direction: EmotionDirection
+    current_result: StructuredValueScriptResult
+    instruction: str
+    history: list[StructuredIterationHistoryItem] = []
+
+
 def _product_prompt(product) -> str:
     fields = (
         ("产品昵称", product.nickname),
@@ -400,6 +421,80 @@ async def generate_value_script(
                     input_payload={"kol_id": body.kol_id, "product_id": product.id,
                                    "original_length": len(body.original_script), "model_id": model_id},
                     result_summary={"output_kind": "structured_script"},
+                ))
+                await stream_db.commit()
+                yield _sse_chunk(output)
+            except Exception as exc:
+                yield _sse_chunk(f"[ERROR] {exc}")
+        yield _sse_done()
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+@router.post("/iterate-structured")
+async def iterate_structured_value_script(
+    body: StructuredIterateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_operator),
+):
+    """按人工修改要求迭代旧版结构化脚本，并保留可追溯的上下文。"""
+    if not body.instruction.strip():
+        raise HTTPException(status_code=400, detail={"code": "INVALID_INPUT", "message": "修改要求不能为空"})
+    if body.direction.type not in ALLOWED_DIRECTION_TYPES:
+        raise HTTPException(status_code=400, detail={"code": "INVALID_DIRECTION", "message": "情绪方向只支持焦虑型或诱惑型"})
+    context = await get_kol_context(db, body.kol_id)
+    product = await _require_current_product(db, body.kol_id)
+    config = await _get_config(db)
+    model_id, provider = await _resolve_model(config, db)
+    history_text = "\n\n".join(
+        f"第 {index} 次修改要求：{item.instruction}\n当轮脚本：{item.result.rewrite}\n当轮报告：{item.result.report}"
+        for index, item in enumerate(body.history, start=1)
+    ) or "无"
+    prompt = f"""你要按人工要求迭代一份价值观改写，并严格输出 <analysis>、<rewrite>、<report> 三段。
+硬规则：
+1. <rewrite> 的第一句必须逐字保留“{body.opening_line}”。
+2. 保留原文段落功能和节奏，按当前修改要求重写。
+3. <rewrite> 和 <report> 不得出现商品名、成分、价格、功效等直接商品信息。
+4. 继续服务于 {body.direction.type} 情绪，方向标题是“{body.direction.title}”，说明是“{body.direction.description}”，锚点是“{body.direction.anchor}”。
+5. <analysis> 写本轮改动、字数和段落功能；<report> 写触发句、恐惧强度、诱惑强度、产品联想、开头核查和优化建议。
+
+红人档案：
+{_profile_prompt(context)}
+
+爆款全文：
+{body.original_script}
+
+当前版本：
+结构分析：{body.current_result.analysis}
+脚本：{body.current_result.rewrite}
+情绪报告：{body.current_result.report}
+
+此前修改历史：
+{history_text}
+
+本轮人工修改要求：{body.instruction}
+"""
+    user_id = current_user.id
+
+    async def generate():
+        async with AsyncSessionLocal() as stream_db:
+            try:
+                chunks = []
+                async for chunk in yunwu_adapter.chat_stream(
+                    messages=[{"role": "user", "content": prompt}], db=stream_db,
+                    model_id=model_id, provider=provider, user_id=user_id,
+                    feature="values_writer_structured_iterate",
+                ):
+                    chunks.append(chunk)
+                output = _restore_locked_opening("".join(chunks), body.opening_line)
+                if any(fact in output for fact in _direct_product_facts(product)):
+                    yield _sse_chunk("[ERROR] 修改结果包含商品直接信息")
+                    return
+                stream_db.add(TaskJob(
+                    task_no=f"values-{uuid4().hex}", tool_code=TOOL_CODE, tool_name=TOOL_NAME,
+                    status="success", created_by=user_id,
+                    input_payload={"kol_id": body.kol_id, "product_id": product.id, "history_count": len(body.history), "model_id": model_id},
+                    result_summary={"output_kind": "structured_iteration"},
                 ))
                 await stream_db.commit()
                 yield _sse_chunk(output)

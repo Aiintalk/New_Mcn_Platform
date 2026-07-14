@@ -85,6 +85,8 @@ describe('WorkspaceReferences', () => {
     expect(screen.getByText('夏季护肤心得')).toBeInTheDocument();
     expect(screen.getByText('5 万点赞，完播率 28%')).toBeInTheDocument();
     expect(screen.getByText(/有视频/)).toBeInTheDocument();
+    expect(screen.getByText(/分类：.*红人爆款文案/)).toBeInTheDocument();
+    expect(screen.getByText(/摘要：.*夏天的护肤要点/)).toBeInTheDocument();
   });
 
   it('gets a short-lived playback URL only after the operator expands a video material', async () => {

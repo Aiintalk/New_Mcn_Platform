@@ -262,6 +262,48 @@ class TestLegacyValuesWorkflow:
         assert response.status_code == 400
         assert "只支持焦虑型或诱惑型" in response.text
 
+    @pytest.mark.asyncio
+    async def test_structured_iteration_uses_full_kol_context_and_returns_updated_report(
+        self, test_client, operator_headers, test_session
+    ):
+        kol_id = await _create_kol(test_session, name="多轮修改达人")
+        await test_session.execute(text(
+            "UPDATE kols SET content_plan = '内容计划', experience = '真实经历', relationships = '关系网', "
+            "unique_story = '独家经历', extra_notes = '补充信息' WHERE id = :id"
+        ), {"id": kol_id})
+        await _set_current_product(test_session, kol_id)
+        seen = {}
+
+        async def _mock_stream(*args, **kwargs):
+            seen["prompt"] = kwargs["messages"][0]["content"]
+            yield "<analysis>修改后结构</analysis><rewrite>锁定开头。\n修改后表达。</rewrite><report>修改后报告</report>"
+
+        with patch("app.routers.operator_values_writer.yunwu_adapter.chat_stream", side_effect=_mock_stream):
+            response = await test_client.post(
+                "/api/operator/values-writer/iterate-structured",
+                json={
+                    "kol_id": kol_id,
+                    "opening_line": "锁定开头。",
+                    "original_script": "锁定开头。\n原文正文。",
+                    "direction": {"type": "诱惑型", "title": "被看见", "description": "说明", "anchor": "锚点"},
+                    "current_result": {"analysis": "初稿结构", "rewrite": "锁定开头。\n初稿表达。", "report": "初稿报告"},
+                    "instruction": "把语气改得更克制",
+                    "history": [{"instruction": "先减少夸张", "result": {"analysis": "历史结构", "rewrite": "锁定开头。\n历史表达。", "report": "历史报告"}}],
+                },
+                headers=operator_headers,
+            )
+
+        assert response.status_code == 200
+        generated = "".join(
+            json.loads(line.removeprefix("data: ")).get("delta", "")
+            for line in response.text.splitlines()
+            if line.startswith("data: ")
+        )
+        assert "<rewrite>锁定开头。\n修改后表达。</rewrite>" in generated
+        assert "<report>修改后报告</report>" in generated
+        for value in ("内容计划", "真实经历", "关系网", "独家经历", "补充信息", "把语气改得更克制", "初稿表达", "历史表达"):
+            assert value in seen["prompt"]
+
 
 # ---------------------------------------------------------------------------
 # Test 1: No auth → 401

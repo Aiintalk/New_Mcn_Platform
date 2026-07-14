@@ -54,7 +54,7 @@ vi.mock('../../../store/authStore', () => ({
 // Mock scrollIntoView（jsdom 不支持）
 Element.prototype.scrollIntoView = vi.fn();
 
-import QianchuanWriterPage, { selectBestReviewCandidate } from '../../../pages/operator/QianchuanWriterPage';
+import QianchuanWriterPage, { QianchuanWriterModule, selectBestReviewCandidate } from '../../../pages/operator/QianchuanWriterPage';
 import QianchuanWriterConfigTab from '../../../pages/admin/QianchuanWriterConfigTab';
 
 const samplePersonas = [
@@ -178,10 +178,23 @@ describe('QianchuanWriterPage', () => {
     await user.click(screen.getByRole('button', { name: '确认，去加载产品 →' }));
 
     await waitFor(() => {
-      expect(screen.getByText('Step 2 · 当前商品')).toBeInTheDocument();
+      expect(screen.getByText('Step 1 · 当前商品')).toBeInTheDocument();
       expect(screen.getByText(/产品昵称：当前商品/)).toBeInTheDocument();
       expect(screen.queryByText('点击上传或拖拽卖点卡')).not.toBeInTheDocument();
     });
+  });
+
+  it('在没有当前商品时，新建并选中流程要求填写完整商品字段', async () => {
+    mockGetActiveProducts.mockResolvedValue([]);
+    const user = userEvent.setup();
+    renderWithApp(<QianchuanWriterModule kolId={1} />);
+
+    await screen.findByText('还没有当前商品，不能生成仿写');
+    await user.click(screen.getByRole('button', { name: '新建商品' }));
+
+    expect(await screen.findByLabelText('最主推卖点')).toBeInTheDocument();
+    expect(screen.getByLabelText('主推机制')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('填写价格钩子、买赠、破价、限时赠品等促销机制')).toBeInTheDocument();
   });
 
   // Test 4: Step 3 字数实时显示

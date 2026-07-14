@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Modal, Form, Input, Checkbox, Popconfirm, message } from 'antd';
+import { Popconfirm, message } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import type { QianchuanProduct } from '../../../types/kolWorkspace';
+import ProductFormModal, { type ProductFormValues } from '../../../components/qianchuan/ProductFormModal';
 import {
   getQianchuanProducts,
   createQianchuanProduct,
@@ -11,95 +12,55 @@ import {
 
 const PAGE_SIZE = 20;
 
-type ProductFormValues = Omit<QianchuanProduct, 'id' | 'created_by' | 'created_at' | 'updated_at'>;
-
-interface ProductFormModalProps {
-  open: boolean;
-  editing: QianchuanProduct | null;
-  loading: boolean;
-  onCancel: () => void;
-  onFinish: (values: ProductFormValues) => void;
+function ProductDetail({ label, value }: { label: string; value: string | null }) {
+  if (!value) return null;
+  return (
+    <div>
+      <div style={{ fontSize: 12, color: 'var(--gray-400)', marginBottom: 3 }}>{label}</div>
+      <div style={{ fontSize: 13, lineHeight: 1.65, color: 'var(--gray-700)', whiteSpace: 'pre-wrap' }}>{value}</div>
+    </div>
+  );
 }
 
-function ProductFormModal({ open, editing, loading, onCancel, onFinish }: ProductFormModalProps) {
-  const [form] = Form.useForm<ProductFormValues>();
-
-  useEffect(() => {
-    if (open) {
-      if (editing) {
-        form.setFieldsValue({
-          nickname:           editing.nickname,
-          core_selling_point: editing.core_selling_point ?? '',
-          visualization:      editing.visualization ?? '',
-          mechanism:          editing.mechanism ?? '',
-          mechanism_exclusive: editing.mechanism_exclusive,
-          endorsement:        editing.endorsement ?? '',
-          user_feedback:      editing.user_feedback ?? '',
-          unique_selling:     editing.unique_selling ?? '',
-          awards:             editing.awards ?? '',
-          efficacy_proof:     editing.efficacy_proof ?? '',
-        });
-      } else {
-        form.resetFields();
-        form.setFieldsValue({ mechanism_exclusive: false });
-      }
-    }
-  }, [open, editing, form]);
-
+function ProductScanCard({ product, onEdit, onDelete }: {
+  product: QianchuanProduct;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
   return (
-    <Modal
-      title={editing ? `编辑产品：${editing.nickname}` : '新建产品'}
-      open={open}
-      onCancel={onCancel}
-      onOk={() => form.submit()}
-      okText={editing ? '保存' : '创建'}
-      cancelText="取消"
-      confirmLoading={loading}
-      width={640}
-      destroyOnClose
-    >
-      <Form
-        form={form}
-        layout="vertical"
-        onFinish={onFinish}
-        style={{ marginTop: 16 }}
-      >
-        <Form.Item
-          label="产品昵称"
-          name="nickname"
-          rules={[{ required: true, message: '请输入产品昵称' }]}
-        >
-          <Input placeholder="请输入产品名称（用于区分识别）" />
-        </Form.Item>
-        <Form.Item label="最主推卖点" name="core_selling_point">
-          <Input placeholder="例：控油持妆 12 小时" />
-        </Form.Item>
-        <Form.Item label="可视化演示点" name="visualization">
-          <Input.TextArea rows={3} placeholder="填写可直观展示的卖点" />
-        </Form.Item>
-        <Form.Item label="主推机制" name="mechanism">
-          <Input.TextArea rows={3} placeholder="填写核心成分/技术/机制" />
-        </Form.Item>
-        <Form.Item name="mechanism_exclusive" valuePropName="checked">
-          <Checkbox>只有我有（独家机制）</Checkbox>
-        </Form.Item>
-        <Form.Item label="推荐来源 / 背书" name="endorsement">
-          <Input.TextArea rows={3} placeholder="明星、权威机构、媒体背书等" />
-        </Form.Item>
-        <Form.Item label="用户反馈" name="user_feedback">
-          <Input.TextArea rows={3} placeholder="真实用户口碑/评价" />
-        </Form.Item>
-        <Form.Item label="独家卖点" name="unique_selling">
-          <Input.TextArea rows={3} placeholder="区别于竞品的独特优势" />
-        </Form.Item>
-        <Form.Item label="获奖荣誉" name="awards">
-          <Input placeholder="获奖/认证/上榜信息" />
-        </Form.Item>
-        <Form.Item label="功效承诺" name="efficacy_proof">
-          <Input.TextArea rows={3} placeholder="可量化的功效数据/承诺" />
-        </Form.Item>
-      </Form>
-    </Modal>
+    <div className="card" style={{ marginBottom: 'var(--sp-4)' }} data-testid={`product-card-${product.id}`}>
+      <div className="card-header" style={{ alignItems: 'flex-start' }}>
+        <div>
+          <h2 className="card-title" style={{ marginBottom: 6 }}>{product.nickname}</h2>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {product.core_selling_point && <span className="badge badge-brand">{product.core_selling_point}</span>}
+            {product.mechanism_exclusive && <span className="badge badge-danger">只有我有</span>}
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 'var(--sp-2)' }}>
+          <button className="btn btn-ghost btn-sm" onClick={onEdit}>编辑</button>
+          <Popconfirm
+            title={`确认删除产品「${product.nickname}」？`}
+            description="删除后不可恢复。"
+            okText="确认删除"
+            cancelText="取消"
+            okButtonProps={{ danger: true }}
+            onConfirm={onDelete}
+          >
+            <button className="btn btn-danger-ghost btn-sm">删除</button>
+          </Popconfirm>
+        </div>
+      </div>
+      <div className="card-body" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 'var(--sp-4)' }}>
+        <ProductDetail label="可视化演示点" value={product.visualization} />
+        <ProductDetail label="主推机制（价格钩子、买赠、破价、限时赠品）" value={product.mechanism} />
+        <ProductDetail label="推荐来源 / 背书" value={product.endorsement} />
+        <ProductDetail label="用户反馈" value={product.user_feedback} />
+        <ProductDetail label="独家卖点" value={product.unique_selling} />
+        <ProductDetail label="获奖荣誉" value={product.awards} />
+        <ProductDetail label="功效承诺" value={product.efficacy_proof} />
+      </div>
+    </div>
   );
 }
 
@@ -211,57 +172,16 @@ export default function QianchuanProductsModule() {
           </div>
         ) : (
           <>
-            <table className="ant-table">
-              <thead>
-                <tr>
-                  <th style={{ width: 160 }}>产品昵称</th>
-                  <th style={{ width: 180 }}>最主推卖点</th>
-                  <th>主推机制</th>
-                  <th style={{ width: 90, textAlign: 'center' }}>只有我有</th>
-                  <th className="col-actions" style={{ width: 120 }}>操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((p) => (
-                  <tr key={p.id}>
-                    <td style={{ fontWeight: 600, color: 'var(--gray-800)', fontSize: 14 }}>
-                      {p.nickname}
-                    </td>
-                    <td style={{ fontSize: 13, color: 'var(--gray-600)' }}>
-                      {p.core_selling_point ?? '—'}
-                    </td>
-                    <td style={{ fontSize: 13, color: 'var(--gray-600)' }}>
-                      {p.mechanism
-                        ? p.mechanism.length > 50 ? `${p.mechanism.slice(0, 50)}…` : p.mechanism
-                        : '—'}
-                    </td>
-                    <td style={{ textAlign: 'center' }}>
-                      {p.mechanism_exclusive
-                        ? <span className="badge badge-danger">是</span>
-                        : <span className="badge badge-gray">否</span>}
-                    </td>
-                    <td className="col-actions">
-                      <button
-                        className="btn btn-ghost btn-sm"
-                        onClick={() => openEdit(p)}
-                      >
-                        编辑
-                      </button>
-                      <Popconfirm
-                        title={`确认删除产品「${p.nickname}」？`}
-                        description="删除后不可恢复。"
-                        okText="确认删除"
-                        cancelText="取消"
-                        okButtonProps={{ danger: true }}
-                        onConfirm={() => handleDelete(p.id)}
-                      >
-                        <button className="btn btn-danger-ghost btn-sm">删除</button>
-                      </Popconfirm>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div style={{ marginTop: 'var(--sp-4)' }}>
+              {items.map((product) => (
+                <ProductScanCard
+                  key={product.id}
+                  product={product}
+                  onEdit={() => openEdit(product)}
+                  onDelete={() => handleDelete(product.id)}
+                />
+              ))}
+            </div>
 
             {totalPages > 1 && (
               <div className="pagination">
@@ -291,10 +211,12 @@ export default function QianchuanProductsModule() {
 
       <ProductFormModal
         open={modalOpen}
-        editing={editing}
+        title={editing ? `编辑产品：${editing.nickname}` : '新建产品'}
+        submitText={editing ? '保存' : '创建'}
+        initialProduct={editing}
         loading={saveLoading}
         onCancel={closeModal}
-        onFinish={handleSave}
+        onSubmit={handleSave}
       />
     </>
   );
