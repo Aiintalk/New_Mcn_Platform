@@ -123,7 +123,7 @@
 }
 
 .workspace-topbar {
-  height: 52px;
+  height: 56px;
   background: var(--bg-card);
   border-bottom: 1px solid var(--border);
   display: flex;
@@ -199,7 +199,7 @@
   flex-direction: column;
   flex-shrink: 0;
   overflow-y: auto;
-  padding: 12px 10px;
+  padding: 14px 10px;
 }
 
 .workspace-nav-item {
@@ -250,13 +250,42 @@
 .workspace-main {
   flex: 1;
   overflow: auto;
-  padding: var(--sp-6);
+  padding: 28px 32px 40px;
 }
+
+/* Workspace visual system: quiet surfaces, precise controls, orange only for intent. */
+.workspace-main input:not([type='checkbox']), .workspace-main textarea, .workspace-main .ant-select-selector {
+  border-color: var(--border) !important;
+  border-radius: var(--radius-sm) !important;
+  box-shadow: none !important;
+}
+.workspace-main input:not([type='checkbox']), .workspace-main textarea { padding: 8px 10px; line-height: 1.5; }
+.workspace-main textarea { min-height: 96px; }
+.workspace-main input:focus, .workspace-main textarea:focus, .workspace-main .ant-select-focused .ant-select-selector {
+  border-color: var(--brand) !important;
+  box-shadow: 0 0 0 3px var(--brand-light) !important;
+  outline: none;
+}
+.workspace-main .ant-select-selector { min-height: 38px !important; padding-top: 2px !important; }
+.workspace-main .ant-steps { padding: 12px 14px; background: var(--bg-card); border: 1px solid var(--border-light); border-radius: var(--radius-md); }
 
 .workspace-tool-module {
   width: 100%;
   max-width: 960px;
 }
+
+.workspace-main .page-header { margin-bottom: 24px; align-items: flex-end; }
+.workspace-main .page-title { font-size: 24px; letter-spacing: -0.2px; line-height: 1.25; }
+.workspace-main .page-desc { margin-top: 6px; color: var(--gray-500); line-height: 1.6; }
+.workspace-main .card { border: 1px solid var(--border-light); border-radius: var(--radius-md); box-shadow: var(--shadow-sm); }
+.workspace-main .card-header { padding: 16px 20px; border-bottom-color: var(--border-light); }
+.workspace-main .card-body { padding: 20px; }
+.workspace-main .btn { min-height: 36px; border-radius: var(--radius-sm); font-weight: 600; transition: background-color .16s ease, border-color .16s ease, box-shadow .16s ease; }
+.workspace-main .btn-primary { box-shadow: 0 1px 2px rgba(183,100,5,.18); }
+.workspace-main .btn-primary:focus-visible, .workspace-nav-item:focus-visible, .workspace-main button:focus-visible { outline: 3px solid var(--brand-border); outline-offset: 2px; }
+.workspace-main .workspace-upload-tile { min-height: 108px; border: 1px dashed var(--gray-300); border-radius: var(--radius-md); background: #FCFCFD; transition: border-color .16s ease, background-color .16s ease; }
+.workspace-main .workspace-upload-tile:hover { border-color: var(--brand); background: var(--brand-light); }
+@media (max-width: 1100px) { .workspace-main { padding: 22px 24px 32px; } .workspace-sidebar { width: 176px; } }
 
 .workspace-step-card {
   padding: var(--sp-5);
