@@ -51,6 +51,7 @@ export function FilmReviewModule({ kolId: _kolId }: { kolId: number }) {
   const [analyzing, setAnalyzing] = useState(false);
   const [report, setReport] = useState('');
   const [analysisFailed, setAnalysisFailed] = useState(false);
+  const [analysisCompleted, setAnalysisCompleted] = useState(false);
   const [taskId, setTaskId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -75,6 +76,7 @@ export function FilmReviewModule({ kolId: _kolId }: { kolId: number }) {
     updateState(role, { file, status: 'selected', error: null });
     setReport('');
     setAnalysisFailed(false);
+    setAnalysisCompleted(false);
     setTaskId(null);
     setAnalysisStatus('视频已选择，等待上传');
     setAnalysisSteps([]);
@@ -88,6 +90,7 @@ export function FilmReviewModule({ kolId: _kolId }: { kolId: number }) {
     setAnalyzing(true);
     setReport('');
     setAnalysisFailed(false);
+    setAnalysisCompleted(false);
     setTaskId(null);
     setOriginal((current) => ({ ...current, status: 'uploading', error: null }));
     setEdited((current) => ({ ...current, status: 'uploading', error: null }));
@@ -145,9 +148,11 @@ export function FilmReviewModule({ kolId: _kolId }: { kolId: number }) {
       setEdited((current) => ({ ...current, status: 'completed' }));
       setAnalysisStatus('完整视频分析完成');
       setAnalysisSteps((steps) => [...steps, '完整视频分析完成']);
+      setAnalysisCompleted(true);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '完整视频分析失败';
       setAnalysisFailed(true);
+      setAnalysisCompleted(false);
       setAnalysisStatus(`分析失败：${errorMessage}`);
       setAnalysisSteps((steps) => [...steps, `分析失败：${errorMessage}`]);
       setOriginal((current) => ({ ...current, status: 'failed', error: errorMessage }));
@@ -159,7 +164,7 @@ export function FilmReviewModule({ kolId: _kolId }: { kolId: number }) {
   }
 
   async function saveReport() {
-    if (!report.trim()) return;
+    if (!analysisCompleted || !report.trim()) return;
     setSaving(true);
     try {
       if (!taskId || !original.file || !edited.file) return;
@@ -178,7 +183,7 @@ export function FilmReviewModule({ kolId: _kolId }: { kolId: number }) {
   }
 
   async function exportReport() {
-    if (!report.trim()) return;
+    if (!analysisCompleted || !report.trim()) return;
     setExporting(true);
     try {
       const blob = await exportFilmReport(report);
@@ -270,8 +275,8 @@ export function FilmReviewModule({ kolId: _kolId }: { kolId: number }) {
           <div className="card-header">
             <h2 className="card-title">分镜预审报告</h2>
             <div style={{ display: 'flex', gap: 'var(--sp-2)' }}>
-              <Button size="small" icon={<SaveOutlined />} loading={saving} disabled={!taskId} onClick={saveReport}>保存报告</Button>
-              <Button size="small" icon={<DownloadOutlined />} loading={exporting} onClick={exportReport}>导出办公文档</Button>
+              <Button size="small" icon={<SaveOutlined />} loading={saving} disabled={!analysisCompleted || !taskId} onClick={saveReport}>保存报告</Button>
+              <Button size="small" icon={<DownloadOutlined />} loading={exporting} disabled={!analysisCompleted} onClick={exportReport}>导出办公文档</Button>
             </div>
           </div>
           <div className="card-body">

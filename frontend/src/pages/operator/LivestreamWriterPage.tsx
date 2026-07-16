@@ -42,10 +42,10 @@ function extractScriptSection(content: string): string {
   return m ? m[1] : '';
 }
 
-function SimpleMarkdown({ text }: { text: string }) {
+export function SimpleMarkdown({ text }: { text: string }) {
   const html = text
     .replace(/^### (.+)$/gm, '<h3 style="font-size:16px;font-weight:700;margin:20px 0 8px;color:#1d2939">$1</h3>')
-    .replace(/^## (.+)$/gm, '<h2 style="font-size:18px;font-weight:700;margin:24px 0 10px;color:#1d2939">$2</h2>')
+    .replace(/^## (.+)$/gm, '<h2 style="font-size:18px;font-weight:700;margin:24px 0 10px;color:#1d2939">$1</h2>')
     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
     .replace(/\n\n/g, '</p><p style="margin-bottom:10px">')
     .replace(/\n/g, '<br/>');

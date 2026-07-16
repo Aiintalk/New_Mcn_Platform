@@ -65,6 +65,7 @@ describe('FilmReviewModule', () => {
     await waitFor(() => expect(mockAnalyzeFilm).toHaveBeenCalledWith(7, original, edited));
     expect(await screen.findByText('正在读取两条完整视频')).toBeInTheDocument();
     expect(await screen.findByText(/三维评分：88/)).toBeInTheDocument();
+    expect(await screen.findByText('完整视频分析完成')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /保存报告/ }));
     expect(mockSaveFilmReport).toHaveBeenCalledWith({
@@ -73,6 +74,30 @@ describe('FilmReviewModule', () => {
       original_filename: 'origin.mp4',
       edited_filename: 'edited.mov',
     });
+  });
+
+  it('keeps save and export unavailable while a streamed report is still being analyzed', async () => {
+    const user = userEvent.setup();
+    const encoder = new TextEncoder();
+    let controller: ReadableStreamDefaultController<Uint8Array> | undefined;
+    mockAnalyzeFilm.mockResolvedValue(new Response(new ReadableStream({
+      start(nextController) {
+        controller = nextController;
+        nextController.enqueue(encoder.encode('event: report\ndata: {"text":"# 尚未完成的报告"}\n\n'));
+      },
+    }), { headers: { 'X-Task-Id': '42' } }));
+    render(<App><FilmReviewModule kolId={7} /></App>);
+
+    await user.upload(screen.getByTestId('film-file-original'), new File(['origin'], 'origin.mp4', { type: 'video/mp4' }));
+    await user.upload(screen.getByTestId('film-file-edited'), new File(['edited'], 'edited.mov', { type: 'video/quicktime' }));
+    await user.click(screen.getByRole('button', { name: /开始剪辑分析/ }));
+
+    expect(await screen.findByText(/尚未完成的报告/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /保存报告/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /导出办公文档/ })).toBeDisabled();
+    expect(mockSaveFilmReport).not.toHaveBeenCalled();
+    expect(mockExportFilmReport).not.toHaveBeenCalled();
+    controller?.close();
   });
 
   it('marks the selected files failed and does not offer save or export after an SSE error event', async () => {
