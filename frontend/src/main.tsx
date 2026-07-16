@@ -13,12 +13,9 @@ createRoot(document.getElementById('root')!).render(
       theme={{
         token: {
           colorPrimary: '#f59a23',
-          colorBgLayout: '#F5F5F7',
-          colorBorder: '#E5E5EA',
-          colorTextSecondary: '#6E6E73',
-          borderRadius: 8,
-          controlHeight: 38,
-          fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Text','PingFang SC','Helvetica Neue',sans-serif",
+          colorBgLayout: '#F8F7F4',
+          borderRadius: 10,
+          fontFamily: "Inter,-apple-system,'PingFang SC',sans-serif",
           fontSize: 14,
         },
       }}
