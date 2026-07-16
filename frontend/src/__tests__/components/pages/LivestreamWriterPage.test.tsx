@@ -34,7 +34,7 @@ vi.mock('../../../store/authStore', () => ({
 
 Element.prototype.scrollIntoView = vi.fn();
 
-import { LivestreamWriterModule } from '../../../pages/operator/LivestreamWriterPage';
+import { LivestreamWriterModule, SimpleMarkdown } from '../../../pages/operator/LivestreamWriterPage';
 
 function streamResponse(content: string): Response {
   const encoder = new TextEncoder();
@@ -144,5 +144,12 @@ describe('LivestreamWriterModule', () => {
     expect(screen.getByLabelText('主推机制')).toBeInTheDocument();
     expect(screen.getByText('背书→种草→机制')).toBeInTheDocument();
     expect(mockGetActiveProducts).toHaveBeenCalledWith(7);
+  });
+
+  it('renders a Markdown secondary heading without a literal replacement token', () => {
+    render(<SimpleMarkdown text={'## 模块标题'} />);
+
+    expect(screen.getByRole('heading', { level: 2, name: '模块标题' })).toBeInTheDocument();
+    expect(screen.queryByText('$2')).not.toBeInTheDocument();
   });
 });
