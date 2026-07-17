@@ -887,9 +887,10 @@ erDiagram
 | cron | VARCHAR(64) | cron 表达式，写入前校验合法性 |
 | version_id | BIGINT FK → eval_versions.id ON DELETE SET NULL | 固定版本；null 表示使用最新 active 版本 |
 | filter_tags | TEXT[] | 样本标签过滤 |
-| is_active | BOOLEAN | |
+| is_active | BOOLEAN | 是否启用 |
 | created_by | BIGINT FK | |
 | created_at / updated_at | TIMESTAMPTZ | |
+| deleted_at | TIMESTAMPTZ | 逻辑删除（DELETE 接口置此字段，与 §9 一致）|
 
 ### 5.5 索引建议
 
@@ -906,6 +907,7 @@ erDiagram
 | eval_scores | `(case_result_id, dimension_id)` | 唯一约束兼查询 |
 | eval_scores | `(dimension_id, ai_score)` | 按维度分析评分分布 |
 | eval_human_labels | `(score_id, created_at)` | 查询校准历史 |
+| eval_schedule_policies | `(is_active, deleted_at)` | 查询启用的调度策略 |
 
 ---
 
@@ -938,6 +940,8 @@ erDiagram
 3. 缺失值 fallback 为空字符串，不抛异常（沿用 `render_system_prompt` 的语义）。
 
 一期约定：test_case.input_payload 至少包含 `persona_id`/`name`/`soul`/`content_plan`，其余字段按需扩展，渲染器按 key 自动匹配。
+
+**服务职责分层（重要）**：`generator.py` 和 `scorer.py` 设计为**纯函数**——只做 prompt 渲染与 AI 响应解析（含 AI 调用以 callable 注入，便于测试 mock），**不直接持有 `AsyncSessionLocal`、不写库**。所有 DB 写入（`eval_case_results` / `eval_scores` / `eval_runs` 状态）统一由 `runner.py` 在编排循环中完成。因此 §6.7 的 conftest patch 列表**只含 runner（和 scheduler）**，不含 generator/scorer。这样 generator/scorer 可纯单测、无需数据库。
 
 ### 6.2 异步执行
 
@@ -1046,17 +1050,19 @@ await db.commit()
 
 所有直接 import `AsyncSessionLocal` 的 evaluation 模块，必须在 `backend/tests/conftest.py` 的 `_SESSION_LOCAL_PATCH_TARGETS` 列表中注册。
 
-示例需注册的模块路径：
+示例需注册的模块路径（仅实际 `import AsyncSessionLocal` 的模块）：
 
 ```python
 _SESSION_LOCAL_PATCH_TARGETS = [
     # 现有模块...
-    "app.evaluation.services.runner",
-    "app.evaluation.services.generator",
-    "app.evaluation.services.scorer",
-    "app.evaluation.services.scheduler",
+    "app.evaluation.services.runner.AsyncSessionLocal",       # 后台执行 run（持 session 写库）
+    "app.evaluation.services.scheduler.AsyncSessionLocal",    # 自动/定时触发建 run
+    # generator/scorer 是纯函数不 import AsyncSessionLocal，无需 patch
+    # 若某 router endpoint 直接 BackgroundTask 且自开 session，则补该 router 路径
 ]
 ```
+
+> 说明：eval admin router 若纯 `Depends(get_db)` CRUD（参照 `admin_qianchuan_writer.py`），**不需要** patch；只有自己 `import AsyncSessionLocal` 开后台 session 的才需要。实施时以 grep `AsyncSessionLocal` 实际 import 点为准。
 
 ---
 
