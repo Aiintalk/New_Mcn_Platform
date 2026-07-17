@@ -12,23 +12,35 @@ import type { PersonaDetails } from '../../../types/kolWorkspace';
 
 interface WorkspacePersonaProps {
   kolId: number;
+  kolName?: string;
 }
 
 interface SectionConfig {
   key: keyof Omit<PersonaDetails, 'kol_id' | 'updated_at'>;
   title: string;
   hint: string;
+  rows: number;
 }
 
 const SECTIONS: SectionConfig[] = [
-  { key: 'background',    title: '基本身份',   hint: '年龄、职业、背景、性格' },
-  { key: 'experience',    title: '真实经历',   hint: '可替换脚本人物经历的素材' },
-  { key: 'relationships', title: '关系网',     hint: '朋友/闺蜜/家人名单，替换脚本人名' },
-  { key: 'unique_story',  title: '独家经历',   hint: '只有该达人有的人生故事，越细越好' },
-  { key: 'extra_notes',   title: '其他补充',   hint: '习惯、口头禅、禁区' },
+  { key: 'background',    title: '基本身份',   hint: '年龄、职业、背景、性格', rows: 5 },
+  { key: 'experience',    title: '真实经历',   hint: '可替换脚本人物经历的素材', rows: 7 },
+  { key: 'relationships', title: '关系网',     hint: '朋友/闺蜜/家人名单，替换脚本人名', rows: 5 },
+  { key: 'unique_story',  title: '独家经历',   hint: '只有该达人有的人生故事，越细越好', rows: 7 },
+  { key: 'extra_notes',   title: '其他补充',   hint: '习惯、口头禅、禁区', rows: 4 },
 ];
 
-export default function WorkspacePersona({ kolId }: WorkspacePersonaProps) {
+function renderPersonaText(value: string) {
+  return value.split('\n').map((line, index) => {
+    if (line.startsWith('【') && line.endsWith('】')) return <div key={index} style={{ fontWeight: 700, color: 'var(--gray-800)', marginTop: index ? 10 : 0 }}>{line}</div>;
+    if (/^[-•]\s*/.test(line)) return <div key={index} style={{ paddingLeft: 16 }}><span style={{ color: 'var(--brand)', marginRight: 6 }}>•</span>{line.replace(/^[-•]\s*/, '')}</div>;
+    if (/^\d+[.、]\s*/.test(line)) return <div key={index} style={{ paddingLeft: 16, color: 'var(--gray-700)' }}>{line}</div>;
+    if (line.startsWith('⚠️')) return <div key={index} style={{ color: 'var(--warning)', fontWeight: 600 }}>{line}</div>;
+    return <p key={index} style={{ margin: '2px 0' }}>{line || ' '}</p>;
+  });
+}
+
+export default function WorkspacePersona({ kolId, kolName = '当前红人' }: WorkspacePersonaProps) {
   const { message } = App.useApp();
   const [details, setDetails] = useState<PersonaDetails | null>(null);
   const [loading, setLoading] = useState(false);
@@ -106,12 +118,10 @@ export default function WorkspacePersona({ kolId }: WorkspacePersonaProps) {
   }
 
   return (
-    <div style={{ maxWidth: 800 }}>
-      <div className="page-header">
-        <div>
-          <h1 className="page-title">人物档案</h1>
-          <p className="page-desc">记录达人的真实背景、经历与关系网，用于脚本仿写替换</p>
-        </div>
+    <div style={{ maxWidth: 800 }} className="workspace-persona-document">
+      <div style={{ paddingBottom: 'var(--sp-4)', marginBottom: 'var(--sp-5)', borderBottom: '1px solid var(--border)' }}>
+        <h1 className="page-title">{kolName}人物档案</h1>
+        <p className="page-desc">脚本改编时 AI 参考此档案替换人物细节{details?.updated_at ? ` · 上次更新 ${new Date(details.updated_at).toLocaleString('zh-CN')}` : ''}</p>
       </div>
 
       {SECTIONS.map((section) => {
@@ -122,12 +132,11 @@ export default function WorkspacePersona({ kolId }: WorkspacePersonaProps) {
         return (
           <div
             key={section.key}
-            className="card"
-            style={{ marginBottom: 'var(--sp-4)', position: 'relative' }}
+            style={{ marginBottom: 'var(--sp-5)', position: 'relative' }}
             onMouseEnter={() => setHoveredKey(section.key)}
             onMouseLeave={() => setHoveredKey(null)}
           >
-            <div className="card-body">
+            <div>
               {/* 分区标题 + hint */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 'var(--sp-3)' }}>
                 <div>
@@ -150,7 +159,7 @@ export default function WorkspacePersona({ kolId }: WorkspacePersonaProps) {
               {isEditing ? (
                 <div>
                   <textarea
-                    rows={6}
+                    rows={section.rows}
                     value={editValue}
                     onChange={(e) => setEditValue(e.target.value)}
                     style={{
@@ -196,20 +205,13 @@ export default function WorkspacePersona({ kolId }: WorkspacePersonaProps) {
                   }}
                   onClick={() => handleEdit(section.key, value)}
                 >
-                  {value || '暂未填写，点击编辑'}
+                  {value ? renderPersonaText(value) : '暂未填写，点击编辑'}
                 </div>
               )}
             </div>
           </div>
         );
       })}
-
-      {/* 底部更新时间 */}
-      {details?.updated_at && (
-        <div style={{ fontSize: 12, color: 'var(--gray-400)', marginTop: 'var(--sp-2)' }}>
-          上次更新：{new Date(details.updated_at).toLocaleString('zh-CN')}
-        </div>
-      )}
     </div>
   );
 }

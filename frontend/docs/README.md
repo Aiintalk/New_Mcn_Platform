@@ -49,6 +49,7 @@ frontend/
 │   │   ├── qianchuanProducts.ts       #   千川产品库 CRUD（Sprint 18）
 │   │   ├── kolWorkspace.ts            #   红人工作台 API（dashboard/benchmarks/active-products/persona-details，Sprint 18）
 │   │   ├── valuesWriter.ts            #   价值观仿写（Sprint 20）：getConfig/updateConfig/extractValues/emotionDirectionStream/writeStream/iterateStream/saveOutput（saveOutput 2026-07-01 补齐）
+│   │   ├── filmReview.ts              #   千川成片预审：完整双视频上传、流式报告、保存和办公文档导出（M2 红人工作台还原）
 │   │   └── scriptReview.ts            #   千川脚本预审（Sprint 21）：getConfig/updateConfig/submitReview/saveOutput（saveOutput 2026-07-01 补齐）
 │   ├── layouts/                       # 布局组件
 │   │   ├── AdminLayout.tsx            #   管理端布局（左侧菜单 + 内容区）

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { App } from 'antd';
@@ -14,6 +14,7 @@ const mockGetActiveProducts        = vi.fn();
 const mockUpdateActiveProducts     = vi.fn();
 const mockGetPersonaDetails        = vi.fn();
 const mockUpdatePersonaDetails     = vi.fn();
+const mockGetMaterialLibraryKolDetail = vi.fn();
 
 vi.mock('../../../api/kolWorkspace', () => ({
   getWorkspaceDashboard:  (...args: unknown[]) => mockGetWorkspaceDashboard(...args),
@@ -37,6 +38,18 @@ vi.mock('../../../api/qianchuanProducts', () => ({
   createQianchuanProduct: (...args: unknown[]) => mockCreateQianchuanProduct(...args),
   updateQianchuanProduct: (...args: unknown[]) => mockUpdateQianchuanProduct(...args),
   deleteQianchuanProduct: (...args: unknown[]) => mockDeleteQianchuanProduct(...args),
+}));
+
+vi.mock('../../../api/materialLibrary', () => ({
+  getMaterialLibraryKolDetail: (...args: unknown[]) => mockGetMaterialLibraryKolDetail(...args),
+  flattenKolReferences: (references: Record<string, unknown[]> | unknown[] | { items: unknown[] }) =>
+    Array.isArray(references) ? references : ('items' in references ? references.items : Object.values(references).flat()),
+  createKolReference: vi.fn(),
+  updateKolReference: vi.fn(),
+  deleteKolReference: vi.fn(),
+  getKolReferenceVideoPlayback: vi.fn(),
+  parseKolReferenceDocument: vi.fn(),
+  uploadKolReferenceVideo: vi.fn(),
 }));
 
 // Mock APIs used by tool Modules
@@ -176,6 +189,13 @@ describe('KolWorkspacePage', () => {
     mockGetPersonaDetails.mockResolvedValue({
       kol_id: 1, background: null, experience: null, relationships: null, unique_story: null, extra_notes: null, updated_at: null,
     });
+    mockGetMaterialLibraryKolDetail.mockResolvedValue({
+      id: 1, name: '孙知羽', account_name: null, category: null, follower_count: null, persona: '', content_plan: '',
+      references: {
+        '红人爆款文案': [], '红人喜欢的内容': [], '风格参考': [],
+        '千川爆款文案': [], '千川喜欢的内容': [], '千川风格参考': [],
+      },
+    });
   });
 
   // Test 1: Shell 正常渲染（顶部栏显示、左侧导航显示）
@@ -222,27 +242,33 @@ describe('KolWorkspacePage', () => {
     });
     await user.click(screen.getByTestId('nav-item-products'));
     await waitFor(() => {
-      expect(screen.getByText('千川产品库')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: '产品库' })).toBeInTheDocument();
     });
     expect(mockGetQianchuanProducts).toHaveBeenCalled();
   });
 
-  // Test 4: 禁用 Tab（千川成片预审 Sprint 23）点击后 activeTab 不变
-  it('does not change activeTab when disabled nav item is clicked', async () => {
+  it('opens the current kol material library from the workspace navigation', async () => {
     const user = userEvent.setup();
     renderWorkspacePage();
-    // 等 dashboard 加载
+
+    await user.click(await screen.findByTestId('nav-item-references'));
+    expect(await screen.findByText('管理当前红人的千川爆款文案和视频原片')).toBeInTheDocument();
+    expect(mockGetMaterialLibraryKolDetail).toHaveBeenCalledWith(1);
+  });
+
+  // Test 4: 千川成片预审已启用，并在工作台中打开完整视频预审页面
+  it('opens the full-video film review module when the film review tab is clicked', async () => {
+    const user = userEvent.setup();
+    renderWorkspacePage();
     await waitFor(() => {
       expect(screen.getByText('对标账号')).toBeInTheDocument();
     });
-    // 点击仍然禁用的千川成片预审（Sprint 23）
     await user.click(screen.getByTestId('nav-item-film-review'));
-    // Dashboard 应仍然存在（activeTab 没变）
     await waitFor(() => {
-      expect(screen.getByText('对标账号')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: '千川成片预审' })).toBeInTheDocument();
     });
-    // 千川产品库页不应出现
-    expect(screen.queryByText('千川产品库')).not.toBeInTheDocument();
+    expect(screen.getByText('原片')).toBeInTheDocument();
+    expect(screen.getByText('已剪辑成片')).toBeInTheDocument();
   });
 
   // Test 5: WorkspaceDashboard 对标账号正常展示（mock API 返回）
@@ -285,14 +311,14 @@ describe('KolWorkspacePage', () => {
     });
     await user.click(screen.getByTestId('nav-item-products'));
     await waitFor(() => {
-      expect(screen.getByText('千川产品库')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: '产品库' })).toBeInTheDocument();
     });
     // 点击新建产品按钮（page-header 区域）
     const createBtns = screen.getAllByText('新建产品');
     await user.click(createBtns[0]);
     // Modal 应出现（等待 placeholder 出现）
     await waitFor(() => {
-      expect(screen.getByPlaceholderText('请输入产品名称（用于区分识别）')).toBeInTheDocument();
+      expect(screen.getByPlaceholderText('请输入产品昵称')).toBeInTheDocument();
     });
     // 直接触发表单 submit（模拟点击确定按钮）
     // AntD Modal 的 OK 按钮是 data-testid="modal-ok-button" 或用 fireEvent 直接提交表单
@@ -360,7 +386,7 @@ describe('KolWorkspacePage', () => {
     await user.click(screen.getByTestId('nav-item-qianchuan-writer'));
     // 千川仿写模块展示（加载产品卖点步骤出现）
     await waitFor(() => {
-      expect(screen.getByText('千川文案写作')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: '千川仿写' })).toBeInTheDocument();
     });
   });
 
@@ -434,6 +460,34 @@ describe('WorkspaceDashboard', () => {
       expect(screen.getByText('只有我有')).toBeInTheDocument();
     });
   });
+
+  it('keeps only the newly selected current product', async () => {
+    const user = userEvent.setup();
+    renderWorkspacePage();
+
+    await user.click(await screen.findByRole('button', { name: '选择商品' }));
+    await screen.findByText('美白面膜');
+    await user.click(screen.getByText('美白面膜'));
+    await user.click(screen.getByRole('button', { name: /保\s*存/ }));
+
+    await waitFor(() => {
+      expect(mockUpdateActiveProducts).toHaveBeenCalledWith(1, [11]);
+    });
+  });
+
+  it('previews the current product when it is outside the loaded product page', async () => {
+    const user = userEvent.setup();
+    mockGetQianchuanProducts.mockResolvedValue({
+      items: [sampleProducts.items[1]],
+      pagination: { page: 1, page_size: 20, total: 2, total_pages: 1 },
+    });
+
+    renderWorkspacePage();
+    await user.click(await screen.findByRole('button', { name: '选择商品' }));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('大红瓶精华')).toBeInTheDocument();
+  });
 });
 
 // ── QianchuanProductsModule 单独测试 ──────────────────────────────────────────
@@ -467,7 +521,7 @@ describe('QianchuanProductsModule', () => {
     });
     await user.click(screen.getByTestId('nav-item-products'));
     await waitFor(() => {
-      expect(screen.getByText('千川产品库')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: '产品库' })).toBeInTheDocument();
     });
     return user;
   }
@@ -483,17 +537,17 @@ describe('QianchuanProductsModule', () => {
   it('calls createQianchuanProduct when form is submitted with valid data', async () => {
     const user = await navigateToProducts();
     await waitFor(() => {
-      expect(screen.getByText('千川产品库')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: '产品库' })).toBeInTheDocument();
     });
     // 点新建 - 使用页面操作按钮（page-actions 中的新建产品）
     const createBtns = screen.getAllByText('新建产品');
     await user.click(createBtns[0]);
     // 等待 Modal 出现（等待 placeholder 出现）
     await waitFor(() => {
-      expect(screen.getByPlaceholderText('请输入产品名称（用于区分识别）')).toBeInTheDocument();
+      expect(screen.getByPlaceholderText('请输入产品昵称')).toBeInTheDocument();
     });
     // 填写 nickname
-    const nicknameInput = screen.getByPlaceholderText('请输入产品名称（用于区分识别）');
+    const nicknameInput = screen.getByPlaceholderText('请输入产品昵称');
     await user.type(nicknameInput, '测试新产品');
     // 提交：直接触发 form submit
     const form = document.querySelector('.ant-modal-body form');
@@ -517,7 +571,7 @@ describe('QianchuanProductsModule', () => {
     await user.click(screen.getByTestId('nav-item-products'));
     // 不会 crash（loading state 后显示空状态或 error toast）
     await waitFor(() => {
-      expect(screen.getByText('千川产品库')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: '产品库' })).toBeInTheDocument();
     });
   });
 });

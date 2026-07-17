@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Modal, Form, Input, Radio, Popconfirm, Skeleton, Checkbox, message, Avatar } from 'antd';
+import { Modal, Form, Input, Radio, Popconfirm, Skeleton, message, Avatar } from 'antd';
 import { PlusOutlined, CloseOutlined, UserOutlined } from '@ant-design/icons';
 import type { KolBenchmark, QianchuanProduct, WorkspaceDashboardData } from '../../../types/kolWorkspace';
 import {
@@ -12,6 +12,8 @@ import {
 } from '../../../api/kolWorkspace';
 import type { BenchmarkAccountPreview } from '../../../api/kolWorkspace';
 import { getQianchuanProducts } from '../../../api/qianchuanProducts';
+import { createQianchuanProduct } from '../../../api/qianchuanProducts';
+import ProductFormModal, { type ProductFormValues } from '../../../components/qianchuan/ProductFormModal';
 
 interface WorkspaceDashboardProps {
   kolId: number;
@@ -117,7 +119,7 @@ function BenchmarkCard({
   );
 }
 
-// ─── 在售商品卡片 ─────────────────────────────────────────────────────────────
+// ─── 当前商品卡片 ─────────────────────────────────────────────────────────────
 function ProductCard({
   product,
   onRemove,
@@ -154,11 +156,19 @@ function ProductCard({
           <span className="badge badge-danger" style={{ fontSize: 11 }}>只有我有</span>
         )}
       </div>
-      {product.mechanism && (
-        <div style={{ fontSize: 12, color: 'var(--gray-500)', lineHeight: 1.5 }}>
-          {product.mechanism.length > 40 ? `${product.mechanism.slice(0, 40)}…` : product.mechanism}
+      {([
+        ['可视化', product.visualization],
+        ['主推机制', product.mechanism],
+        ['推荐来源', product.endorsement],
+        ['用户反馈', product.user_feedback],
+        ['独家卖点', product.unique_selling],
+        ['获奖荣誉', product.awards],
+        ['功效承诺', product.efficacy_proof],
+      ] as const).filter(([, value]) => value).map(([label, value]) => (
+        <div key={label} style={{ fontSize: 12, color: 'var(--gray-500)', lineHeight: 1.5, marginTop: 2 }}>
+          {label}：{value}
         </div>
-      )}
+      ))}
       {hovered && onRemove && (
         <button
           className="btn btn-danger-ghost btn-sm"
@@ -192,16 +202,17 @@ export default function WorkspaceDashboard({ kolId, onKolLoaded }: WorkspaceDash
   const [bmPendingValues, setBmPendingValues] = useState<BenchmarkFormValues | null>(null);
   const [bmForm] = Form.useForm<BenchmarkFormValues>();
 
-  // 管理商品弹窗
+  // 选择当前商品弹窗
   const [manageOpen, setManageOpen]       = useState(false);
   const [allProducts, setAllProducts]     = useState<QianchuanProduct[]>([]);
   const [allProductsLoading, setAllProductsLoading] = useState(false);
-  const [selectedIds, setSelectedIds]     = useState<number[]>([]);
+  const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
   const [productPage, setProductPage]     = useState(1);
   const [productTotal, setProductTotal]   = useState(0);
   const [productTotalPages, setProductTotalPages] = useState(1);
   const [productQuery, setProductQuery]   = useState('');
   const [manageLoading, setManageLoading] = useState(false);
+  const [createProductOpen, setCreateProductOpen] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -310,10 +321,10 @@ export default function WorkspaceDashboard({ kolId, onKolLoaded }: WorkspaceDash
     }
   }
 
-  // ── 管理在售商品 ──────────────────────────────────────────────────────────
+  // ── 选择当前商品 ──────────────────────────────────────────────────────────
   async function openManageProducts() {
     setManageOpen(true);
-    setSelectedIds((dashboard?.active_products ?? []).map((p) => p.id));
+    setSelectedProductId(dashboard?.active_products[0]?.id ?? null);
     setProductPage(1);
     setProductQuery('');
     await loadAllProducts(1, '');
@@ -336,8 +347,8 @@ export default function WorkspaceDashboard({ kolId, onKolLoaded }: WorkspaceDash
   async function handleManageConfirm() {
     setManageLoading(true);
     try {
-      await updateActiveProducts(kolId, selectedIds);
-      message.success('在售商品已更新');
+      await updateActiveProducts(kolId, selectedProductId === null ? [] : [selectedProductId]);
+      message.success('当前商品已更新');
       setManageOpen(false);
       load();
     } catch {
@@ -347,11 +358,26 @@ export default function WorkspaceDashboard({ kolId, onKolLoaded }: WorkspaceDash
     }
   }
 
-  function handleRemoveActiveProduct(product: QianchuanProduct) {
-    const newIds = (dashboard?.active_products ?? [])
-      .filter((p) => p.id !== product.id)
-      .map((p) => p.id);
-    updateActiveProducts(kolId, newIds)
+  async function createAndSelectCurrentProduct(values: ProductFormValues) {
+    setManageLoading(true);
+    try {
+      const product = await createQianchuanProduct(values);
+      await updateActiveProducts(kolId, [product.id]);
+      setSelectedProductId(product.id);
+      setCreateProductOpen(false);
+      setManageOpen(false);
+      await loadAllProducts(1, '');
+      load();
+      message.success('商品已新建并设为当前商品');
+    } catch (error: unknown) {
+      message.error(error instanceof Error ? error.message : '新建商品失败');
+    } finally {
+      setManageLoading(false);
+    }
+  }
+
+  function handleRemoveActiveProduct() {
+    updateActiveProducts(kolId, [])
       .then(() => {
         message.success('已移除');
         load();
@@ -382,6 +408,11 @@ export default function WorkspaceDashboard({ kolId, onKolLoaded }: WorkspaceDash
   if (!dashboard) return null;
 
   const { benchmarks, active_products } = dashboard;
+  const selectedProduct = selectedProductId === null
+    ? null
+    : allProducts.find((product) => product.id === selectedProductId)
+      ?? active_products.find((product) => product.id === selectedProductId)
+      ?? null;
 
   return (
     <>
@@ -444,18 +475,18 @@ export default function WorkspaceDashboard({ kolId, onKolLoaded }: WorkspaceDash
         </div>
       </div>
 
-      {/* ── 在售商品区 ─────────────────────────────────────────────── */}
+      {/* ── 当前商品区 ─────────────────────────────────────────────── */}
       <div className="card">
         <div className="card-header" style={{ padding: 'var(--sp-4) var(--sp-5)' }}>
-          <span className="card-title">目前在售商品</span>
+          <span className="card-title">当前商品</span>
           <button className="btn btn-ghost btn-sm" onClick={openManageProducts}>
-            管理商品
+            选择商品
           </button>
         </div>
         <div className="card-body">
           {active_products.length === 0 ? (
             <div className="empty-state">
-              <div className="empty-state-text">暂无在售商品，点击「管理商品」添加</div>
+              <div className="empty-state-text">暂无当前商品，点击「选择商品」选择一个</div>
             </div>
           ) : (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--sp-3)' }}>
@@ -539,9 +570,9 @@ export default function WorkspaceDashboard({ kolId, onKolLoaded }: WorkspaceDash
         )}
       </Modal>
 
-      {/* ── 管理在售商品 Modal ──────────────────────────────────────── */}
+      {/* ── 选择当前商品 Modal ──────────────────────────────────────── */}
       <Modal
-        title="管理在售商品"
+        title="选择当前商品"
         open={manageOpen}
         onCancel={() => setManageOpen(false)}
         onOk={handleManageConfirm}
@@ -550,6 +581,10 @@ export default function WorkspaceDashboard({ kolId, onKolLoaded }: WorkspaceDash
         confirmLoading={manageLoading}
         width={760}
       >
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 'var(--sp-3)', marginBottom: 'var(--sp-3)' }}>
+          <span style={{ fontSize: 13, color: 'var(--gray-500)' }}>选择已有商品，或新建完整商品后选中。</span>
+          <button className="btn btn-primary btn-sm" onClick={() => setCreateProductOpen(true)}>新建商品</button>
+        </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--sp-5)', minHeight: 340 }}>
           {/* 左：全量产品列表 */}
           <div>
@@ -584,12 +619,10 @@ export default function WorkspaceDashboard({ kolId, onKolLoaded }: WorkspaceDash
                         cursor: 'pointer',
                       }}
                       onClick={() => {
-                        setSelectedIds((prev) =>
-                          prev.includes(p.id) ? prev.filter((id) => id !== p.id) : [...prev, p.id]
-                        );
+                        setSelectedProductId(p.id);
                       }}
                     >
-                      <Checkbox checked={selectedIds.includes(p.id)} onChange={() => {}} />
+                      <Radio checked={selectedProductId === p.id} onChange={() => setSelectedProductId(p.id)} />
                       <div>
                         <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--gray-800)' }}>{p.nickname}</div>
                         {p.core_selling_point && (
@@ -619,10 +652,10 @@ export default function WorkspaceDashboard({ kolId, onKolLoaded }: WorkspaceDash
             )}
           </div>
 
-          {/* 右：已选预览 */}
+          {/* 右：当前选择预览 */}
           <div>
             <div style={{ marginBottom: 'var(--sp-2)', fontSize: 13, fontWeight: 600, color: 'var(--gray-700)' }}>
-              已选（{selectedIds.length}）
+              当前选择
             </div>
             <div
               style={{
@@ -632,37 +665,41 @@ export default function WorkspaceDashboard({ kolId, onKolLoaded }: WorkspaceDash
                 border: '1px solid var(--border)',
               }}
             >
-              {selectedIds.length === 0 ? (
+              {selectedProduct === null ? (
                 <div className="empty-state" style={{ padding: 'var(--sp-5)' }}>
-                  <div className="empty-state-text">未选择任何商品</div>
+                  <div className="empty-state-text">未选择商品</div>
                 </div>
               ) : (
-                allProducts
-                  .filter((p) => selectedIds.includes(p.id))
-                  .map((p) => (
-                    <div
-                      key={p.id}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        padding: '8px var(--sp-3)',
-                        borderBottom: '1px solid var(--gray-100)',
-                        fontSize: 13,
-                      }}
-                    >
-                      <span style={{ fontWeight: 600, color: 'var(--gray-800)' }}>{p.nickname}</span>
-                      <CloseOutlined
-                        style={{ fontSize: 12, color: 'var(--gray-400)', cursor: 'pointer' }}
-                        onClick={() => setSelectedIds((prev) => prev.filter((id) => id !== p.id))}
-                      />
-                    </div>
-                  ))
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '8px var(--sp-3)',
+                    borderBottom: '1px solid var(--gray-100)',
+                    fontSize: 13,
+                  }}
+                >
+                  <span style={{ fontWeight: 600, color: 'var(--gray-800)' }}>{selectedProduct.nickname}</span>
+                  <CloseOutlined
+                    style={{ fontSize: 12, color: 'var(--gray-400)', cursor: 'pointer' }}
+                    onClick={() => setSelectedProductId(null)}
+                  />
+                </div>
               )}
             </div>
           </div>
         </div>
       </Modal>
+
+      <ProductFormModal
+        open={createProductOpen}
+        title="新建商品并设为当前商品"
+        submitText="新建并选中"
+        loading={manageLoading}
+        onCancel={() => setCreateProductOpen(false)}
+        onSubmit={createAndSelectCurrentProduct}
+      />
     </>
   );
 }

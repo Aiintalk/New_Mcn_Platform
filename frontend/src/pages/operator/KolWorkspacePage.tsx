@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   HomeOutlined,
   UserOutlined,
@@ -19,6 +19,7 @@ import {
 } from '@ant-design/icons';
 import type { WorkspaceTab } from '../../types/kolWorkspace';
 import { getKolWorkspaceConfig } from '../../api/kolWorkspaceConfig';
+import { getWorkspaceDashboard } from '../../api/kolWorkspace';
 import type { WorkspaceTabCode } from '../../types/kolWorkspaceConfig';
 import WorkspaceDashboard from './workspace/WorkspaceDashboard';
 import QianchuanProductsModule from './workspace/QianchuanProductsModule';
@@ -31,6 +32,7 @@ import { LivestreamWriterModule } from './LivestreamWriterPage';
 import { LivestreamReviewModule } from './LivestreamReviewPage';
 import { ValuesWriterModule } from './ValuesWriterPage';
 import { QianchuanScriptReviewModule } from './QianchuanScriptReviewPage';
+import { FilmReviewModule } from './FilmReviewPage';
 import WorkspaceRetrospective from './workspace/WorkspaceRetrospective';
 
 interface NavItem {
@@ -52,13 +54,14 @@ const NAV_ITEMS: NavItem[] = [
   { tab: 'livestream-review', label: '直播复盘',   icon: <PlayCircleOutlined /> },
   { tab: 'values-writer',     label: '价值观仿写', icon: <HeartOutlined /> },
   { tab: 'script-review',     label: '千川脚本预审', icon: <SearchOutlined /> },
-  { tab: 'film-review',       label: '千川成片预审', icon: <VideoCameraOutlined />,  disabled: true },
+  { tab: 'film-review',       label: '千川成片预审', icon: <VideoCameraOutlined /> },
   { tab: 'retrospective',     label: '复盘',       icon: <BarChartOutlined /> },
 ];
 
 export default function KolWorkspacePage() {
   const { kol_id } = useParams<{ kol_id: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const kolId = Number(kol_id);
 
   const [activeTab, setActiveTab] = useState<WorkspaceTab>('dashboard');
@@ -67,9 +70,25 @@ export default function KolWorkspacePage() {
   const [enabledTabs, setEnabledTabs] = useState<WorkspaceTabCode[] | null>(null);
 
   useEffect(() => {
+    const tab = searchParams.get('tab') as WorkspaceTab | null;
+    if (tab && NAV_ITEMS.some((item) => item.tab === tab && !item.disabled)) {
+      setActiveTab(tab);
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
     getKolWorkspaceConfig(kolId)
       .then(cfg => setEnabledTabs(cfg.enabled_tabs as WorkspaceTabCode[]))
       .catch(() => setEnabledTabs(null)); // 失败时降级显示全部 tab
+  }, [kolId]);
+
+  useEffect(() => {
+    getWorkspaceDashboard(kolId)
+      .then((dashboard) => {
+        setKolName(dashboard.kol.name);
+        setKolAvatar(dashboard.kol.avatar_url);
+      })
+      .catch(() => undefined);
   }, [kolId]);
 
   // kol_id 非法处理
@@ -168,7 +187,7 @@ export default function KolWorkspacePage() {
             />
           )}
           {activeTab === 'products' && <QianchuanProductsModule />}
-          {activeTab === 'persona' && <WorkspacePersona kolId={kolId} />}
+          {activeTab === 'persona' && <WorkspacePersona kolId={kolId} kolName={kolName || '当前红人'} />}
           {activeTab === 'references' && <WorkspaceReferences kolId={kolId} />}
           {activeTab === 'qianchuan-writer' && <QianchuanWriterModule kolId={kolId} />}
           {activeTab === 'seeding-writer' && <SeedingWriterModule kolId={kolId} />}
@@ -177,6 +196,7 @@ export default function KolWorkspacePage() {
           {activeTab === 'livestream-review' && <LivestreamReviewModule kolId={kolId} />}
           {activeTab === 'values-writer' && <ValuesWriterModule kolId={kolId} />}
           {activeTab === 'script-review' && <QianchuanScriptReviewModule />}
+          {activeTab === 'film-review' && <FilmReviewModule kolId={kolId} />}
           {activeTab === 'retrospective' && <WorkspaceRetrospective kolId={kolId} />}
         </main>
       </div>

@@ -129,6 +129,70 @@ describe('WorkspaceRetrospective', () => {
     expect(screen.getByTestId('analyze-btn')).toBeInTheDocument();
   });
 
+  it('逐份保存千川素材脚本的文件名和解析正文', async () => {
+    mockGetSessions.mockResolvedValue({ items: [], pagination: { ...samplePagination, total: 0, total_pages: 0 } });
+    mockParseFiles.mockResolvedValue({ files: [
+      { name: '第一份.txt', text: '第一份正文' },
+      { name: '第二份.txt', text: '第二份正文' },
+    ] });
+    renderModule();
+    await screen.findByText('新建复盘');
+    const user = userEvent.setup();
+    await user.click(screen.getByText('新建复盘'));
+    const input = screen.getByTestId('file-input-material_scripts');
+    await user.upload(input, [new File(['one'], '第一份.txt', { type: 'text/plain' }), new File(['two'], '第二份.txt', { type: 'text/plain' })]);
+    expect(await screen.findByDisplayValue('第一份正文')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('第二份正文')).toBeInTheDocument();
+    await user.type(screen.getByTestId('title-input'), '脚本复盘');
+    mockSaveSession.mockResolvedValue({ ...session2, id: 88, title: '脚本复盘' });
+    await user.click(screen.getByTestId('save-draft-btn'));
+    expect(mockSaveSession).toHaveBeenCalledWith(1, expect.objectContaining({ material_scripts: [
+      { name: '第一份.txt', text: '第一份正文' },
+      { name: '第二份.txt', text: '第二份正文' },
+    ] }));
+  });
+
+  it('允许在复盘页面选择 Markdown 格式的虚拟素材', async () => {
+    mockGetSessions.mockResolvedValue({ items: [], pagination: { ...samplePagination, total: 0, total_pages: 0 } });
+    renderModule();
+    await screen.findByText('新建复盘');
+    const user = userEvent.setup();
+    await user.click(screen.getByText('新建复盘'));
+
+    expect(screen.getByTestId('file-input-material_scripts')).toHaveAttribute('accept', expect.stringContaining('.md'));
+  });
+
+  it('允许为两类数据材料选择旧版 Excel 文件', async () => {
+    mockGetSessions.mockResolvedValue({ items: [], pagination: { ...samplePagination, total: 0, total_pages: 0 } });
+    renderModule();
+    await screen.findByText('新建复盘');
+    const user = userEvent.setup();
+    await user.click(screen.getByText('新建复盘'));
+
+    expect(screen.getByTestId('file-input-live_data').getAttribute('accept')?.split(',')).toContain('.xls');
+    expect(screen.getByTestId('file-input-material_data').getAttribute('accept')?.split(',')).toContain('.xls');
+  });
+
+  it('以四张材料卡和一张多文件卡展示上传区，并能单独移除已解析脚本', async () => {
+    mockGetSessions.mockResolvedValue({ items: [], pagination: { ...samplePagination, total: 0, total_pages: 0 } });
+    mockParseFiles.mockResolvedValue({ files: [{ name: '待删除.md', text: '待删除正文' }] });
+    renderModule();
+    await screen.findByText('新建复盘');
+    const user = userEvent.setup();
+    await user.click(screen.getByText('新建复盘'));
+
+    expect(screen.getByTestId('material-card-live_data')).toBeInTheDocument();
+    expect(screen.getByTestId('material-card-material_data')).toBeInTheDocument();
+    expect(screen.getByTestId('material-card-review_text')).toBeInTheDocument();
+    expect(screen.getByTestId('material-card-live_script')).toBeInTheDocument();
+    expect(screen.getByTestId('material-scripts-card')).toBeInTheDocument();
+
+    await user.upload(screen.getByTestId('file-input-material_scripts'), new File(['content'], '待删除.md', { type: 'text/markdown' }));
+    expect(await screen.findByDisplayValue('待删除正文')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '删除 待删除.md' }));
+    expect(screen.queryByDisplayValue('待删除正文')).not.toBeInTheDocument();
+  });
+
   // ── Test 3: 编辑视图 - 标题输入 + 保存草稿 ────────────────────────────────────
   it('Test 3: 编辑视图：标题输入 + 「保存草稿」按钮', async () => {
     mockGetSessions.mockResolvedValue({

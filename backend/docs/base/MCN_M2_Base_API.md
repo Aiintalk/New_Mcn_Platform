@@ -1196,7 +1196,7 @@ Response（200）：
 | 方法 | 路径 | 角色 | 功能 |
 |------|------|------|------|
 | GET | `/api/tools/livestream-writer/config` | operator/admin | 获取激活的 Prompt + 模型（实时拉取，管理端可配置）|
-| GET | `/api/tools/livestream-writer/kols/personas` | operator/admin | 达人列表（content_plan 和 persona 均非空）|
+| GET | `/api/tools/livestream-writer/kols/personas` | operator/admin | 达人列表（含 `id`，供独立页面提交 `kol_id`）|
 | POST | `/api/tools/livestream-writer/parse-file` | operator/admin | 文件解析（.txt/.md/.docx/.pages，不支持 .pdf）|
 | POST | `/api/tools/livestream-writer/chat` | operator/admin | AI 流式对话（raw text stream）|
 | GET | `/api/admin/livestream-writer/configs` | admin | 配置列表 |
@@ -1228,7 +1228,7 @@ Response（200）：
   "success": true, "code": "OK",
   "data": {
     "personas": [
-      { "name": "达人名称", "soul": "persona字段内容", "contentPlan": "content_plan字段内容" }
+      { "id": 123, "name": "达人名称", "soul": "persona字段内容", "contentPlan": "content_plan字段内容" }
     ]
   }
 }
@@ -1253,7 +1253,12 @@ Request（JSON）：
 ```json
 {
   "messages": [{ "role": "user|assistant", "content": "string" }],
-  "systemPrompt": "string（前端动态构建，已注入变量）",
+  "workspace_mode": true,
+  "kol_id": 123,
+  "reference_script": "已确认的对标直播间文案",
+  "reference_confirmed": true,
+  "sp_order": "背书→机制→种草",
+  "systemPrompt": "string（兼容旧调用；工作台生成以后台统一配置为准）",
   "model": "string（可选，默认 claude-opus-4-6-thinking）",
   "createJob": true,
   "jobContext": {
@@ -1264,6 +1269,14 @@ Request（JSON）：
   }
 }
 ```
+
+业务规则：
+
+- 仅工作台内嵌模式（`workspace_mode=true`）必须传入 `kol_id`、已确认的 `reference_script`、`reference_confirmed=true` 和卖点顺序；首次生成、后续修改和自动压缩均适用。
+- 独立入口保留原有的人设、卖点卡、对标和前端提示词输入，不强制要求工作台红人或当前商品。
+- 服务端按 `kol_id` 重新读取未删除红人的完整档案，以及该红人的唯一当前商品；不采信前端拼接的商品正文。
+- 没有当前商品时返回 400 `CURRENT_PRODUCT_REQUIRED`；未确认对标文案时返回 400 `REFERENCE_SCRIPT_REQUIRED`。
+- 写入任务上下文时记录红人、当前商品、对标文案字数、卖点顺序、功能、模型和产出标识，不写入完整对标文案。
 
 Response：`text/plain; charset=utf-8`（raw text stream，非 SSE）
 
@@ -1601,16 +1614,18 @@ Request（JSON）：
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `messages` | array<{role, content}> | 用户对话消息（含原版脚本 + 产品卖点 + 多轮追问）|
-| `persona_id` | int | 达人 ID（必填，从 /kols/personas 选）|
+| `messages` | array<{role, content}> | 用户对话消息（含原版脚本、运营修改意见或逐轮最小修改指令）|
+| `persona_id` | int | 达人 ID；兼容独立工具入口。工作台调用时必须与 `kol_id` 相同 |
+| `kol_id` | int\|null | 红人工作台路由中的红人 ID；提供时后端以它为准读取完整红人档案 |
+| `product_id` | int\|null | 当前共享商品 ID；提供时必须等于该红人的当前商品。留空时后端读取该红人的当前商品；无当前商品返回 400 CURRENT_PRODUCT_REQUIRED |
 | `create_job` | bool | 是否创建 task_job 记录（默认 false）|
-| `job_context` | object \| null | 任务上下文（product_name / original_script_length 等）|
+| `job_context` | object \| null | 任务上下文（original_script_length 等）；产品名称和商品字段由后端从数据库读取，不信任前端文本 |
 
 Response：`text/plain; charset=utf-8`（裸文本流，流式 chunk）
 
 错误：messages 为空 → 400 INVALID_INPUT；配置未激活 → 503 CONFIG_NOT_FOUND；persona 不存在 → 404 RESOURCE_NOT_FOUND。
 
-流程：读 DB 配置（`default`，is_active=true）→ 读 kols（persona/content_plan）→ `render_system_prompt` 占位符替换 → `yunwu_adapter.chat_stream` → StreamingResponse；`create_job=true` 时 BackgroundTask 写 TaskJob + OperationLog（action=`qianchuan_writer_chat`）。Adapter finally 自动写 AiCallLog。
+流程：读 DB 配置（`default`，is_active=true）→ 读取完整红人档案与当前商品 → `render_system_prompt` 占位符替换并追加完整档案、商品全部非空字段及“只有我有”约束 → `yunwu_adapter.chat_stream` → StreamingResponse；`create_job=true` 时 BackgroundTask 写 TaskJob + OperationLog（action=`qianchuan_writer_chat`）。Adapter finally 自动写 AiCallLog。
 
 ### 21.4 POST /save-output
 
@@ -1997,30 +2012,37 @@ Request Body：
 - 参考素材存于新表 `kol_references`（详见 `MCN_M2_Base_Database.md` §28）。
 - AI 配置存于新表 `material_library_configs`（详见 §29）。
 
-### 24.2 运营端接口（7 个）
+### 24.2 运营端接口（11 个）
 
 基础路径：`/api/tools/material-library`（operator / admin 鉴权，需已改密）
 
 | # | 方法 | 路径 | 用途 | 信封 | OperationLog |
 |---|------|------|------|------|-------------|
-| 1 | GET | `/kols?search=` | 红人列表（搜索+聚合）| 标准 | 否 |
+| 1 | GET | `/kols?search=&page=&page_size=` | 红人列表（搜索+聚合+分页）| 标准 | 否 |
 | 2 | GET | `/kols/{kol_id}` | 红人详情（persona + plan + references 按类型分组）| 标准 | 否 |
 | 3 | PUT | `/kols/{kol_id}/profile` | 更新 persona 和/或 content_plan | 标准 | 是 |
 | 4 | POST | `/kols/{kol_id}/references` | 新增参考素材 | 标准 | 是 |
 | 5 | DELETE | `/kols/{kol_id}/references/{ref_id}` | 软删参考素材 | 标准 | 是 |
 | 6 | GET | `/kols/{kol_id}/intake` | 红人最新入驻问卷数据 | 标准 | 否 |
-| 7 | POST | `/kols/{kol_id}/generate-soul` | AI 生成 soul.md 初稿（不自动保存）| 标准 | 否 |
+| 7 | POST | `/kols/{kol_id}/generate-soul` | AI 生成 soul.md 初稿（不自动保存）| 标准 | 是 |
+| 8 | PUT | `/kols/{kol_id}/references/{ref_id}` | 编辑标题、数据说明和正文 | 标准 | 是 |
+| 9 | POST | `/kols/{kol_id}/references/parse-document` | 解析脚本文档，返回可编辑正文和文档元数据 | 标准 | 是 |
+| 10 | POST | `/kols/{kol_id}/references/{ref_id}/video` | 上传或明确替换视频原片 | 标准 | 是 + OSS 调用日志 |
+| 11 | GET | `/kols/{kol_id}/references/{ref_id}/video/playback` | 鉴权后返回短时视频播放地址 | 标准 | OSS 调用日志 |
 
-#### GET /kols?search=
-Response.data：`KolListItem[]`
+#### GET /kols?search=&page=&page_size=
+`page` 默认 1，`page_size` 默认 20，最大 100。Response.data：`{ items: KolListItem[], pagination }`
 ```json
-[{
-  "id": 3, "name": "孙静", "account_name": "sunjing", "category": "美妆",
-  "follower_count": 1200000,
-  "has_persona": true, "has_content_plan": false,
-  "reference_count": 3, "has_intake": true,
-  "updated_at": "2026-06-20T10:00:00+08:00"
-}]
+{
+  "items": [{
+    "id": 3, "name": "孙静", "account_name": "sunjing", "category": "美妆",
+    "follower_count": 1200000,
+    "has_persona": true, "has_content_plan": false,
+    "reference_count": 3, "has_intake": true,
+    "updated_at": "2026-06-20T10:00:00+08:00"
+  }],
+  "pagination": { "page": 1, "page_size": 20, "total": 1 }
+}
 ```
 
 #### GET /kols/{kol_id}
@@ -2047,8 +2069,8 @@ Request Body（两个字段都可选，至少传一个）：
 ```json
 { "persona": "新的人格档案文本", "content_plan": "新的内容规划文本" }
 ```
-Response.data：`{ "success": true }`
-写 OperationLog（action=`update_kol_profile`，target_type=`kols`，target_id=kol_id）。
+Response.data：`{ "kol_id": 3, "updated_fields": ["persona"] }`
+写 OperationLog（action=`material_library_update_profile`，target_type=`kol`，target_id=kol_id）。
 
 #### POST /kols/{kol_id}/references
 Request Body：
@@ -2062,12 +2084,27 @@ Request Body：
 }
 ```
 `type` 必须是 6 类之一：`红人爆款文案 / 红人喜欢的内容 / 风格参考 / 千川爆款文案 / 千川喜欢的内容 / 千川风格参考`
-Response.data：`{ "id": 456 }`
-写 OperationLog（action=`create_kol_reference`）。
+Response.data：完整素材对象（包含 `id`、标题、正文、文档元数据和视频状态；不含私有对象键或播放地址）。
+写 OperationLog（action=`material_library_create_reference`）。
+
+`data_description`、`document_name`、`document_type`、`document_size` 均为可选字段。文档内容解析后由前端在此接口提交，服务端只保存解析结果与元数据，不保存文档的本地永久路径。
+
+#### PUT /kols/{kol_id}/references/{ref_id}
+Request Body 可更新 `title`、`data_description`、`content`；不传的视频字段保持原视频不变。`ref_id` 必须属于路径中的 `kol_id`，否则按不存在处理。
+写 OperationLog（action=`material_library_update_reference`）。
+
+#### POST /kols/{kol_id}/references/parse-document
+`multipart/form-data`，字段名 `file`。支持平台既有文档解析格式，最大 20MB；服务端仅限大小读取一次后解析，返回 `{ text, document_name, document_type, document_size }`，用于运营在保存素材前修改正文。红人不存在或已删除时不可解析。写 OperationLog（action=`material_library_parse_document`）。
+
+#### POST /kols/{kol_id}/references/{ref_id}/video
+`multipart/form-data`，字段名 `file`。仅接受 `video/*` 文件，最大 500MB；服务端按块写入系统临时文件并在超限时停止读取，再通过对象存储的文件流接口上传。临时文件在成功、失败和替换路径均会清理，不长期保存。上传对象强制设置为私有，再替换素材的视频元数据，成功后删除旧对象。数据库只保存私有对象键与文件元数据，不返回或保存长期公开地址。写 OperationLog（action=`material_library_upload_video` 或 `material_library_replace_video`）；对象存储调用另写服务调用日志。
+
+#### GET /kols/{kol_id}/references/{ref_id}/video/playback
+仅当素材属于该红人且未软删、存在视频对象键时返回短时签名地址：`{ "url": "...", "expires_in": 900 }`。地址由后端生成，不写入素材详情或数据库。
 
 #### DELETE /kols/{kol_id}/references/{ref_id}
-软删（`deleted_at = NOW()`）。Response.data：`{ "success": true }`
-写 OperationLog（action=`delete_kol_reference`）。
+软删（`deleted_at = NOW()`）；若有关联视频对象，软删后调用平台对象存储适配层删除对象并自动写服务调用日志。Response.data 为空，删除结果在标准信封的 `message` 返回。
+写 OperationLog（action=`material_library_delete_reference`）；若视频对象清理失败，额外写 `material_library_delete_video_cleanup_failed`。
 
 #### GET /kols/{kol_id}/intake
 查询 kol 最新入驻问卷数据（先查 KolIntakeSubmission，再查 KolIntakeOperatorSession）。
@@ -2086,6 +2123,7 @@ Response.data：`IntakeData | null`
 读取 `material_library_configs` 中 `soul_generator` 配置，渲染占位符（`{{kol_name}} {{intake_answers}} {{intake_report}}`），
 调用 yunwu_adapter.chat() 生成初稿。**不自动保存**，仅返回文本供前端预览编辑。
 Response.data：`{ "soul_md": "AI 生成的人格档案初稿..." }`
+写 OperationLog（action=`material_library_generate_soul`）。
 
 ### 24.3 管理端接口（2 个）
 
@@ -2376,46 +2414,39 @@ Request Body（所有字段可选，未传字段不变）：
 
 ### 26.3 运营端接口
 
-#### POST `/api/operator/values-writer/extract-values`
+#### POST `/api/operator/values-writer/derive-directions`
 
-从 kol 的人物档案提炼价值观清单（非流式，等待完成）。
+旧版四步流程的第三步。服务端固定读取 `kol_id` 的完整人物档案和唯一当前商品；前端传入的商品正文不会被采用。根据锁定开头、爆款全文和当前商品返回 2 至 3 个可选情绪方向。解析或模型调用失败时，服务端最多尝试 3 次；三次仍失败返回明确错误。
 
 Request Body：
 ```json
-{ "kol_id": 1, "extra_context": "可选补充说明" }
+{ "kol_id": 1, "opening_line": "锁定的第一句", "original_script": "爆款全文" }
 ```
 
 Response `data`：
 ```json
-{ "values": ["真实", "治愈", "共鸣", "在地化"] }
+{ "directions": [{ "type": "焦虑型", "title": "错失机会", "description": "放大缺失的代价", "anchor": "再拖下去会错过" }] }
 ```
 
-#### POST stream `/api/operator/values-writer/emotion-direction`
+没有当前商品时返回 `400`，错误信息为“请先在产品库选择当前商品”。
 
-根据选中价值观推导情绪方向（SSE 流式）。
+#### POST stream `/api/operator/values-writer/generate`
 
-Request Body：
-```json
-{ "kol_id": 1, "selected_values": ["真实", "治愈"], "tone": "轻松温暖" }
-```
-
-Response：`Content-Type: text/event-stream`，格式：`data: {"delta": "..."}`
-
-#### POST stream `/api/operator/values-writer/write`
-
-生成价值观内容（SSE 流式）。
+旧版四步流程的第四步。服务端读取当前商品和完整人物档案，要求模型输出 `<analysis>`、`<rewrite>`、`<report>` 三个结构化片段；改写稿必须逐字保留 `opening_line`，并且不得出现当前商品名称或直接商品信息。
 
 Request Body：
 ```json
 {
   "kol_id": 1,
-  "selected_values": ["真实"],
-  "emotion_direction": "...",
-  "product_context": "本期推广番茄精华"
+  "opening_line": "锁定的第一句",
+  "original_script": "爆款全文",
+  "direction": { "type": "诱惑型", "title": "人生开挂", "description": "放大获得后的生活优势", "anchor": "被看见的轻松感" }
 }
 ```
 
-Response：`Content-Type: text/event-stream`
+Response：`Content-Type: text/event-stream`，格式：`data: {"delta": "..."}`。模型输出缺少任一结构化片段时，前端必须展示解析失败，不能将原始标签文本作为成功脚本。
+
+`extract-values`、`emotion-direction`、`write` 和 `iterate` 为兼容既有独立入口保留；红人工作台入口只使用以上两个旧版四步流程接口。
 
 #### POST stream `/api/operator/values-writer/iterate`
 
@@ -2503,7 +2534,9 @@ Request Body：
 | `script_type` | `"direct"\|"value"` | 是 | 预审模式 |
 | `original_script` | string | 是 | 原版脚本 |
 | `adapted_script` | string | 是 | 仿写脚本 |
-| `product` | object\|null | 否 | 产品信息（direct 模式使用），key-value 字典 |
+| `product` | object\|null | 否 | 兼容独立预审页的产品信息；工作台闭环不得依赖此字段 |
+| `kol_id` | int\|null | 否 | 工作台红人 ID；与 `product_id` 同时提供时，后端校验商品是该红人的当前商品 |
+| `product_id` | int\|null | 否 | 当前共享商品 ID；后端读取最新商品字段，优先于 `product`，防止前端伪造旧卖点 |
 
 Response `data`：
 ```json
@@ -2582,7 +2615,7 @@ Request Body（所有字段可选）：
 
 #### GET `/api/operator/workspace/{kol_id}/retrospective`
 
-分页查询该红人的复盘列表（仅当前用户创建的）。鉴权：operator/admin。
+分页查询该红人的复盘列表。鉴权：operator/admin；资源按红人编号隔离，不额外引入未定义的红人授权映射。
 
 Query：`page`（默认1）、`page_size`（10/20/50，默认10）。
 
@@ -2622,13 +2655,13 @@ Response `data`：`{ "id": 1 }`
 
 #### POST `/api/operator/workspace/{kol_id}/retrospective/parse-files`
 
-解析上传文件为文本（multipart/form-data）。支持 PDF/DOCX/TXT/XLSX/PPTX/MD 格式。
+逐份解析上传文件（multipart/form-data）。支持 PDF/DOCX/TXT/XLSX/PPTX/MD 格式；响应中的文件名与正文严格一一对应，前端可分别编辑后保存。
 
-Response `data`：`{ "text": "解析出的文本..." }`
+Response `data`：`{ "files": [{ "name": "脚本一.docx", "text": "解析出的正文..." }] }`
 
 #### POST stream `/api/operator/workspace/{kol_id}/retrospective/{id}/analyze`
 
-流式生成复盘报告（SSE）。生成完成后自动保存 `result`，更新 `status='done'`，写 OperationLog（action=`retrospective_analyze`）。
+流式生成复盘报告（SSE）。至少需填写直播汇总数据或素材明细数据之一；分析会读取完整红人档案，空字段跳过。生成完成后自动保存 `result`，更新 `status='done'`，写 OperationLog（action=`retrospective_analyze`）。
 
 Response：`Content-Type: text/event-stream`，格式：`data: {"delta": "..."}\n\ndata: [DONE]\n\n`
 
@@ -2637,3 +2670,56 @@ Response：`Content-Type: text/event-stream`，格式：`data: {"delta": "..."}\
 导出复盘报告为 Word 文件。
 
 Response：`application/vnd.openxmlformats-officedocument.wordprocessingml.document`
+
+---
+
+## 29. 红人工作台当前商品（M2 核心工作流）
+
+接口前缀：`/api/operator/workspace/{kol_id}`。鉴权：operator/admin。所有响应使用标准信封。
+
+### GET `/api/operator/workspace/{kol_id}/active-products`
+
+为兼容现有调用保留数组响应，但数组最多包含一个当前商品。商品详情来自平台共享产品库，软删除商品不会返回。
+
+### PUT `/api/operator/workspace/{kol_id}/active-products`
+
+设置或解除当前商品。写入 OperationLog（`action=update_kol_active_products`）。
+
+Request Body：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `product_ids` | int[] | 允许空数组解除关联，或只含一个产品 ID；传入多个 ID 返回 422 |
+
+Response `data`：`{ "active_product_ids": [] }` 或 `{"active_product_ids": [123]}`。
+
+业务规则：写入时整体替换旧关联；商品 ID 必须存在且未软删除；删除当前商品前必须先解除或替换关联，删除接口会返回 400 和明确提示。
+
+---
+
+## 30. qianchuan-preview 完整视频成片预审（M2 红人工作台还原）
+
+> 路由前缀：`/api/tools/qianchuan-preview`。保留原有文案预审接口；以下接口仅用于红人工作台的完整视频分析，不会退化为关键帧分析。
+
+### POST stream `/api/tools/qianchuan-preview/analyze-video`
+
+`multipart/form-data`，字段 `kol_id`（当前工作台红人编号）、`original` 和 `edited` 均必填。服务端先验证 `kol_id` 对应的未删除红人存在；两个文件只接受 `.mp4`、`.mov` 和对应 `video/mp4`、`video/quicktime` MIME 类型；每个文件服务端实际限制为 **500MB**。服务端按块写入临时目录，临时上传到私有对象存储，再将两条完整视频上传至 Gemini Files API，轮询到 `ACTIVE` 后才发起流式分析。
+
+Response：`Content-Type: text/event-stream`。流事件为 `status`（上传、处理进度）、`report`（每个 Gemini 正文分片，`data.text` 可立即追加）以及供应商失败时的 `error`、`failed`；前端收到 `error` 或 `failed` 后保留已选视频但禁止保存或导出部分报告。响应头 `X-Task-Id` 可用于保存。
+
+分析所用 Prompt、模型和 Gemini 凭证均由管理端既有 `qianchuan_preview_configs`、`ai_models`、`credentials` 统一管理。完整视频固定读取独立的 `full_video` 配置键，既有 `default` 配置键仍只用于文案预审；绑定模型必须是状态为 `active`、provider 为 `gemini` 的模型；无配置、供应商处理失败或超时会返回明确错误，绝不改为关键帧分析。`task_jobs.input_payload` 只记录临时对象键和文件元数据，处理结束后删除对象存储和 Gemini 临时文件；Gemini 清理失败会单独写入关联任务的外部服务日志。只有任务状态为 `success` 的完整报告可保存。
+
+工作台页签代码为 `film-review`、显示名为“千川成片预审”。`kol_workspace_configs.enabled_tabs` 的默认值和 `052_enable_qianchuan_full_video_workspace_tab.sql` 都会包含此页签；迁移只补充系统页签，不改变历史红人、商品、素材或产出数据。
+
+### POST `/api/tools/qianchuan-preview/save-video-report`
+
+将完整视频预审报告写入全局 `outputs`，不迁移旧数据。红人归属只从 `task_id` 对应任务的 `input_payload.kol_id` 读取并写进 `outputs.content_json`，前端不能另传或覆盖。
+
+Request Body：
+```json
+{ "task_id": 123, "report": "完整 Markdown 报告", "original_filename": "original.mp4", "edited_filename": "edited.mov" }
+```
+
+Response `data`：`{ "output_id": 456 }`。仅允许任务创建者或管理员保存；空报告会按平台统一响应信封返回 `success=false` 与 `VALIDATION_ERROR`（校验失败），HTTP 状态码为 `200`。
+
+`POST /export-word` 可复用，传入上述保存前或保存后的报告文本即可导出 `.docx` 办公文档。

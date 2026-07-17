@@ -34,8 +34,8 @@ export const saveSession = (kolId: number, data: Partial<RetrospectiveSession>) 
 export const deleteSession = (kolId: number, id: number) =>
   del<{ id: number }>(`/api/operator/workspace/${kolId}/retrospective/${id}`);
 
-/** 上传并解析文件，返回提取的文本 */
-export const parseFiles = async (kolId: number, files: File[]): Promise<{ text: string }> => {
+/** 上传并逐份解析文件，保留文件名与正文对应关系 */
+export const parseFiles = async (kolId: number, files: File[]): Promise<{ files: Array<{ name: string; text: string }> }> => {
   const { useAuthStore } = await import('../store/authStore');
   const token = useAuthStore.getState().token;
   const fd = new FormData();
@@ -52,7 +52,7 @@ export const parseFiles = async (kolId: number, files: File[]): Promise<{ text: 
     throw new Error(err?.message ?? `文件解析失败: ${resp.status}`);
   }
   const json = await resp.json();
-  return json.data as { text: string };
+  return json.data as { files: Array<{ name: string; text: string }> };
 };
 
 /** 流式分析复盘（SSE），onDelta 每次收到累积全文 */
@@ -78,7 +78,7 @@ export async function analyzeStream(
     const err = await resp.json().catch(() => ({}));
     throw new Error(err?.detail?.message ?? `分析失败: ${resp.status}`);
   }
-  return readPlainStream(resp, onDelta);
+  return readSseStream(resp, onDelta);
 }
 
 /** 导出复盘结果为 Word，返回 Blob */
@@ -103,19 +103,31 @@ export const exportWord = async (kolId: number, sessionId: number): Promise<Blob
 // 内部 helper
 // ---------------------------------------------------------------------------
 
-/** 读取 text/plain 流，累计拼接后通过 onDelta 回调 */
-async function readPlainStream(
+/** 读取 SSE 流，仅拼接服务端发送的正文片段。 */
+async function readSseStream(
   resp: Response,
   onDelta: (full: string) => void,
 ): Promise<string> {
   const reader = resp.body!.getReader();
   const decoder = new TextDecoder();
   let full = '';
+  let pending = '';
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
-    full += decoder.decode(value, { stream: true });
-    onDelta(full);
+    pending += decoder.decode(value, { stream: true });
+    const events = pending.split('\n\n');
+    pending = events.pop() ?? '';
+    for (const event of events) {
+      const line = event.split('\n').find((item) => item.startsWith('data: '));
+      if (!line) continue;
+      const payload = JSON.parse(line.slice(6)) as { delta?: string; done?: boolean; error?: string };
+      if (payload.error) throw new Error(payload.error);
+      if (payload.delta) {
+        full += payload.delta;
+        onDelta(full);
+      }
+    }
   }
   return full;
 }

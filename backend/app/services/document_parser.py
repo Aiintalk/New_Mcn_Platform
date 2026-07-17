@@ -1,7 +1,7 @@
 """
 app/services/document_parser.py
 
-文档解析 service：支持 PDF / DOCX / XLSX / PPTX / TXT / MD 五种格式。
+文档解析 service：支持 PDF / DOCX / XLSX / XLS / PPTX / TXT / MD 格式。
 
 用法：
     from app.services.document_parser import parse_files_to_text
@@ -38,25 +38,8 @@ async def parse_files_to_text(files: list[UploadFile]) -> str:
     Raises:
         ValueError: 无文件 / 全部解析失败 / 有效文本过短
     """
-    if not files:
-        raise ValueError("请上传文件")
-
-    texts: list[str] = []
-
-    for f in files:
-        filename = f.filename or "unknown"
-        try:
-            content_bytes = await f.read()
-            text = _extract_by_extension(filename, content_bytes)
-            if text and text.strip():
-                texts.append(f"=== 文件: {filename} ===\n{text}")
-            else:
-                logger.warning("document_parser: file %s produced empty text, skipped", filename)
-        except ValueError:
-            # Re-raise specific errors (e.g., .xls not supported)
-            raise
-        except Exception as e:
-            logger.warning("document_parser: failed to parse %s: %s", filename, e)
+    items = await parse_files_to_items(files)
+    texts = [f"=== 文件: {item['name']} ===\n{item['text']}" for item in items]
 
     combined = "\n\n".join(texts)
 
@@ -71,6 +54,37 @@ async def parse_files_to_text(files: list[UploadFile]) -> str:
     return combined
 
 
+async def parse_files_to_items(files: list[UploadFile]) -> list[dict[str, str]]:
+    """逐份解析上传文件，保留文件名与正文一一对应。"""
+    if not files:
+        raise ValueError("请上传文件")
+    items: list[dict[str, str]] = []
+    for f in files:
+        filename = f.filename or "unknown"
+        try:
+            text = _extract_by_extension(filename, await f.read())
+            if text and text.strip():
+                items.append({"name": filename, "text": text})
+            else:
+                logger.warning("document_parser: file %s produced empty text, skipped", filename)
+        except ValueError:
+            raise
+        except Exception as e:
+            logger.warning("document_parser: failed to parse %s: %s", filename, e)
+    combined_text = "\n".join(item["text"] for item in items).strip()
+    if not combined_text or len(combined_text) < _MIN_VALID_LENGTH:
+        raise ValueError("无法从文件中提取有效文字内容，请尝试复制文档内容手动粘贴")
+    return items
+
+
+def parse_file_content_to_item(filename: str, content: bytes) -> dict[str, str]:
+    """解析已读取的单份文档，供需要先限制上传大小的路由复用。"""
+    text = _extract_by_extension(filename, content)
+    if not text or not text.strip():
+        raise ValueError("无法从文件中提取有效文字内容，请尝试复制文档内容手动粘贴")
+    return {"name": filename, "text": text}
+
+
 def _extract_by_extension(filename: str, content_bytes: bytes) -> str:
     """按文件扩展名分流到对应解析器。"""
     lower = filename.lower()
@@ -82,9 +96,7 @@ def _extract_by_extension(filename: str, content_bytes: bytes) -> str:
     if lower.endswith(".xlsx"):
         return _extract_xlsx(content_bytes)
     if lower.endswith(".xls"):
-        raise ValueError(
-            "不支持 .xls 老格式，请转换为 .xlsx 后上传"
-        )
+        return _extract_xls(content_bytes)
     if lower.endswith(".pptx"):
         return _extract_pptx(content_bytes)
     # .txt, .md, .csv, and unknown extensions: try utf-8 decode
@@ -125,6 +137,21 @@ def _extract_xlsx(content_bytes: bytes) -> str:
             rows.append(",".join(cells))
         sheets.append(f"[{sheet_name}]\n" + "\n".join(rows))
     wb.close()
+    return "\n\n".join(sheets)
+
+
+def _extract_xls(content_bytes: bytes) -> str:
+    """用 xlrd 提取旧版 XLS 文本（所有 sheet 转 CSV 拼接）。"""
+    import xlrd
+
+    workbook = xlrd.open_workbook(file_contents=content_bytes)
+    sheets = []
+    for worksheet in workbook.sheets():
+        rows = []
+        for row_index in range(worksheet.nrows):
+            cells = [str(cell) if cell is not None else "" for cell in worksheet.row_values(row_index)]
+            rows.append(",".join(cells))
+        sheets.append(f"[{worksheet.name}]\n" + "\n".join(rows))
     return "\n\n".join(sheets)
 
 

@@ -12,6 +12,11 @@ const mockExportWord = vi.fn();
 const mockGetOutputs = vi.fn();
 const mockGetConfigs = vi.fn();
 const mockUpdateConfig = vi.fn();
+const mockGetActiveProducts = vi.fn();
+const mockUpdateActiveProducts = vi.fn();
+const mockGetQianchuanProducts = vi.fn();
+const mockCreateQianchuanProduct = vi.fn();
+const mockSubmitReview = vi.fn();
 
 vi.mock('../../../api/qianchuanWriter', () => ({
   getPersonas: (...args: unknown[]) => mockGetPersonas(...args),
@@ -28,6 +33,20 @@ vi.mock('../../../api/ai', () => ({
   getAiModels: vi.fn().mockResolvedValue({ items: [], total: 0 }),
 }));
 
+vi.mock('../../../api/kolWorkspace', () => ({
+  getActiveProducts: (...args: unknown[]) => mockGetActiveProducts(...args),
+  updateActiveProducts: (...args: unknown[]) => mockUpdateActiveProducts(...args),
+}));
+
+vi.mock('../../../api/qianchuanProducts', () => ({
+  getQianchuanProducts: (...args: unknown[]) => mockGetQianchuanProducts(...args),
+  createQianchuanProduct: (...args: unknown[]) => mockCreateQianchuanProduct(...args),
+}));
+
+vi.mock('../../../api/scriptReview', () => ({
+  submitReview: (...args: unknown[]) => mockSubmitReview(...args),
+}));
+
 vi.mock('../../../store/authStore', () => ({
   useAuthStore: { getState: () => ({ token: 'mock-token' }) },
 }));
@@ -35,7 +54,7 @@ vi.mock('../../../store/authStore', () => ({
 // Mock scrollIntoView（jsdom 不支持）
 Element.prototype.scrollIntoView = vi.fn();
 
-import QianchuanWriterPage from '../../../pages/operator/QianchuanWriterPage';
+import QianchuanWriterPage, { QianchuanWriterModule, selectBestReviewCandidate } from '../../../pages/operator/QianchuanWriterPage';
 import QianchuanWriterConfigTab from '../../../pages/admin/QianchuanWriterConfigTab';
 
 const samplePersonas = [
@@ -82,7 +101,7 @@ async function openSelectAndPick(user: UserInstance, optionText: RegExp): Promis
   await user.click(screen.getByText(optionText));
 }
 
-/** 完整 4 步向导流程：选达人 → 粘贴产品 → 输入脚本 → 点生成 */
+/** 当前商品已加载的主流程：选达人 → 输入脚本 → 点生成。 */
 async function runFullWorkflow(user: UserInstance, chatResponse: string): Promise<void> {
   const mockResponse = {
     ok: true,
@@ -94,18 +113,7 @@ async function runFullWorkflow(user: UserInstance, chatResponse: string): Promis
   await openSelectAndPick(user, /孙知羽/);
   await user.click(screen.getByRole('button', { name: '确认，去加载产品 →' }));
 
-  // Step 2: 粘贴模式
-  await waitFor(() => screen.getByText('直接粘贴文本'));
-  await user.click(screen.getByText('直接粘贴文本'));
-  await user.type(screen.getByPlaceholderText(/把产品卖点卡粘贴到这里/), '卖点');
-  // 等确认按钮启用
-  await waitFor(() => {
-    const btn = screen.getByRole('button', { name: /确\s*认/ });
-    expect(btn).not.toBeDisabled();
-  });
-  await user.click(screen.getByRole('button', { name: /确\s*认/ }));
-
-  // Step 2 → Step 3: 点击"下一步"
+  // Step 2 → Step 3
   await waitFor(() => screen.getByRole('button', { name: '下一步：输入原版脚本 →' }));
   await user.click(screen.getByRole('button', { name: '下一步：输入原版脚本 →' }));
 
@@ -118,6 +126,12 @@ async function runFullWorkflow(user: UserInstance, chatResponse: string): Promis
   await waitFor(() => expect(mockChatStream).toHaveBeenCalled());
 }
 
+async function reviewAndConfirm(user: UserInstance): Promise<void> {
+  await user.click(screen.getByRole('button', { name: '开始逐轮预审' }));
+  await waitFor(() => screen.getByRole('button', { name: '运营确认最终稿' }));
+  await user.click(screen.getByRole('button', { name: '运营确认最终稿' }));
+}
+
 describe('QianchuanWriterPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -125,6 +139,10 @@ describe('QianchuanWriterPage', () => {
     mockParseFile.mockResolvedValue({ text: '解析后的产品卖点', word_count: 10 });
     mockSaveOutput.mockResolvedValue({ output_id: 1 });
     mockExportWord.mockResolvedValue(new Blob(['docx'], { type: 'application/octet-stream' }));
+    mockGetActiveProducts.mockResolvedValue([{ id: 101, nickname: '当前商品', core_selling_point: '当前卖点', mechanism: '买一送一', mechanism_exclusive: true }]);
+    mockGetQianchuanProducts.mockResolvedValue({ items: [], pagination: { page: 1, page_size: 100, total: 0, total_pages: 0 } });
+    mockUpdateActiveProducts.mockResolvedValue({ active_product_ids: [101] });
+    mockSubmitReview.mockResolvedValue({ rating: 'pass', must_fix: [], suggestions: [], passed: [] });
   });
 
   // Test 1: 4 步向导渲染
@@ -152,8 +170,7 @@ describe('QianchuanWriterPage', () => {
     });
   });
 
-  // Test 3: Step 2 文件上传区域 + 粘贴切换
-  it('shows file upload area and paste mode toggle in Step 2', async () => {
+  it('loads the current product instead of asking for a product brief upload', async () => {
     const user = userEvent.setup();
     renderWithApp(<QianchuanWriterPage />);
 
@@ -161,10 +178,23 @@ describe('QianchuanWriterPage', () => {
     await user.click(screen.getByRole('button', { name: '确认，去加载产品 →' }));
 
     await waitFor(() => {
-      expect(screen.getByText('Step 2 · 加载产品卖点')).toBeInTheDocument();
-      expect(screen.getByText('点击上传或拖拽卖点卡')).toBeInTheDocument();
-      expect(screen.getByText('直接粘贴文本')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: '选产品' })).toBeInTheDocument();
+      expect(screen.getByText(/产品昵称：当前商品/)).toBeInTheDocument();
+      expect(screen.queryByText('点击上传或拖拽卖点卡')).not.toBeInTheDocument();
     });
+  });
+
+  it('在没有当前商品时，新建并选中流程要求填写完整商品字段', async () => {
+    mockGetActiveProducts.mockResolvedValue([]);
+    const user = userEvent.setup();
+    renderWithApp(<QianchuanWriterModule kolId={1} />);
+
+    await screen.findByText('还没有当前商品，不能生成仿写');
+    await user.click(screen.getByRole('button', { name: '新建商品' }));
+
+    expect(await screen.findByLabelText('最主推卖点')).toBeInTheDocument();
+    expect(screen.getByLabelText('主推机制')).toBeInTheDocument();
+    expect(screen.getByText(/这次主推的价格钩子或促销力度/)).toBeInTheDocument();
   });
 
   // Test 4: Step 3 字数实时显示
@@ -175,16 +205,6 @@ describe('QianchuanWriterPage', () => {
     await openSelectAndPick(user, /孙知羽/);
     await user.click(screen.getByRole('button', { name: '确认，去加载产品 →' }));
 
-    await waitFor(() => screen.getByText('直接粘贴文本'));
-    await user.click(screen.getByText('直接粘贴文本'));
-    await user.type(screen.getByPlaceholderText(/把产品卖点卡粘贴到这里/), '卖点内容');
-    await waitFor(() => {
-      const btn = screen.getByRole('button', { name: /确\s*认/ });
-      expect(btn).not.toBeDisabled();
-    });
-    await user.click(screen.getByRole('button', { name: /确\s*认/ }));
-
-    // Step 2 → Step 3
     await waitFor(() => screen.getByRole('button', { name: '下一步：输入原版脚本 →' }));
     await user.click(screen.getByRole('button', { name: '下一步：输入原版脚本 →' }));
 
@@ -215,12 +235,78 @@ describe('QianchuanWriterPage', () => {
     });
   });
 
+  it('runs fail fail pass through three review rounds and stops', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<QianchuanWriterPage />);
+    await runFullWorkflow(user, '初稿');
+    mockChatStream
+      .mockResolvedValueOnce({ ok: true, body: createReadableStream(['自动修改稿一']) } as unknown as Response)
+      .mockResolvedValueOnce({ ok: true, body: createReadableStream(['自动修改稿二']) } as unknown as Response);
+    mockSubmitReview
+      .mockResolvedValueOnce({ rating: 'fail', must_fix: [{ type: '价格', quote: '99', fix: '改价' }], suggestions: [], passed: [] })
+      .mockResolvedValueOnce({ rating: 'fail', must_fix: [{ type: '卖点', quote: '旧卖点', fix: '替换' }], suggestions: [], passed: [] })
+      .mockResolvedValueOnce({ rating: 'pass', must_fix: [], suggestions: [], passed: [] });
+
+    await user.click(screen.getByRole('button', { name: '开始逐轮预审' }));
+
+    await waitFor(() => expect(mockSubmitReview).toHaveBeenCalledTimes(3));
+    expect(screen.getByText(/第 3 轮预审：通过/)).toBeInTheDocument();
+  });
+
+  it('reviews one time again after a confirmed final draft is adjusted', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<QianchuanWriterPage />);
+    await runFullWorkflow(user, '初稿');
+    await reviewAndConfirm(user);
+    mockChatStream.mockResolvedValueOnce({ ok: true, body: createReadableStream(['人工微调稿']) } as unknown as Response);
+
+    await user.type(screen.getByPlaceholderText(/告诉 AI 哪里需要调整/), '把开头改短');
+    await user.click(screen.getByRole('button', { name: /发\s*送/ }));
+
+    await waitFor(() => expect(mockSubmitReview).toHaveBeenCalledTimes(2));
+    expect(mockChatStream.mock.calls.at(-1)?.[0]).toEqual(expect.objectContaining({
+      messages: [expect.objectContaining({ content: expect.stringContaining('初稿') })],
+    }));
+    expect(screen.getByLabelText('运营直接编辑当前最佳稿')).toHaveValue('人工微调稿');
+    expect(screen.getByRole('button', { name: '运营确认最终稿' })).toBeInTheDocument();
+  });
+
+  it('reviews an operator edited best draft exactly once without regenerating it', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<QianchuanWriterPage />);
+    await runFullWorkflow(user, '初稿');
+    await reviewAndConfirm(user);
+
+    const editor = screen.getByLabelText('运营直接编辑当前最佳稿');
+    await user.clear(editor);
+    await user.type(editor, '运营编辑后的最佳稿');
+    await user.click(screen.getByRole('button', { name: '编辑稿预审一次' }));
+
+    await waitFor(() => expect(mockSubmitReview).toHaveBeenCalledTimes(2));
+    expect(mockSubmitReview).toHaveBeenLastCalledWith(expect.objectContaining({
+      adapted_script: '运营编辑后的最佳稿',
+    }));
+    expect(mockChatStream).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the current draft when a review request fails', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<QianchuanWriterPage />);
+    await runFullWorkflow(user, '初稿');
+    mockSubmitReview.mockRejectedValueOnce(new Error('预审服务异常'));
+
+    await user.click(screen.getByRole('button', { name: '开始逐轮预审' }));
+
+    await waitFor(() => expect(screen.getByLabelText('运营直接编辑当前最佳稿')).toHaveValue('初稿'));
+    expect(screen.getByText(/轮次用尽或预审中断/)).toBeInTheDocument();
+  });
+
   // Test 7: 保存历史按钮调用 saveOutput
   it('calls saveOutput when save button is clicked', async () => {
     const user = userEvent.setup();
     renderWithApp(<QianchuanWriterPage />);
     await runFullWorkflow(user, '仿写内容');
-
+    await reviewAndConfirm(user);
     await waitFor(() => screen.getByText('保存到历史'));
     await user.click(screen.getByText('保存到历史'));
 
@@ -242,6 +328,7 @@ describe('QianchuanWriterPage', () => {
 
     renderWithApp(<QianchuanWriterPage />);
     await runFullWorkflow(user, '仿写内容');
+    await reviewAndConfirm(user);
 
     // 在点击导出按钮前设置 DOM mock（避免影响渲染）
     const clickSpy = vi.fn();
@@ -270,6 +357,7 @@ describe('QianchuanWriterPage', () => {
     const user = userEvent.setup();
     renderWithApp(<QianchuanWriterPage />);
     await runFullWorkflow(user, '仿写内容');
+    await reviewAndConfirm(user);
 
     await waitFor(() => screen.getByText('导出 .docx'));
     await user.click(screen.getByText('导出 .docx'));
@@ -281,36 +369,63 @@ describe('QianchuanWriterPage', () => {
     });
   });
 
-  // Test 10 (PR #18 Bug #15): 长 Brief（>400 字）完整展示，不截断
-  it('displays full product text without truncation when Brief exceeds 400 chars', async () => {
+  it('blocks generation and provides product actions when no current product exists', async () => {
     const user = userEvent.setup();
+    mockGetActiveProducts.mockResolvedValue([]);
     renderWithApp(<QianchuanWriterPage />);
 
     await openSelectAndPick(user, /孙知羽/);
     await user.click(screen.getByRole('button', { name: '确认，去加载产品 →' }));
 
-    // 切换到粘贴模式
-    await waitFor(() => screen.getByText('直接粘贴文本'));
-    await user.click(screen.getByText('直接粘贴文本'));
-
-    // 构造 500 字 Brief，含唯一的尾部标记（旧逻辑会截断到 400 字从而丢失此标记）
-    const longBrief = '产品卖点'.repeat(20) + 'TAIL_MARKER_UNIQUE_XYZ';
-    const textarea = await waitFor(() =>
-      screen.getByPlaceholderText(/把产品卖点卡粘贴到这里/),
-    );
-    // 用 fireEvent.change 一次性灌入长文本，避开 user.type 逐字符 500 次的慢路径
-    fireEvent.change(textarea, { target: { value: longBrief } });
-
     await waitFor(() => {
-      const btn = screen.getByRole('button', { name: /确\s*认/ });
-      expect(btn).not.toBeDisabled();
+      expect(screen.getByText('还没有当前商品，不能生成仿写')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: '选择已有商品' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: '新建商品' })).toBeInTheDocument();
     });
-    await user.click(screen.getByRole('button', { name: /确\s*认/ }));
+  });
+});
 
-    // 断言：尾部标记完整出现在展示区，证明未走旧的 slice(0, 400) 截断
-    await waitFor(() => {
-      expect(screen.getByText(/TAIL_MARKER_UNIQUE_XYZ/)).toBeInTheDocument();
-    });
+describe('selectBestReviewCandidate', () => {
+  it('stops at the third review candidate when fail fail pass is returned', () => {
+    const result = selectBestReviewCandidate([
+      { text: '第一版', review: { rating: 'fail', must_fix: [{ type: '价格', quote: '', fix: '' }] } },
+      { text: '第二版', review: { rating: 'fail', must_fix: [] } },
+      { text: '第三版', review: { rating: 'pass', must_fix: [] } },
+    ]);
+
+    expect(result?.text).toBe('第三版');
+  });
+
+  it('prefers fewer must-fix items and then the newer draft for equal ratings', () => {
+    const result = selectBestReviewCandidate([
+      { text: '第二轮较好', review: { rating: 'minor', must_fix: [] } },
+      { text: '第四轮较差', review: { rating: 'minor', must_fix: [{ type: '遗漏', quote: '', fix: '' }] } },
+      { text: '同样好但更新', review: { rating: 'minor', must_fix: [] } },
+    ]);
+
+    expect(result?.text).toBe('同样好但更新');
+  });
+
+  it('keeps the better second round when the fourth round is worse', () => {
+    const result = selectBestReviewCandidate([
+      { text: '第一轮', review: { rating: 'fail', must_fix: [{ type: '价格', quote: '', fix: '' }] } },
+      { text: '第二轮最佳', review: { rating: 'minor', must_fix: [] } },
+      { text: '第三轮', review: { rating: 'minor', must_fix: [{ type: '卖点', quote: '', fix: '' }] } },
+      { text: '第四轮较差', review: { rating: 'minor', must_fix: [{ type: '卖点', quote: '', fix: '' }, { type: '结构', quote: '', fix: '' }] } },
+    ]);
+
+    expect(result?.text).toBe('第二轮最佳');
+  });
+
+  it('selects the best candidate after four failed reviews', () => {
+    const result = selectBestReviewCandidate([
+      { text: '第一轮', review: { rating: 'fail', must_fix: [{ type: '价格', quote: '', fix: '' }, { type: '卖点', quote: '', fix: '' }] } },
+      { text: '第二轮最佳', review: { rating: 'fail', must_fix: [] } },
+      { text: '第三轮', review: { rating: 'fail', must_fix: [{ type: '结构', quote: '', fix: '' }] } },
+      { text: '第四轮', review: { rating: 'fail', must_fix: [{ type: '价格', quote: '', fix: '' }] } },
+    ]);
+
+    expect(result?.text).toBe('第二轮最佳');
   });
 });
 

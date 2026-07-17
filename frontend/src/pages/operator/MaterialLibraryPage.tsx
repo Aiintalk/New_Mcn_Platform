@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Input, Tabs, Button, Modal, Form, Select, message, Spin, Popconfirm } from 'antd';
 import {
   getMaterialLibraryKols,
+  materialLibraryKolItems,
   getMaterialLibraryKolDetail,
   updateKolProfile,
   createKolReference,
@@ -47,10 +48,10 @@ export default function MaterialLibraryPage() {
   const loadKols = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await getMaterialLibraryKols(search);
-      setKols(data);
-      if (data.length > 0 && selectedKolId === null) {
-        setSelectedKolId(data[0].id);
+      const items = materialLibraryKolItems(await getMaterialLibraryKols(search));
+      setKols(items);
+      if (items.length > 0 && selectedKolId === null) {
+        setSelectedKolId(items[0].id);
       }
     } catch {
       message.error('加载红人列表失败');

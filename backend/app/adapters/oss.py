@@ -20,6 +20,7 @@ config JSONB 字段结构：
 """
 import asyncio
 import time
+from pathlib import Path
 
 import oss2
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -101,7 +102,10 @@ async def upload_file(
             bucket.put_object,
             oss_key,
             content,
-            headers={"Content-Type": content_type},
+            headers={
+                "Content-Type": content_type,
+                "x-oss-object-acl": oss2.OBJECT_ACL_PRIVATE,
+            },
         )
         if result.status != 200:
             raise RuntimeError(f"OSS put_object non-200 status={result.status}")
@@ -114,6 +118,54 @@ async def upload_file(
         if isinstance(e, RuntimeError):
             raise
         raise RuntimeError(f"OSS upload_file failed: {e}") from e
+    finally:
+        latency_ms = int((time.monotonic() - start) * 1000)
+        db.add(OssCallLog(
+            credential_id=cred_id,
+            user_id=user_id,
+            operation="upload",
+            status=status,
+            latency_ms=latency_ms,
+            oss_key=oss_key,
+            error_message=error_message,
+        ))
+        await db.commit()
+
+
+async def upload_file_from_path(
+    oss_key: str,
+    file_path: str | Path,
+    content_type: str,
+    db: AsyncSession,
+    user_id: int | None = None,
+) -> str:
+    """从本地临时文件流式上传到 OSS，不把整份文件读入应用内存。"""
+    cred_id, ak_id, ak_secret, bucket_name, endpoint = await _get_oss_credential(db)
+    start = time.monotonic()
+    status = "success"
+    error_message: str | None = None
+    try:
+        bucket = _make_bucket(ak_id, ak_secret, endpoint, bucket_name)
+        result = await asyncio.to_thread(
+            bucket.put_object_from_file,
+            oss_key,
+            str(file_path),
+            headers={
+                "Content-Type": content_type,
+                "x-oss-object-acl": oss2.OBJECT_ACL_PRIVATE,
+            },
+        )
+        if result.status != 200:
+            raise RuntimeError(f"OSS put_object_from_file non-200 status={result.status}")
+        await report_success(cred_id, db)
+        return oss_key
+    except Exception as e:
+        status = "fail"
+        error_message = str(e)[:500]
+        await report_failure(cred_id, db)
+        if isinstance(e, RuntimeError):
+            raise
+        raise RuntimeError(f"OSS upload_file_from_path failed: {e}") from e
     finally:
         latency_ms = int((time.monotonic() - start) * 1000)
         db.add(OssCallLog(

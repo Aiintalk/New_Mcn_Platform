@@ -28,8 +28,9 @@ from app.models.log import OperationLog
 from app.models.output import Output
 from app.models.task import TaskJob
 from app.models.user import User
-from app.services.workspace_prompt import resolve_prompt
 from app.services.file_parser import parse_livestream_writer_file
+from app.services.kol_context import get_current_product, get_kol_context
+from app.services.workspace_prompt import resolve_prompt
 
 router = APIRouter(prefix="/tools/livestream-writer", tags=["livestream-writer"])
 
@@ -130,6 +131,7 @@ async def get_kol_personas(
 
     personas = [
         {
+            "id": row.id,
             "name": row.name,
             "soul": row.persona or "",
             "contentPlan": row.content_plan or "",
@@ -188,9 +190,62 @@ class ChatRequest(BaseModel):
     messages: list[dict]
     systemPrompt: str
     model: str = DEFAULT_MODEL
+    workspace_mode: bool = False
     kol_id: int | None = None
+    reference_script: str | None = None
+    reference_confirmed: bool = False
+    sp_order: str | None = None
     createJob: bool = False
     jobContext: dict | None = None
+
+
+def _product_fields_for_prompt(product) -> dict[str, str]:
+    """只将数据库中已有的商品事实写入提示词。"""
+    fields = {
+        "产品昵称": product.nickname,
+        "最主推卖点": product.core_selling_point,
+        "可视化": product.visualization,
+        "主推机制": product.mechanism,
+        "推荐来源": product.endorsement,
+        "用户反馈": product.user_feedback,
+        "独家卖点": product.unique_selling,
+        "获奖荣誉": product.awards,
+        "功效承诺": product.efficacy_proof,
+        "只有我有": "是，必须强调独家权益" if product.mechanism_exclusive else "否",
+    }
+    return {label: str(value) for label, value in fields.items() if value and str(value).strip()}
+
+
+def _build_initial_system_prompt(
+    template: str,
+    *,
+    kol_context,
+    product,
+    reference_script: str,
+    sp_order: str | None,
+) -> str:
+    """组合旧版直播仿写所需的服务端事实，不接受前端拼接的商品或系统信息。"""
+    sections = [template]
+    profile_text = "\n\n".join(
+        f"### {label}\n{value}" for label, value in kol_context.prompt_sections()
+    )
+    if profile_text:
+        sections.append(f"## {kol_context.name}完整档案\n{profile_text}")
+
+    product_text = "\n".join(
+        f"- {label}：{value}" for label, value in _product_fields_for_prompt(product).items()
+    )
+    if product_text:
+        sections.append(
+            "## 当前商品事实（必须以此为准，不得编造）\n"
+            f"{product_text}\n"
+            "“只有我有”为是时，必须遵守独家权益约束。"
+        )
+
+    sections.append(f"## 已确认的对标直播文案\n{reference_script}")
+    if sp_order and sp_order.strip():
+        sections.append(f"## 卖点顺序\n{sp_order.strip()}")
+    return "\n\n".join(section for section in sections if section)
 
 
 @router.post("/chat")
@@ -207,21 +262,64 @@ async def chat(
             detail={"code": "INVALID_INPUT", "message": "messages 不能为空"},
         )
 
-    # 优先使用红人专属 Prompt，否则使用前端传入的 systemPrompt
-    kol_prompt = await resolve_prompt(body.kol_id, "livestream-writer", "system_prompt", db)
-    resolved_system_prompt = kol_prompt or body.systemPrompt
-    if not resolved_system_prompt.strip():
+    if not body.workspace_mode and not body.systemPrompt.strip():
         raise HTTPException(
             status_code=400,
             detail={"code": "INVALID_INPUT", "message": "systemPrompt 不能为空"},
         )
 
+    config_key = "generate" if body.createJob else "iterate"
+    config = await _get_lw_config(config_key, db)
+    model_id = await _resolve_lw_model(config, db)
+    kol_context = None
+    product = None
+    if body.workspace_mode:
+        if body.kol_id is None:
+            raise HTTPException(
+                status_code=400,
+                detail={"code": "INVALID_INPUT", "message": "工作台生成必须选择红人"},
+            )
+        if not body.reference_confirmed or not (body.reference_script or "").strip():
+            raise HTTPException(
+                status_code=400,
+                detail={"code": "REFERENCE_SCRIPT_REQUIRED", "message": "请先确认对标直播文案后再生成或修改"},
+            )
+        if not (body.sp_order or "").strip():
+            raise HTTPException(
+                status_code=400,
+                detail={"code": "INVALID_INPUT", "message": "请先选择卖点顺序"},
+            )
+        kol_context = await get_kol_context(db, body.kol_id)
+        product = await get_current_product(db, body.kol_id)
+        if product is None:
+            raise HTTPException(
+                status_code=400,
+                detail={"code": "CURRENT_PRODUCT_REQUIRED", "message": "请先选择或新建当前商品后再生成"},
+            )
+
+    # 工作台只信任后台配置和数据库事实；独立入口保留旧版前端拼好的业务输入。
+    kol_prompt = await resolve_prompt(body.kol_id, "livestream-writer", "system_prompt", db)
+    template = (
+        kol_prompt or config.system_prompt or ""
+        if body.workspace_mode
+        else kol_prompt or body.systemPrompt
+    )
+    if body.workspace_mode:
+        resolved_system_prompt = _build_initial_system_prompt(
+            template,
+            kol_context=kol_context,
+            product=product,
+            reference_script=(body.reference_script or "").strip(),
+            sp_order=body.sp_order,
+        )
+    else:
+        resolved_system_prompt = template
+
     messages = [{"role": "system", "content": resolved_system_prompt}] + body.messages
     user_id = current_user.id
     create_job = body.createJob
     job_context = body.jobContext or {}
-    model_id = body.model or DEFAULT_MODEL
-    # 注：body.model 由前端传入，默认走 yunwu 网关。如需切换 provider，应走配置表（ai_models）
+    # 模型始终由后台统一配置决定，前端 model 参数仅为旧调用兼容字段。
     provider = "yunwu"
 
     # 流式生成时积累完整内容，供 BackgroundTask 写 outputs
@@ -258,20 +356,25 @@ async def chat(
         if not create_job:
             return
         full_content = "".join(accumulated)
-        product_name = job_context.get("productName", "")
-        persona_name = job_context.get("personaName", "")
+        product_name = product.nickname if product else job_context.get("productName", "")
+        persona_name = kol_context.name if kol_context else job_context.get("personaName", "")
 
         async with AsyncSessionLocal() as bg_db:
             task_job = TaskJob(
-                task_no=f"LW-{int(time.time())}",
+                task_no=f"LW-{time.time_ns()}",
                 tool_code=TOOL_CODE,
                 tool_name=TOOL_NAME,
                 status="completed",
                 input_payload={
+                    "kol_id": kol_context.kol_id if kol_context else None,
+                    "product_id": product.id if product else None,
                     "productName": product_name,
                     "personaName": persona_name,
-                    "spOrder": job_context.get("spOrder", ""),
-                    "refLength": job_context.get("refLength", 0),
+                    "spOrder": body.sp_order or job_context.get("spOrder", ""),
+                    "refLength": len((body.reference_script or "").strip()) or job_context.get("refLength", 0),
+                    "feature": job_context.get("feature", "livestream_draft"),
+                    "model": model_id,
+                    "output_marker": "stream_completed",
                 },
                 started_at=datetime.now(timezone.utc),
                 finished_at=datetime.now(timezone.utc),

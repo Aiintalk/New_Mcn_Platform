@@ -10,6 +10,7 @@ Covers:
 """
 import pytest
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from unittest.mock import patch, AsyncMock
 
 
@@ -241,15 +242,14 @@ class TestActiveProducts:
     async def test_update_active_products(self, test_client, operator_headers, test_session):
         kid = await _create_kol(test_session)
         pid1 = await _create_product(test_session, "产品A")
-        pid2 = await _create_product(test_session, "产品B")
         resp = await test_client.put(
             f"/api/operator/workspace/{kid}/active-products",
-            json={"product_ids": [pid1, pid2]},
+            json={"product_ids": [pid1]},
             headers=operator_headers,
         )
         body = resp.json()
         assert body["success"] is True
-        assert set(body["data"]["active_product_ids"]) == {pid1, pid2}
+        assert body["data"]["active_product_ids"] == [pid1]
 
     @pytest.mark.asyncio
     async def test_update_active_products_replaces(self, test_client, operator_headers, test_session):
@@ -267,6 +267,143 @@ class TestActiveProducts:
         ids = [p["id"] for p in resp.json()["data"]]
         assert pid2 in ids
         assert pid1 not in ids
+
+    @pytest.mark.asyncio
+    async def test_update_active_products_rejects_multiple_current_products(
+        self, test_client, operator_headers, test_session
+    ):
+        kid = await _create_kol(test_session)
+        pid1 = await _create_product(test_session, "产品甲")
+        pid2 = await _create_product(test_session, "产品乙")
+
+        resp = await test_client.put(
+            f"/api/operator/workspace/{kid}/active-products",
+            json={"product_ids": [pid1, pid2]},
+            headers=operator_headers,
+        )
+
+        assert resp.status_code == 422
+        body = resp.json()
+        assert body == {
+            "success": False,
+            "code": "VALIDATION_ERROR",
+            "message": "一个红人一次只能选择一个当前商品",
+            "data": None,
+        }
+
+    @pytest.mark.asyncio
+    async def test_active_products_database_rejects_second_product_for_same_kol(
+        self, test_session
+    ):
+        kid = await _create_kol(test_session)
+        pid1 = await _create_product(test_session, "数据库产品甲")
+        pid2 = await _create_product(test_session, "数据库产品乙")
+
+        await test_session.execute(
+            text(
+                "INSERT INTO kol_active_products (kol_id, product_id) "
+                "VALUES (:kol_id, :product_id)"
+            ),
+            {"kol_id": kid, "product_id": pid1},
+        )
+        await test_session.commit()
+
+        with pytest.raises(IntegrityError):
+            await test_session.execute(
+                text(
+                    "INSERT INTO kol_active_products (kol_id, product_id) "
+                    "VALUES (:kol_id, :product_id)"
+                ),
+                {"kol_id": kid, "product_id": pid2},
+            )
+            await test_session.commit()
+        await test_session.rollback()
+
+    @pytest.mark.asyncio
+    async def test_active_product_cannot_be_deleted_before_unlinking(
+        self, test_client, operator_headers, test_session
+    ):
+        kid = await _create_kol(test_session)
+        pid = await _create_product(test_session, "当前产品")
+        await test_client.put(
+            f"/api/operator/workspace/{kid}/active-products",
+            json={"product_ids": [pid]},
+            headers=operator_headers,
+        )
+
+        resp = await test_client.delete(
+            f"/api/operator/qianchuan-products/{pid}",
+            headers=operator_headers,
+        )
+
+        assert resp.status_code == 400
+        assert "当前商品" in resp.json()["message"]
+
+    @pytest.mark.asyncio
+    async def test_kol_context_service_reads_complete_profile_and_database_product(
+        self, test_session
+    ):
+        from app.services.kol_context import get_kol_context, get_product_by_id
+
+        result = await test_session.execute(text(
+            "INSERT INTO kols "
+            "(name, status, persona, content_plan, background, experience, relationships, unique_story, extra_notes) "
+            "VALUES (:name, 'signed', :persona, :content_plan, :background, :experience, :relationships, :unique_story, :extra_notes) "
+            "RETURNING id"
+        ), {
+            "name": "完整档案红人",
+            "persona": "原有人设",
+            "content_plan": "内容规划",
+            "background": "基本身份",
+            "experience": "真实经历",
+            "relationships": "关系网",
+            "unique_story": "独家经历",
+            "extra_notes": "其他补充",
+        })
+        kid = result.scalar_one()
+        product_result = await test_session.execute(text(
+            "INSERT INTO qianchuan_products "
+            "(nickname, core_selling_point, mechanism, mechanism_exclusive, unique_selling) "
+            "VALUES (:nickname, :core_selling_point, :mechanism, true, :unique_selling) RETURNING id"
+        ), {
+            "nickname": "数据库商品",
+            "core_selling_point": "数据库卖点",
+            "mechanism": "买赠机制",
+            "unique_selling": "独家卖点",
+        })
+        pid = product_result.scalar_one()
+        await test_session.commit()
+
+        context = await get_kol_context(test_session, kid)
+        product = await get_product_by_id(test_session, pid)
+
+        assert context.name == "完整档案红人"
+        assert context.prompt_sections() == [
+            ("原有人设", "原有人设"),
+            ("内容规划", "内容规划"),
+            ("基本身份", "基本身份"),
+            ("真实经历", "真实经历"),
+            ("关系网", "关系网"),
+            ("独家经历", "独家经历"),
+            ("其他补充", "其他补充"),
+        ]
+        assert product.nickname == "数据库商品"
+        assert product.core_selling_point == "数据库卖点"
+        assert product.mechanism == "买赠机制"
+        assert product.mechanism_exclusive is True
+
+    @pytest.mark.asyncio
+    async def test_kol_context_service_skips_blank_sections_and_rejects_missing_kol(self, test_session):
+        from fastapi import HTTPException
+        from app.services.kol_context import get_kol_context
+
+        kid = await _create_kol(test_session, "空白档案红人")
+        context = await get_kol_context(test_session, kid)
+
+        assert context.prompt_sections() == []
+        with pytest.raises(HTTPException) as exc_info:
+            await get_kol_context(test_session, 999999)
+        assert exc_info.value.detail["message"] == "达人不存在"
 
     @pytest.mark.asyncio
     async def test_update_active_products_invalid_id(self, test_client, operator_headers, test_session):

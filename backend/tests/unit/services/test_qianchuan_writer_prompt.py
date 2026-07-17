@@ -87,3 +87,29 @@ class TestRenderSystemPrompt:
         assert "一个有梦想的90后短视频达人" in result
         assert "主打护肤+生活方式" in result
         assert "{{" not in result
+
+    def test_appends_full_kol_and_product_context(self):
+        result = render_system_prompt(
+            "达人：{{name}}\n档案：{{soul}}",
+            name="孙知羽",
+            soul="基础人设",
+            content_plan="内容规划",
+            profile_sections=[
+                ("真实经历", "在济州岛做过导游"),
+                ("独家经历", "只属于她的故事"),
+            ],
+            product_fields={
+                "产品昵称": "云朵面霜",
+                "最主推卖点": "熬夜也不暗沉",
+                "主推机制": "限时买一送一",
+                "只有我有": "是，必须强调独家权益",
+            },
+        )
+
+        assert "真实经历" in result
+        assert "在济州岛做过导游" in result
+        assert "独家经历" in result
+        assert "云朵面霜" in result
+        assert "熬夜也不暗沉" in result
+        assert "限时买一送一" in result
+        assert "只有我有" in result

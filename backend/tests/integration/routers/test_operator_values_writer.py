@@ -49,6 +49,361 @@ async def _create_kol(test_session, name="测试达人"):
     return kol_id
 
 
+async def _set_current_product(test_session, kol_id):
+    product_id = (await test_session.execute(text(
+        "INSERT INTO qianchuan_products (nickname, core_selling_point, mechanism, visualization, unique_selling, mechanism_exclusive) "
+        "VALUES ('数据库晚霜', '紧致卖点', '买一送一', '细腻肤感', '独家卖点', false) RETURNING id"
+    ))).scalar()
+    await test_session.execute(text(
+        "INSERT INTO kol_active_products (kol_id, product_id) VALUES (:kol_id, :product_id)"
+    ), {"kol_id": kol_id, "product_id": product_id})
+    await test_session.commit()
+
+
+class TestLegacyValuesWorkflow:
+    @pytest.mark.asyncio
+    async def test_derive_directions_requires_current_product(self, test_client, operator_headers, test_session):
+        kol_id = await _create_kol(test_session, name="没有商品的达人")
+        resp = await test_client.post(
+            "/api/operator/values-writer/derive-directions",
+            json={"kol_id": kol_id, "opening_line": "锁定开头", "original_script": "锁定开头\n原文正文"},
+            headers=operator_headers,
+        )
+        assert resp.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_derive_directions_reads_database_product_and_full_kol_context(
+        self, test_client, operator_headers, test_session
+    ):
+        kol_id = await _create_kol(test_session, name="完整档案达人")
+        await test_session.execute(text(
+            "UPDATE kols SET content_plan = '内容计划', experience = '真实经历', relationships = '关系网', "
+            "unique_story = '独家经历', extra_notes = '补充信息' WHERE id = :id"
+        ), {"id": kol_id})
+        await _set_current_product(test_session, kol_id)
+        with patch("app.routers.operator_values_writer.yunwu_adapter.chat", new_callable=AsyncMock) as mock_chat:
+            mock_chat.return_value = '[{"type":"诱惑型","title":"被看见","description":"说明","anchor":"锚点"},{"type":"焦虑型","title":"错过","description":"说明","anchor":"锚点"}]'
+            resp = await test_client.post(
+                "/api/operator/values-writer/derive-directions",
+                json={"kol_id": kol_id, "opening_line": "锁定开头", "original_script": "锁定开头\n原文正文"},
+                headers=operator_headers,
+            )
+        assert resp.status_code == 200
+        prompt = mock_chat.call_args.kwargs["messages"][0]["content"]
+        for value in ("数据库晚霜", "紧致卖点", "独家卖点", "内容计划", "真实经历", "关系网", "独家经历", "补充信息"):
+            assert value in prompt
+        assert resp.json()["data"]["directions"][0]["type"] == "诱惑型"
+
+    @pytest.mark.asyncio
+    async def test_generate_replaces_changed_opening_with_locked_opening(
+        self, test_client, operator_headers, test_session
+    ):
+        kol_id = await _create_kol(test_session, name="锁定开头达人")
+        await _set_current_product(test_session, kol_id)
+
+        async def _mock_stream(*args, **kwargs):
+            yield "<analysis>12字，2段</analysis><rewrite>模型擅自改了开头。\n后续正文。</rewrite><report>检查完成</report>"
+
+        with patch(
+            "app.routers.operator_values_writer.yunwu_adapter.chat_stream",
+            side_effect=_mock_stream,
+        ):
+            response = await test_client.post(
+                "/api/operator/values-writer/generate",
+                json={
+                    "kol_id": kol_id,
+                    "opening_line": "锁定开头。",
+                    "original_script": "锁定开头。\n原文正文。",
+                    "direction": {"type": "诱惑型", "title": "被看见", "description": "说明", "anchor": "锚点"},
+                },
+                headers=operator_headers,
+            )
+
+        payloads = [
+            json.loads(line.removeprefix("data: "))
+            for line in response.text.splitlines()
+            if line.startswith("data: ")
+        ]
+        generated = "".join(payload.get("delta", "") for payload in payloads)
+        assert response.status_code == 200
+        assert "<rewrite>锁定开头。\n后续正文。</rewrite>" in generated
+
+    @pytest.mark.asyncio
+    async def test_generate_replaces_opening_when_model_only_keeps_it_as_a_prefix(
+        self, test_client, operator_headers, test_session
+    ):
+        kol_id = await _create_kol(test_session, name="前缀篡改达人")
+        await _set_current_product(test_session, kol_id)
+
+        async def _mock_stream(*args, **kwargs):
+            yield "<analysis>12字，2段</analysis><rewrite>锁定开头。模型擅自加字\n后续正文。</rewrite><report>检查完成</report>"
+
+        with patch("app.routers.operator_values_writer.yunwu_adapter.chat_stream", side_effect=_mock_stream):
+            response = await test_client.post(
+                "/api/operator/values-writer/generate",
+                json={
+                    "kol_id": kol_id,
+                    "opening_line": "锁定开头。",
+                    "original_script": "锁定开头。\n原文正文。",
+                    "direction": {"type": "诱惑型", "title": "被看见", "description": "说明", "anchor": "锚点"},
+                },
+                headers=operator_headers,
+            )
+
+        generated = "".join(
+            json.loads(line.removeprefix("data: ")).get("delta", "")
+            for line in response.text.splitlines()
+            if line.startswith("data: ")
+        )
+        assert "<rewrite>锁定开头。\n后续正文。</rewrite>" in generated
+        assert "锁定开头。模型擅自加字" not in generated
+
+    @pytest.mark.asyncio
+    async def test_generate_uses_manual_direction_without_product_facts_and_records_trace(
+        self, test_client, operator_headers, test_session
+    ):
+        kol_id = await _create_kol(test_session, name="人工方向达人")
+        await _set_current_product(test_session, kol_id)
+        seen = {}
+
+        async def _mock_stream(*args, **kwargs):
+            seen["prompt"] = kwargs["messages"][0]["content"]
+            yield "<analysis>12字，2段</analysis><rewrite>锁定开头。\n全新表达。</rewrite><report>检查完成</report>"
+
+        with patch("app.routers.operator_values_writer.yunwu_adapter.chat_stream", side_effect=_mock_stream):
+            response = await test_client.post(
+                "/api/operator/values-writer/generate",
+                json={
+                    "kol_id": kol_id,
+                    "opening_line": "锁定开头。",
+                    "original_script": "锁定开头。\n原文正文。",
+                    "direction": {"type": "诱惑型", "title": "人工标题", "description": "人工说明", "anchor": "人工锚点"},
+                },
+                headers=operator_headers,
+            )
+
+        assert response.status_code == 200
+        assert "人工标题" in seen["prompt"]
+        assert "人工说明" in seen["prompt"]
+        for direct_product_fact in ("数据库晚霜", "紧致卖点", "买一送一", "细腻肤感", "独家卖点"):
+            assert direct_product_fact not in seen["prompt"]
+        task = (await test_session.execute(text(
+            "SELECT tool_code, status, input_payload, result_summary FROM task_jobs "
+            "WHERE tool_code = 'values-writer' ORDER BY id DESC LIMIT 1"
+        ))).mappings().one()
+        assert task["status"] == "success"
+        assert task["input_payload"]["kol_id"] == kol_id
+        assert task["input_payload"]["product_id"]
+        assert task["input_payload"]["original_length"] == len("锁定开头。\n原文正文。")
+        assert task["input_payload"]["model_id"]
+        assert task["result_summary"]["output_kind"] == "structured_script"
+
+    @pytest.mark.asyncio
+    async def test_generate_rejects_direct_product_information_in_final_output(
+        self, test_client, operator_headers, test_session
+    ):
+        kol_id = await _create_kol(test_session, name="商品泄露达人")
+        await _set_current_product(test_session, kol_id)
+
+        async def _mock_stream(*args, **kwargs):
+            yield "<analysis>12字，2段</analysis><rewrite>锁定开头。\n数据库晚霜很好用。</rewrite><report>紧致卖点</report>"
+
+        with patch("app.routers.operator_values_writer.yunwu_adapter.chat_stream", side_effect=_mock_stream):
+            response = await test_client.post(
+                "/api/operator/values-writer/generate",
+                json={
+                    "kol_id": kol_id,
+                    "opening_line": "锁定开头。",
+                    "original_script": "锁定开头。\n原文正文。",
+                    "direction": {"type": "诱惑型", "title": "被看见", "description": "说明", "anchor": "锚点"},
+                },
+                headers=operator_headers,
+            )
+
+        assert "数据库晚霜" not in response.text
+        assert "紧致卖点" not in response.text
+        assert "[ERROR] 生成结果包含商品直接信息" in response.text
+
+    @pytest.mark.asyncio
+    async def test_generate_repairs_incomplete_structure_before_recording_success(
+        self, test_client, operator_headers, test_session
+    ):
+        kol_id = await _create_kol(test_session, name="结构修复达人")
+        await _set_current_product(test_session, kol_id)
+        attempts = 0
+
+        async def _mock_stream(*args, **kwargs):
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                yield "模型漏掉了标签的原始回答"
+            else:
+                yield "<analysis>结构完整</analysis><rewrite>锁定开头。\n修复后的表达。</rewrite><report>修复后的报告</report>"
+
+        with patch("app.routers.operator_values_writer.yunwu_adapter.chat_stream", side_effect=_mock_stream):
+            response = await test_client.post(
+                "/api/operator/values-writer/generate",
+                json={
+                    "kol_id": kol_id,
+                    "opening_line": "锁定开头。",
+                    "original_script": "锁定开头。\n原文正文。",
+                    "direction": {"type": "诱惑型", "title": "被看见", "description": "说明", "anchor": "锚点"},
+                },
+                headers=operator_headers,
+            )
+
+        assert attempts == 2
+        assert "<report>修复后的报告</report>" in response.text
+        task = (await test_session.execute(text(
+            "SELECT status FROM task_jobs WHERE tool_code = 'values-writer' ORDER BY id DESC LIMIT 1"
+        ))).scalar_one()
+        assert task == "success"
+
+    @pytest.mark.asyncio
+    async def test_generate_returns_clear_error_without_recording_success_after_three_invalid_responses(
+        self, test_client, operator_headers, test_session
+    ):
+        kol_id = await _create_kol(test_session, name="结构失败达人")
+        await _set_current_product(test_session, kol_id)
+
+        async def _mock_stream(*args, **kwargs):
+            yield "没有三段结构的回答"
+
+        with patch("app.routers.operator_values_writer.yunwu_adapter.chat_stream", side_effect=_mock_stream) as mock_stream:
+            response = await test_client.post(
+                "/api/operator/values-writer/generate",
+                json={
+                    "kol_id": kol_id,
+                    "opening_line": "锁定开头。",
+                    "original_script": "锁定开头。\n原文正文。",
+                    "direction": {"type": "诱惑型", "title": "被看见", "description": "说明", "anchor": "锚点"},
+                },
+                headers=operator_headers,
+            )
+
+        assert mock_stream.call_count == 3
+        assert "[ERROR] 结构化生成失败，已重试 3 次" in response.text
+        count = (await test_session.execute(text(
+            "SELECT COUNT(*) FROM task_jobs WHERE tool_code = 'values-writer' AND status = 'success' "
+            "AND input_payload->>'kol_id' = :kol_id"
+        ), {"kol_id": str(kol_id)})).scalar_one()
+        assert count == 0
+
+    @pytest.mark.asyncio
+    async def test_derive_directions_retries_three_times_then_returns_clear_error_for_invalid_type(
+        self, test_client, operator_headers, test_session
+    ):
+        kol_id = await _create_kol(test_session, name="方向重试达人")
+        await _set_current_product(test_session, kol_id)
+        invalid = '[{"type":"未知型","title":"标题","description":"说明","anchor":"锚点"},{"type":"未知型","title":"标题二","description":"说明","anchor":"锚点"}]'
+        with patch("app.routers.operator_values_writer.yunwu_adapter.chat", new_callable=AsyncMock) as mock_chat:
+            mock_chat.return_value = invalid
+            response = await test_client.post(
+                "/api/operator/values-writer/derive-directions",
+                json={"kol_id": kol_id, "opening_line": "锁定开头", "original_script": "锁定开头\n原文正文"},
+                headers=operator_headers,
+            )
+
+        assert response.status_code == 502
+        assert mock_chat.await_count == 3
+        assert "情绪方向生成失败，已重试 3 次" in response.text
+
+    @pytest.mark.asyncio
+    async def test_generate_rejects_direction_type_outside_server_whitelist(
+        self, test_client, operator_headers, test_session
+    ):
+        kol_id = await _create_kol(test_session, name="非法方向达人")
+        await _set_current_product(test_session, kol_id)
+        response = await test_client.post(
+            "/api/operator/values-writer/generate",
+            json={
+                "kol_id": kol_id,
+                "opening_line": "锁定开头。",
+                "original_script": "锁定开头。\n原文正文。",
+                "direction": {"type": "热血型", "title": "标题", "description": "说明", "anchor": "锚点"},
+            },
+            headers=operator_headers,
+        )
+        assert response.status_code == 400
+        assert "只支持焦虑型或诱惑型" in response.text
+
+    @pytest.mark.asyncio
+    async def test_structured_iteration_uses_full_kol_context_and_returns_updated_report(
+        self, test_client, operator_headers, test_session
+    ):
+        kol_id = await _create_kol(test_session, name="多轮修改达人")
+        await test_session.execute(text(
+            "UPDATE kols SET content_plan = '内容计划', experience = '真实经历', relationships = '关系网', "
+            "unique_story = '独家经历', extra_notes = '补充信息' WHERE id = :id"
+        ), {"id": kol_id})
+        await _set_current_product(test_session, kol_id)
+        seen = {}
+
+        async def _mock_stream(*args, **kwargs):
+            seen["prompt"] = kwargs["messages"][0]["content"]
+            yield "<analysis>修改后结构</analysis><rewrite>锁定开头。\n修改后表达。</rewrite><report>修改后报告</report>"
+
+        with patch("app.routers.operator_values_writer.yunwu_adapter.chat_stream", side_effect=_mock_stream):
+            response = await test_client.post(
+                "/api/operator/values-writer/iterate-structured",
+                json={
+                    "kol_id": kol_id,
+                    "opening_line": "锁定开头。",
+                    "original_script": "锁定开头。\n原文正文。",
+                    "direction": {"type": "诱惑型", "title": "被看见", "description": "说明", "anchor": "锚点"},
+                    "current_result": {"analysis": "初稿结构", "rewrite": "锁定开头。\n初稿表达。", "report": "初稿报告"},
+                    "instruction": "把语气改得更克制",
+                    "history": [{"instruction": "先减少夸张", "result": {"analysis": "历史结构", "rewrite": "锁定开头。\n历史表达。", "report": "历史报告"}}],
+                },
+                headers=operator_headers,
+            )
+
+        assert response.status_code == 200
+        generated = "".join(
+            json.loads(line.removeprefix("data: ")).get("delta", "")
+            for line in response.text.splitlines()
+            if line.startswith("data: ")
+        )
+        assert "<rewrite>锁定开头。\n修改后表达。</rewrite>" in generated
+        assert "<report>修改后报告</report>" in generated
+        for value in ("内容计划", "真实经历", "关系网", "独家经历", "补充信息", "把语气改得更克制", "初稿表达", "历史表达"):
+            assert value in seen["prompt"]
+
+    @pytest.mark.asyncio
+    async def test_structured_iteration_repairs_incomplete_structure_before_returning_result(
+        self, test_client, operator_headers, test_session
+    ):
+        kol_id = await _create_kol(test_session, name="修改结构修复达人")
+        await _set_current_product(test_session, kol_id)
+        attempts = 0
+
+        async def _mock_stream(*args, **kwargs):
+            nonlocal attempts
+            attempts += 1
+            yield (
+                "缺少标签" if attempts == 1 else
+                "<analysis>修改结构</analysis><rewrite>锁定开头。\n修改后表达。</rewrite><report>修改后报告</report>"
+            )
+
+        with patch("app.routers.operator_values_writer.yunwu_adapter.chat_stream", side_effect=_mock_stream):
+            response = await test_client.post(
+                "/api/operator/values-writer/iterate-structured",
+                json={
+                    "kol_id": kol_id,
+                    "opening_line": "锁定开头。",
+                    "original_script": "锁定开头。\n原文正文。",
+                    "direction": {"type": "诱惑型", "title": "被看见", "description": "说明", "anchor": "锚点"},
+                    "current_result": {"analysis": "初稿结构", "rewrite": "锁定开头。\n初稿表达。", "report": "初稿报告"},
+                    "instruction": "把语气改得更克制",
+                    "history": [],
+                },
+                headers=operator_headers,
+            )
+
+        assert attempts == 2
+        assert "<report>修改后报告</report>" in response.text
+
+
 # ---------------------------------------------------------------------------
 # Test 1: No auth → 401
 # ---------------------------------------------------------------------------

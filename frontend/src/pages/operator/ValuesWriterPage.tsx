@@ -1,514 +1,260 @@
-/**
- * 价值观仿写页面（values-writer）
- *
- * 4 步工作流：
- *   Step 1 · 选达人   — 仅独立页模式，工作台 Module 跳过
- *   Step 2 · 选价值观 — AI 提炼 + 可点击 Tag 多选（1-3 个）
- *   Step 3 · 情绪方向 — 可选调性输入 + 流式生成 + 可编辑
- *   Step 4 · 生成内容 — 流式写作 + 迭代优化 + 复制/导出
- */
-import { useState, useEffect } from 'react';
-import { Steps, Tag, Spin, Input, Select, App } from 'antd';
+import { useEffect, useState } from 'react';
+import { App, Input, Select, Steps } from 'antd';
 import {
-  extractValues,
-  emotionDirectionStream,
-  writeStream,
-  iterateStream,
+  deriveDirections,
+  generateValueScript,
+  iterateValueScript,
   saveOutput,
+  type EmotionDirection,
 } from '../../api/valuesWriter';
+import { getActiveProducts, updateActiveProducts } from '../../api/kolWorkspace';
+import { getQianchuanProducts } from '../../api/qianchuanProducts';
 import { get } from '../../api/request';
+import type { QianchuanProduct } from '../../types/kolWorkspace';
 import type { QianchuanWriterPersona } from '../../types/qianchuanWriter';
-import OutputHistoryDrawer from '../../components/OutputHistoryDrawer';
 
 const { TextArea } = Input;
 
-// ── helpers ──────────────────────────────────────────────────────────────────
+export interface ValueScriptResult {
+  analysis: string;
+  rewrite: string;
+  report: string;
+}
 
-function downloadTxt(content: string, filename = 'values-writer.txt'): void {
+interface ValueScriptRevision {
+  instruction: string;
+  result: ValueScriptResult;
+}
+
+export function calculateBigramSimilarity(original: string, rewritten: string): number {
+  const pairs = (value: string) => {
+    const cleaned = value.replace(/\s/g, '');
+    return new Set(Array.from({ length: Math.max(cleaned.length - 1, 0) }, (_, index) => cleaned.slice(index, index + 2)));
+  };
+  const left = pairs(original);
+  const right = pairs(rewritten);
+  const overlap = [...left].filter((pair) => right.has(pair)).length;
+  const union = left.size + right.size - overlap;
+  return union ? Math.round((overlap / union) * 100) : 0;
+}
+
+export function similarityStatus(similarity: number): string {
+  return similarity > 50 ? '需要继续改写' : similarity > 35 ? '接近安全线' : '安全';
+}
+
+export function parseValueScriptResult(content: string): ValueScriptResult | null {
+  const take = (tag: string) => content.match(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`))?.[1].trim();
+  const analysis = take('analysis');
+  const rewrite = take('rewrite');
+  const report = take('report');
+  return analysis && rewrite && report ? { analysis, rewrite, report } : null;
+}
+
+function productSummary(product: QianchuanProduct): string {
+  return [product.core_selling_point, product.mechanism, product.unique_selling].filter(Boolean).join('；');
+}
+
+function downloadText(content: string, productName: string) {
   const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
   const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `价值观仿写_${productName || '终稿'}.txt`;
+  link.click();
   URL.revokeObjectURL(url);
 }
 
-// ── Module（工作台内嵌，从 Step 2 开始）───────────────────────────────────────
-
 export function ValuesWriterModule({ kolId }: { kolId: number }) {
   const { message } = App.useApp();
+  const [step, setStep] = useState(0);
+  const [openingLine, setOpeningLine] = useState('');
+  const [originalScript, setOriginalScript] = useState('');
+  const [products, setProducts] = useState<QianchuanProduct[]>([]);
+  const [currentProduct, setCurrentProduct] = useState<QianchuanProduct | null>(null);
+  const [directions, setDirections] = useState<EmotionDirection[]>([]);
+  const [direction, setDirection] = useState<EmotionDirection | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [rawResult, setRawResult] = useState('');
+  const [result, setResult] = useState<ValueScriptResult | null>(null);
+  const [revisionInstruction, setRevisionInstruction] = useState('');
+  const [revisionHistory, setRevisionHistory] = useState<ValueScriptRevision[]>([]);
+  const [activeResult, setActiveResult] = useState<'script' | 'report'>('script');
+  const [error, setError] = useState('');
 
-  // Step tracking (2-4 inside module)
-  const [currentStep, setCurrentStep] = useState(0); // 0=Step2, 1=Step3, 2=Step4
-
-  // Step 2: value selection
-  const [valuesLoading, setValuesLoading] = useState(false);
-  const [valuesList, setValuesList] = useState<string[]>([]);
-  const [selectedValues, setSelectedValues] = useState<string[]>([]);
-
-  // Step 3: emotion direction
-  const [tone, setTone] = useState('');
-  const [emotionDirection, setEmotionDirection] = useState('');
-  const [emotionStreaming, setEmotionStreaming] = useState(false);
-
-  // Step 4: content generation
-  const [productContext, setProductContext] = useState('');
-  const [content, setContent] = useState('');
-  const [contentStreaming, setContentStreaming] = useState(false);
-  const [iterationInstruction, setIterationInstruction] = useState('');
-  const [iterating, setIterating] = useState(false);
-
-  // History drawer + save
-  const [saving, setSaving] = useState(false);
-  const [historyOpen, setHistoryOpen] = useState(false);
-
-  // Load values on mount
   useEffect(() => {
-    setValuesLoading(true);
-    extractValues(kolId)
-      .then((res) => {
-        setValuesList(res.values ?? []);
+    Promise.all([getActiveProducts(kolId), getQianchuanProducts({ page_size: 50 })])
+      .then(([active, page]) => {
+        setCurrentProduct(active[0] ?? null);
+        setProducts(page.items ?? []);
       })
-      .catch((err: unknown) => {
-        message.error(err instanceof Error ? err.message : 'AI 提炼价值观失败');
-      })
-      .finally(() => setValuesLoading(false));
-  }, [kolId, message]);
+      .catch(() => setError('商品信息加载失败，请刷新后重试'));
+  }, [kolId]);
 
-  function handleTagClick(val: string) {
-    setSelectedValues((prev) => {
-      if (prev.includes(val)) {
-        return prev.filter((v) => v !== val);
-      }
-      if (prev.length >= 3) {
-        message.warning('最多选择 3 个价值观');
-        return prev;
-      }
-      return [...prev, val];
-    });
-  }
-
-  async function handleGenerateEmotion() {
-    setEmotionStreaming(true);
-    setEmotionDirection('');
+  async function selectProduct(productId: number) {
     try {
-      await emotionDirectionStream(
-        {
-          kol_id: kolId,
-          selected_values: selectedValues,
-          ...(tone ? { tone } : {}),
-        },
-        (text) => setEmotionDirection(text),
-      );
+      await updateActiveProducts(kolId, [productId]);
+      setCurrentProduct(products.find((product) => product.id === productId) ?? null);
+      message.success('当前商品已更新');
     } catch (err: unknown) {
-      message.error(err instanceof Error ? err.message : '生成情绪方向失败');
-    } finally {
-      setEmotionStreaming(false);
+      message.error(err instanceof Error ? err.message : '切换当前商品失败');
     }
   }
 
-  async function handleWrite() {
-    setContentStreaming(true);
-    setContent('');
-    try {
-      await writeStream(
-        {
-          kol_id: kolId,
-          selected_values: selectedValues,
-          emotion_direction: emotionDirection,
-          ...(productContext ? { product_context: productContext } : {}),
-        },
-        (text) => setContent(text),
-      );
-    } catch (err: unknown) {
-      message.error(err instanceof Error ? err.message : '生成内容失败');
-    } finally {
-      setContentStreaming(false);
-    }
-  }
-
-  async function handleIterate() {
-    if (!iterationInstruction.trim()) {
-      message.warning('请输入迭代指令');
+  async function handleDirections() {
+    if (!currentProduct) {
+      setError('请先在产品库选择当前商品');
       return;
     }
-    setIterating(true);
+    setLoading(true);
+    setError('');
     try {
-      await iterateStream(
-        {
-          kol_id: kolId,
-          content,
-          instruction: iterationInstruction,
-        },
-        (text) => setContent(text),
-      );
+      const response = await deriveDirections({ kol_id: kolId, opening_line: openingLine, original_script: originalScript });
+      setDirections(response.directions);
+      setDirection(null);
+      setStep(2);
     } catch (err: unknown) {
-      message.error(err instanceof Error ? err.message : '迭代优化失败');
+      setError(err instanceof Error ? err.message : '情绪方向生成失败');
     } finally {
-      setIterating(false);
+      setLoading(false);
     }
   }
 
-  function handleCopy() {
-    if (!content) return;
-    navigator.clipboard.writeText(content).then(() => {
-      message.success('已复制到剪贴板');
-    }).catch(() => {
-      message.error('复制失败，请手动复制');
-    });
+  async function handleGenerate(selectedDirection = direction) {
+    if (!selectedDirection) return;
+    setLoading(true);
+    setError('');
+    setRawResult('');
+    setResult(null);
+    setRevisionHistory([]);
+    try {
+      const content = await generateValueScript({
+        kol_id: kolId,
+        opening_line: openingLine,
+        original_script: originalScript,
+        direction: selectedDirection,
+      }, setRawResult);
+      const parsed = parseValueScriptResult(content);
+      if (!parsed) {
+        setError('生成结果缺少结构分析、改写脚本或情绪检测报告，请重新生成');
+        return;
+      }
+      setResult(parsed);
+      setActiveResult('script');
+      setStep(3);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : '脚本生成失败');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleIteration() {
+    if (!result || !direction || !revisionInstruction.trim()) return;
+    setLoading(true);
+    setError('');
+    setRawResult('');
+    const instruction = revisionInstruction.trim();
+    try {
+      const content = await iterateValueScript({
+        kol_id: kolId,
+        opening_line: openingLine,
+        original_script: originalScript,
+        direction,
+        current_result: result,
+        instruction,
+        history: revisionHistory,
+      }, setRawResult);
+      const parsed = parseValueScriptResult(content);
+      if (!parsed) {
+        setError('修改结果缺少结构分析、改写脚本或情绪检测报告，请重新发送要求');
+        return;
+      }
+      setRevisionHistory((items) => [...items, { instruction, result: parsed }]);
+      setResult(parsed);
+      setRevisionInstruction('');
+      setActiveResult('script');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : '脚本修改失败');
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function handleSave() {
-    if (!content.trim()) {
-      message.warning('内容为空，无法保存');
-      return;
-    }
-    setSaving(true);
-    try {
-      const titleSuffix = selectedValues.length > 0 ? `· ${selectedValues.join('、')}` : '';
-      await saveOutput({
-        content,
-        title: `价值观仿写 ${titleSuffix}`.trim(),
-        topic: selectedValues.length > 0 ? selectedValues.join('、') : null,
-      });
-      message.success('已保存到历史');
-    } catch (err: unknown) {
-      message.error(err instanceof Error ? err.message : '保存失败');
-    } finally {
-      setSaving(false);
-    }
+    if (!result) return;
+    await saveOutput({
+      content: `=== 价值观脚本 ===\n\n${result.rewrite}\n\n=== 情绪检测报告 ===\n\n${result.report}`,
+      title: `价值观仿写 · ${currentProduct?.nickname ?? ''}`.trim(),
+      topic: direction?.title ?? null,
+    });
+    message.success('已保存到产出中心');
   }
 
-  const steps = [
-    { title: '选价值观' },
-    { title: '情绪方向' },
-    { title: '生成内容' },
-  ];
+  const similarity = result ? calculateBigramSimilarity(originalScript, result.rewrite) : null;
+  const similarityText = similarity === null ? '' : similarityStatus(similarity);
 
   return (
     <div>
       <div className="page-header" style={{ marginBottom: 'var(--sp-4)' }}>
         <div>
           <h1 className="page-title">价值观仿写</h1>
-          <p className="page-desc">基于达人价值观，生成真实有温度的内容</p>
+          <p className="page-desc">锁定开头、选择当前商品、人工确认情绪方向后生成脚本</p>
         </div>
       </div>
+      <Steps current={step} size="small" style={{ marginBottom: 'var(--sp-6)' }} items={[
+        { title: '输入爆款原文' }, { title: '选择产品' }, { title: '选择情绪方向' }, { title: '脚本和报告' },
+      ]} />
+      {error && <div role="alert" className="card" style={{ marginBottom: 16, color: 'var(--danger)' }}>{error}</div>}
 
-      <Steps
-        current={currentStep}
-        items={steps}
-        size="small"
-        style={{ marginBottom: 'var(--sp-6)' }}
-      />
+      {step === 0 && <div className="card"><div className="card-body">
+        <h2 className="card-title">输入爆款原文</h2>
+        <div style={{ background: 'var(--brand-light)', borderLeft: '3px solid var(--brand)', padding: 'var(--sp-3)', marginTop: 16 }}><strong>锁定开头</strong><div style={{ fontSize: 12, marginTop: 4 }}>这句话会逐字保留在生成脚本开头。</div><TextArea id="value-opening" aria-label="锁定开头" rows={2} value={openingLine} onChange={(event) => setOpeningLine(event.target.value)} placeholder="粘贴爆款的第一句话" style={{ marginTop: 8 }} /></div>
+        <label htmlFor="value-original" style={{ display: 'block', marginTop: 16 }}>爆款全文</label>
+        <TextArea id="value-original" aria-label="爆款全文" rows={10} value={originalScript} onChange={(event) => setOriginalScript(event.target.value)} placeholder="粘贴完整爆款原文" />
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}><button className="btn btn-primary" disabled={!openingLine.trim() || !originalScript.trim()} onClick={() => setStep(1)}>下一步：选择产品 →</button></div>
+      </div></div>}
 
-      {/* Step 2: 选价值观 */}
-      {currentStep === 0 && (
-        <div className="card">
-          <div className="card-header">
-            <h2 className="card-title">选择价值观</h2>
-            <span style={{ fontSize: 12, color: 'var(--gray-400)' }}>
-              已选 {selectedValues.length} / 3
-            </span>
-          </div>
-          <div className="card-body">
-            {valuesLoading ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '20px 0' }}>
-                <Spin size="small" />
-                <span style={{ color: 'var(--gray-400)', fontSize: 14 }}>AI 提炼中...</span>
-              </div>
-            ) : valuesList.length === 0 ? (
-              <div className="empty-state">
-                <div className="empty-state-text">暂未获取到价值观，请确认达人人设已完善</div>
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 20 }}>
-                {valuesList.map((val) => {
-                  const isSelected = selectedValues.includes(val);
-                  return (
-                    <Tag
-                      key={val}
-                      color={isSelected ? 'blue' : 'default'}
-                      onClick={() => handleTagClick(val)}
-                      style={{
-                        cursor: 'pointer',
-                        fontSize: 14,
-                        padding: '4px 14px',
-                        borderRadius: 20,
-                        userSelect: 'none',
-                      }}
-                    >
-                      {val}
-                    </Tag>
-                  );
-                })}
-              </div>
-            )}
-            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-              <button
-                className="btn btn-primary"
-                disabled={selectedValues.length === 0}
-                onClick={() => setCurrentStep(1)}
-              >
-                确认，生成情绪方向 →
-              </button>
-            </div>
-          </div>
+      {step === 1 && <div className="card"><div className="card-body">
+        <h2 className="card-title">选择当前商品</h2>
+        <p>当前商品只用来推导情绪方向，最终脚本不会出现商品名称和直接商品信息。</p>
+        <Select aria-label="当前商品" value={currentProduct?.id} placeholder="请选择当前商品" style={{ width: '100%', marginTop: 12 }} onChange={selectProduct} options={products.map((product) => ({ value: product.id, label: product.nickname }))} />
+        {currentProduct && <div className="card" style={{ marginTop: 16 }}><div className="card-body"><strong>{currentProduct.nickname}</strong><p>{productSummary(currentProduct) || '暂无补充卖点'}</p></div></div>}
+        {!currentProduct && <p style={{ color: 'var(--danger)' }}>请先选择当前商品；没有商品时请到产品库新建后再返回。</p>}
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 16 }}><button className="btn btn-ghost" onClick={() => setStep(0)}>← 返回</button><button className="btn btn-primary" disabled={loading || !currentProduct} onClick={handleDirections}>{loading ? '推导中...' : '生成情绪方向'}</button></div>
+      </div></div>}
+
+      {step === 2 && <div className="card"><div className="card-body">
+        <h2 className="card-title">选择情绪方向</h2>
+        <p>点击方向卡后立即生成脚本和情绪检测报告。</p>
+        <div style={{ display: 'grid', gap: 12 }}>{directions.map((item) => <button key={`${item.type}-${item.title}`} className="card" style={{ width: '100%', textAlign: 'left', borderColor: direction?.title === item.title ? 'var(--brand)' : undefined }} onClick={() => { setDirection(item); void handleGenerate(item); }} disabled={loading}><strong>{item.type} · {item.title}</strong><p>{item.description}</p><small>情绪锚点：{item.anchor}</small></button>)}</div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 16 }}><button className="btn btn-ghost" onClick={() => setStep(1)}>← 换商品</button><span style={{ fontSize: 12, color: 'var(--gray-500)' }}>点击方向卡即开始生成</span></div>
+      </div></div>}
+
+      {step === 3 && <div className="card"><div className="card-body">
+        <div style={{ display: 'flex', justifyContent: 'space-between' }}><h2 className="card-title">脚本和情绪检测报告</h2><div><button className="btn btn-ghost btn-sm" onClick={() => setStep(2)}>重新选择方向</button><button className="btn btn-ghost btn-sm" onClick={handleSave}>保存到产出中心</button></div></div>
+        {result && <div style={{ margin: '12px 0', background: 'var(--info-light)', borderLeft: '3px solid var(--info)', padding: 'var(--sp-3)' }}><strong>原文结构分析</strong><div style={{ marginTop: 4 }}>{result.analysis}</div></div>}
+        {similarity !== null && <p>与原文相似度：<strong style={{ color: similarity > 50 ? 'var(--danger)' : similarity > 35 ? 'var(--warning)' : 'var(--success)' }}>{similarity}%</strong>（{similarityText}）</p>}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}><button className="btn btn-ghost btn-sm" onClick={() => setActiveResult('script')}>脚本</button><button className="btn btn-ghost btn-sm" onClick={() => setActiveResult('report')}>情绪检测报告</button></div>
+        {activeResult === 'script' ? <TextArea aria-label="改写脚本" rows={14} value={result?.rewrite ?? rawResult} onChange={(event) => result && setResult({ ...result, rewrite: event.target.value })} /> : <TextArea aria-label="情绪检测报告" rows={14} value={result?.report ?? rawResult} onChange={(event) => result && setResult({ ...result, report: event.target.value })} />}
+        <div style={{ marginTop: 16, display: 'flex', gap: 8 }}>
+          <Input id="value-revision" aria-label="修改要求" value={revisionInstruction} onChange={(event) => setRevisionInstruction(event.target.value)} onPressEnter={() => void handleIteration()} placeholder="例如：把语气改得更克制，保留原有节奏" />
+          <button className="btn btn-primary" disabled={loading || !revisionInstruction.trim()} onClick={handleIteration}>{loading ? '修改中...' : '发送'}</button>
         </div>
-      )}
-
-      {/* Step 3: 情绪方向 */}
-      {currentStep === 1 && (
-        <div className="card">
-          <div className="card-header">
-            <h2 className="card-title">生成情绪方向</h2>
-          </div>
-          <div className="card-body">
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 13, color: 'var(--gray-500)', marginBottom: 8 }}>
-                已选价值观：
-              </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                {selectedValues.map((val) => (
-                  <Tag key={val} color="blue" style={{ borderRadius: 20 }}>
-                    {val}
-                  </Tag>
-                ))}
-              </div>
-            </div>
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 6 }}>
-                情感基调（选填）
-              </div>
-              <TextArea
-                rows={2}
-                placeholder="如：轻松温暖、真实有力..."
-                value={tone}
-                onChange={(e) => setTone(e.target.value)}
-              />
-            </div>
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                <div style={{ fontSize: 13, fontWeight: 500 }}>情绪方向</div>
-                <button
-                  className="btn btn-ghost btn-sm"
-                  onClick={handleGenerateEmotion}
-                  disabled={emotionStreaming}
-                >
-                  {emotionStreaming ? '生成中...' : '生成情绪方向'}
-                </button>
-              </div>
-              <TextArea
-                rows={6}
-                placeholder="点击「生成情绪方向」，AI 将生成推荐内容；也可直接手动填写..."
-                value={emotionDirection}
-                onChange={(e) => setEmotionDirection(e.target.value)}
-                disabled={emotionStreaming}
-              />
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <button className="btn btn-ghost" onClick={() => setCurrentStep(0)}>
-                ← 返回
-              </button>
-              <button
-                className="btn btn-primary"
-                disabled={!emotionDirection.trim()}
-                onClick={() => setCurrentStep(2)}
-              >
-                下一步：生成内容 →
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Step 4: 生成内容 */}
-      {currentStep === 2 && (
-        <div className="card">
-          <div className="card-header">
-            <h2 className="card-title">生成内容</h2>
-          </div>
-          <div className="card-body">
-            {/* 摘要 */}
-            <div style={{ marginBottom: 16, padding: '12px 16px', background: 'var(--bg-page)', borderRadius: 8 }}>
-              <div style={{ fontSize: 12, color: 'var(--gray-500)', marginBottom: 6 }}>价值观：</div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
-                {selectedValues.map((val) => (
-                  <Tag key={val} color="blue" style={{ borderRadius: 20 }}>
-                    {val}
-                  </Tag>
-                ))}
-              </div>
-              <div style={{ fontSize: 12, color: 'var(--gray-500)', marginBottom: 4 }}>情绪方向：</div>
-              <div style={{ fontSize: 13, color: 'var(--gray-700)', whiteSpace: 'pre-wrap' }}>
-                {emotionDirection}
-              </div>
-            </div>
-
-            {/* 产品关联 */}
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 6 }}>
-                产品关联（选填）
-              </div>
-              <Input
-                placeholder="如：本期推广 XX 产品（选填）"
-                value={productContext}
-                onChange={(e) => setProductContext(e.target.value)}
-              />
-            </div>
-
-            {/* 生成按钮 */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <button className="btn btn-ghost" onClick={() => setCurrentStep(1)}>
-                ← 返回
-              </button>
-              <button
-                className="btn btn-primary"
-                onClick={handleWrite}
-                disabled={contentStreaming}
-              >
-                {contentStreaming ? '生成中...' : '开始生成'}
-              </button>
-            </div>
-
-            {/* 内容区 */}
-            <TextArea
-              rows={12}
-              placeholder="点击「开始生成」，AI 将流式输出内容..."
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              disabled={contentStreaming || iterating}
-            />
-
-            {/* 工具栏 */}
-            {content && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 8 }}>
-                <button
-                  className="btn btn-ghost btn-sm"
-                  onClick={() => setHistoryOpen(true)}
-                >
-                  历史记录
-                </button>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button className="btn btn-ghost btn-sm" onClick={handleCopy}>
-                    复制全文
-                  </button>
-                  <button
-                    className="btn btn-ghost btn-sm"
-                    onClick={() => downloadTxt(content)}
-                  >
-                    导出 TXT
-                  </button>
-                  <button
-                    className="btn btn-primary btn-sm"
-                    onClick={handleSave}
-                    disabled={saving || contentStreaming || iterating}
-                  >
-                    {saving ? '保存中...' : '保存到历史'}
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* 迭代区 */}
-            {content && (
-              <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
-                <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 8 }}>迭代优化</div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <Input
-                    placeholder="输入优化指令，如：加强情感共鸣，语气更真实..."
-                    value={iterationInstruction}
-                    onChange={(e) => setIterationInstruction(e.target.value)}
-                    disabled={iterating || contentStreaming}
-                  />
-                  <button
-                    className="btn btn-ghost"
-                    onClick={handleIterate}
-                    disabled={iterating || contentStreaming || !iterationInstruction.trim()}
-                    style={{ flexShrink: 0 }}
-                  >
-                    {iterating ? '优化中...' : '优化'}
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      <OutputHistoryDrawer
-        toolCode="values-writer"
-        toolName="价值观仿写"
-        open={historyOpen}
-        onClose={() => setHistoryOpen(false)}
-      />
+        <details aria-label="修改历史" style={{ marginTop: 16 }}><summary>修改历史（{revisionHistory.length + 1}）</summary><div style={{ marginTop: 8 }}><strong>初稿</strong><p>相似度：{calculateBigramSimilarity(originalScript, result?.rewrite ?? '')}%</p>{revisionHistory.map((item, index) => <div key={`${index}-${item.instruction}`}><strong>第 {index + 1} 次人工智能修改</strong><p>修改要求：{item.instruction}；相似度：{calculateBigramSimilarity(originalScript, item.result.rewrite)}%</p></div>)}</div></details>
+        <button className="btn btn-primary" style={{ marginTop: 12 }} disabled={!result} onClick={() => result && downloadText(`=== 价值观脚本 ===\n\n${result.rewrite}\n\n=== 情绪检测报告 ===\n\n${result.report}`, currentProduct?.nickname ?? '')}>导出文本</button>
+      </div></div>}
     </div>
   );
 }
-
-// ── 独立页面（包含 Step 1 选达人）────────────────────────────────────────────
 
 export default function ValuesWriterPage() {
   const { message } = App.useApp();
   const [personas, setPersonas] = useState<QianchuanWriterPersona[]>([]);
   const [selectedKolId, setSelectedKolId] = useState<number | null>(null);
-  const [confirmed, setConfirmed] = useState(false);
 
   useEffect(() => {
-    get<QianchuanWriterPersona[]>('/api/tools/qianchuan-writer/kols/personas')
-      .then(setPersonas)
-      .catch(() => {
-        message.error('加载达人列表失败');
-      });
+    get<QianchuanWriterPersona[]>('/api/tools/qianchuan-writer/kols/personas').then(setPersonas).catch(() => message.error('加载达人列表失败'));
   }, [message]);
 
-  if (!confirmed || selectedKolId === null) {
-    return (
-      <div>
-        <div className="page-header">
-          <div>
-            <h1 className="page-title">价值观仿写</h1>
-            <p className="page-desc">基于达人价值观，生成真实有温度的内容</p>
-          </div>
-        </div>
-        <div className="card" style={{ maxWidth: 500 }}>
-          <div className="card-header">
-            <h2 className="card-title">选择达人</h2>
-          </div>
-          <div className="card-body">
-            <div style={{ marginBottom: 20 }}>
-              <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 8 }}>达人</div>
-              <Select
-                style={{ width: '100%' }}
-                placeholder="请选择达人"
-                value={selectedKolId ?? undefined}
-                onChange={(val) => setSelectedKolId(val)}
-                options={personas.map((p) => ({
-                  value: p.id,
-                  label: p.name,
-                }))}
-                showSearch
-                filterOption={(input, option) =>
-                  String(option?.label ?? '').toLowerCase().includes(input.toLowerCase())
-                }
-              />
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-              <button
-                className="btn btn-primary"
-                disabled={selectedKolId === null}
-                onClick={() => setConfirmed(true)}
-              >
-                确认，开始仿写 →
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return <ValuesWriterModule kolId={selectedKolId} />;
+  return selectedKolId === null ? <div className="card"><div className="card-body"><h1 className="page-title">价值观仿写</h1><Select aria-label="选择达人" style={{ width: '100%', marginTop: 16 }} placeholder="请选择达人" onChange={setSelectedKolId} options={personas.map((persona) => ({ value: persona.id, label: persona.name }))} /></div></div> : <ValuesWriterModule kolId={selectedKolId} />;
 }

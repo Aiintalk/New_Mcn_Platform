@@ -17,11 +17,15 @@ import {
   parseFile,
   chatStream,
 } from '../../api/livestreamWriter';
+import { getActiveProducts, updateActiveProducts } from '../../api/kolWorkspace';
+import { createQianchuanProduct, getQianchuanProducts } from '../../api/qianchuanProducts';
+import ProductFormModal, { type ProductFormValues } from '../../components/qianchuan/ProductFormModal';
 import type { Persona, SpOrder, LivestreamWriterConfig } from '../../types/livestreamWriter';
+import type { QianchuanProduct } from '../../types/kolWorkspace';
 
 const { TextArea } = Input;
 
-const SP_ORDER_OPTIONS: SpOrder[] = ['背书→机制→种草', '机制→背书→种草', '种草→背书→机制'];
+const SP_ORDER_OPTIONS: SpOrder[] = ['背书→机制→种草', '机制→背书→种草', '背书→种草→机制'];
 
 function extractProductName(spText: string): string {
   const m = spText.match(/一句话总结[：:]\s*(.+)/);
@@ -38,10 +42,10 @@ function extractScriptSection(content: string): string {
   return m ? m[1] : '';
 }
 
-function SimpleMarkdown({ text }: { text: string }) {
+export function SimpleMarkdown({ text }: { text: string }) {
   const html = text
     .replace(/^### (.+)$/gm, '<h3 style="font-size:16px;font-weight:700;margin:20px 0 8px;color:#1d2939">$1</h3>')
-    .replace(/^## (.+)$/gm, '<h2 style="font-size:18px;font-weight:700;margin:24px 0 10px;color:#1d2939">$2</h2>')
+    .replace(/^## (.+)$/gm, '<h2 style="font-size:18px;font-weight:700;margin:24px 0 10px;color:#1d2939">$1</h2>')
     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
     .replace(/\n\n/g, '</p><p style="margin-bottom:10px">')
     .replace(/\n/g, '<br/>');
@@ -63,6 +67,10 @@ function LivestreamWriterInner({ initKolId }: { initKolId?: number }) {
   // Step 1
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [selectedPersona, setSelectedPersona] = useState<Persona | null>(null);
+  const [currentProduct, setCurrentProduct] = useState<QianchuanProduct | null>(null);
+  const [availableProducts, setAvailableProducts] = useState<QianchuanProduct[]>([]);
+  const [productLoading, setProductLoading] = useState(false);
+  const [createProductOpen, setCreateProductOpen] = useState(false);
 
   // Step 2
   const [sellingPoints, setSellingPoints] = useState('');
@@ -85,29 +93,82 @@ function LivestreamWriterInner({ initKolId }: { initKolId?: number }) {
   // 加载配置和达人列表
   useEffect(() => {
     async function init() {
+      const activeProductsPromise = isModule && initKolId
+        ? getActiveProducts(initKolId)
+        : Promise.resolve([] as QianchuanProduct[]);
+      const catalogPromise = isModule
+        ? getQianchuanProducts({ page_size: 100 })
+        : Promise.resolve({ items: [] as QianchuanProduct[] });
       try {
-        const [cfg, kolResp] = await Promise.all([
-          getLivestreamWriterConfig(),
-          getKolPersonas(),
-        ]);
+        const cfg = await getLivestreamWriterConfig();
         setConfig(cfg);
+      } catch (e) {
+        message.error('配置加载失败，请刷新重试');
+      }
+
+      try {
+        const kolResp = await getKolPersonas();
         const personaList = kolResp.personas ?? [];
         setPersonas(personaList);
-        // Module 模式：通过 workspace dashboard 获取 kol 名字，再匹配
+        // Module 模式：通过工作台资料兜底空档案，按唯一 ID 匹配列表中的红人。
         if (isModule && initKolId) {
           const { getWorkspaceDashboard } = await import('../../api/kolWorkspace');
           const dashboard = await getWorkspaceDashboard(initKolId);
-          const found = personaList.find((p) => p.name === dashboard.kol.name) ?? null;
-          setSelectedPersona(found);
+          const found = personaList.find((p) => p.id === initKolId);
+          setSelectedPersona(found ?? {
+            id: initKolId,
+            name: dashboard.kol.name,
+            soul: '',
+            contentPlan: '',
+          });
         }
       } catch (e) {
-        message.error('加载失败，请刷新重试');
+        message.error('红人信息加载失败，请刷新重试');
+      }
+
+      try {
+        const [products, catalog] = await Promise.all([activeProductsPromise, catalogPromise]);
+        setCurrentProduct(products[0] ?? null);
+        setAvailableProducts(catalog.items ?? []);
+      } catch (e) {
+        message.error('当前商品加载失败，请刷新重试');
       } finally {
         setConfigLoading(false);
       }
     }
     init();
   }, [isModule, initKolId]);
+
+  async function selectCurrentProduct(productId: number) {
+    if (!initKolId) return;
+    setProductLoading(true);
+    try {
+      await updateActiveProducts(initKolId, [productId]);
+      setCurrentProduct(availableProducts.find((item) => item.id === productId) ?? null);
+      message.success('当前商品已更新');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '选择当前商品失败');
+    } finally {
+      setProductLoading(false);
+    }
+  }
+
+  async function createAndSelectCurrentProduct(values: ProductFormValues) {
+    if (!initKolId) return;
+    setProductLoading(true);
+    try {
+      const product = await createQianchuanProduct(values);
+      await updateActiveProducts(initKolId, [product.id]);
+      setAvailableProducts((items) => [product, ...items]);
+      setCurrentProduct(product);
+      setCreateProductOpen(false);
+      message.success('已新建并设为当前商品');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '新建当前商品失败');
+    } finally {
+      setProductLoading(false);
+    }
+  }
 
   // 自动滚动到底部
   useEffect(() => {
@@ -164,6 +225,9 @@ function LivestreamWriterInner({ initKolId }: { initKolId?: number }) {
 
   // 首次生成的用户消息
   function buildFirstUserMessage(): string {
+    if (isModule) {
+      return '直接输出完整的开播方案，不要提问。请遵守系统中已确认的红人档案、当前商品、卖点顺序和对标文案，七个模块全部输出，不要遗漏。';
+    }
     const refLength = countChars(refScript);
     const pName = productName || '（未填写）';
     const pName2 = selectedPersona?.name ?? '（未选择）';
@@ -186,10 +250,16 @@ function LivestreamWriterInner({ initKolId }: { initKolId?: number }) {
     try {
       const resp = await chatStream({
         messages: newMessages,
-        systemPrompt,
-        model: config?.model_id,
+        systemPrompt: isModule ? '' : systemPrompt,
+        ...(isModule ? {
+          workspace_mode: true,
+          kol_id: initKolId,
+          reference_script: refScript,
+          reference_confirmed: refScriptLocked,
+          sp_order: spOrder,
+        } : { model: config?.model_id }),
         createJob: isFirst,
-        jobContext: isFirst ? {
+        jobContext: isFirst && !isModule ? {
           productName: productName || '',
           personaName: selectedPersona?.name ?? '',
           spOrder,
@@ -240,7 +310,8 @@ function LivestreamWriterInner({ initKolId }: { initKolId?: number }) {
 
   // 首次生成
   async function handleGenerate() {
-    if (!selectedPersona || !sellingPoints.trim() || !refScript.trim()) {
+    const productReady = isModule ? Boolean(currentProduct) : Boolean(sellingPoints.trim());
+    if (!selectedPersona || !productReady || !refScript.trim() || !refScriptLocked) {
       message.warning('请完成所有步骤后再生成');
       return;
     }
@@ -288,17 +359,19 @@ function LivestreamWriterInner({ initKolId }: { initKolId?: number }) {
       <div className="page-header" style={{ marginBottom: 24 }}>
         <div>
           <h1 className="page-title">直播脚本仿写</h1>
-          <p className="page-desc">{isModule ? '上传卖点卡 · 锁定对标 · AI 生成7模块开播方案' : '选达人 · 上传卖点卡 · 锁定对标 · AI 生成7模块开播方案'}</p>
+          <p className="page-desc">{isModule ? '确认当前商品 · 锁定对标 · AI 生成7模块开播方案' : '选达人 · 上传卖点卡 · 锁定对标 · AI 生成7模块开播方案'}</p>
         </div>
       </div>
 
       {/* 步骤导航 */}
       <Steps
         current={isModule ? step - 1 : step}
-        onChange={isModule ? (v) => setStep(v + 1) : setStep}
+        onChange={isModule ? (v) => {
+          if (currentProduct || v === 0) setStep(v + 1);
+        } : setStep}
         style={{ marginBottom: 32 }}
         items={isModule
-          ? [{ title: '上传卖点' }, { title: '锁定对标' }, { title: '生成方案' }]
+          ? [{ title: '粘贴卖点' }, { title: '粘贴对标' }, { title: '生成方案' }]
           : [{ title: '选达人' }, { title: '上传卖点' }, { title: '锁定对标' }, { title: '生成方案' }]
         }
       />
@@ -311,12 +384,12 @@ function LivestreamWriterInner({ initKolId }: { initKolId?: number }) {
             showSearch
             placeholder="请选达人"
             style={{ width: '100%', maxWidth: 400 }}
-            value={selectedPersona?.name}
-            onChange={(name) => {
-              const p = personas.find(p => p.name === name) ?? null;
+            value={selectedPersona?.id}
+            onChange={(id) => {
+              const p = personas.find(p => p.id === id) ?? null;
               setSelectedPersona(p);
             }}
-            options={personas.map(p => ({ label: p.name, value: p.name }))}
+            options={personas.map(p => ({ label: p.name, value: p.id }))}
             filterOption={(input, option) =>
               (option?.label as string).toLowerCase().includes(input.toLowerCase())
             }
@@ -335,8 +408,46 @@ function LivestreamWriterInner({ initKolId }: { initKolId?: number }) {
         </div>
       )}
 
-      {/* Step 2 · 上传卖点 */}
-      {step === 1 && (
+      {/* Step 2 · 上传卖点（独立入口）或确认当前商品（工作台） */}
+      {step === 1 && isModule && (
+        <div className="card" style={{ padding: 24 }}>
+          <h3 style={{ marginBottom: 16, fontWeight: 600 }}>当前红人和产品卖点</h3>
+          <label htmlFor="livestream-current-product" style={{ display: 'block', marginBottom: 8 }}>选择已有商品</label>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+            <Select id="livestream-current-product" value={currentProduct?.id} placeholder="请选择已有商品" style={{ flex: 1 }} options={availableProducts.map((item) => ({ value: item.id, label: item.nickname }))} onChange={(id) => void selectCurrentProduct(id)} loading={productLoading} />
+            <Button onClick={() => setCreateProductOpen(true)}>新建商品</Button>
+          </div>
+          {currentProduct ? (
+            <div style={{ padding: 16, background: 'var(--gray-50)', borderRadius: 8 }}>
+              <div style={{ fontWeight: 600, marginBottom: 8 }}>{currentProduct.nickname}</div>
+              {currentProduct.core_selling_point && (
+                <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
+                  最主推卖点：<span>{currentProduct.core_selling_point}</span>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div style={{ color: 'var(--text-secondary)' }}><span>还没有当前商品</span>，请在上方选择已有商品或完整新建后选中。</div>
+          )}
+          <label htmlFor="livestream-selling-points" style={{ display: 'block', marginTop: 16, marginBottom: 8 }}>卖点卡正文（可直接编辑）</label>
+          <TextArea id="livestream-selling-points" aria-label="卖点卡正文" rows={7} value={sellingPoints || [currentProduct?.core_selling_point, currentProduct?.mechanism, currentProduct?.unique_selling].filter(Boolean).join('\n')} onChange={(event) => setSellingPoints(event.target.value)} placeholder="当前商品卖点会自动带入，可按本次直播调整" />
+          <div style={{ marginTop: 16 }}>
+            <div style={{ marginBottom: 8, fontWeight: 500 }}>卖点顺序：</div>
+            <Radio.Group value={spOrder} onChange={e => setSpOrder(e.target.value)}>
+              {SP_ORDER_OPTIONS.map(o => <Radio.Button key={o} value={o}>{o}</Radio.Button>)}
+            </Radio.Group>
+          </div>
+          <div style={{ marginTop: 24, display: 'flex', justifyContent: 'flex-end' }}>
+            <Button type="primary" disabled={!currentProduct} onClick={() => setStep(2)}>
+              下一步
+            </Button>
+          </div>
+        </div>
+      )}
+
+      <ProductFormModal open={createProductOpen} title="新建并设为当前商品" submitText="新建并选中" loading={productLoading} onCancel={() => setCreateProductOpen(false)} onSubmit={createAndSelectCurrentProduct} />
+
+      {step === 1 && !isModule && (
         <div className="card" style={{ padding: 24 }}>
           <h3 style={{ marginBottom: 16, fontWeight: 600 }}>上传产品卖点卡</h3>
           <Upload
@@ -384,19 +495,16 @@ function LivestreamWriterInner({ initKolId }: { initKolId?: number }) {
       {/* Step 3 · 锁定对标 */}
       {step === 2 && (
         <div className="card" style={{ padding: 24 }}>
-          <h3 style={{ marginBottom: 16, fontWeight: 600 }}>上传对标直播间文案</h3>
+          <h3 style={{ marginBottom: 16, fontWeight: 600 }}>粘贴对标直播间文案</h3>
           {!refScriptLocked && (
             <>
-              <Upload
-                accept=".txt,.md,.docx,.pages"
-                showUploadList={false}
-                beforeUpload={(file) => { handleFileUpload(file as unknown as UploadFile, 'ref'); return false; }}
-              >
-                <Button icon={<UploadOutlined />} loading={refUploading}>
-                  上传文件（.txt/.md/.docx/.pages）
-                </Button>
-              </Upload>
-              <div style={{ margin: '12px 0', color: 'var(--text-secondary)', fontSize: 13 }}>或直接粘贴对标文案：</div>
+              <div className="workspace-upload-tile" style={{ marginBottom: 12 }}>
+                <Upload accept=".txt,.md,.docx,.pages" showUploadList={false} beforeUpload={(file) => { handleFileUpload(file as unknown as UploadFile, 'ref'); return false; }}>
+                  <Button icon={<UploadOutlined />} loading={refUploading}>点击上传或拖拽对标文案</Button>
+                </Upload>
+                <span>支持 txt / md / docx</span>
+              </div>
+              <div style={{ margin: '12px 0', color: 'var(--text-secondary)', fontSize: 13 }}>或直接粘贴文本：</div>
               <TextArea
                 rows={10}
                 placeholder="粘贴对标直播间文案..."
@@ -414,7 +522,7 @@ function LivestreamWriterInner({ initKolId }: { initKolId?: number }) {
           {!refScriptLocked && (
             <div style={{ marginTop: 12 }}>
               <Button
-                icon={<LockOutlined />}
+                icon={<LockOutlined aria-hidden />}
                 type="default"
                 disabled={!refScript.trim()}
                 onClick={() => setRefScriptLocked(true)}
@@ -438,9 +546,10 @@ function LivestreamWriterInner({ initKolId }: { initKolId?: number }) {
           {/* 生成按钮 */}
           {chatMessages.length === 0 && (
             <div className="card" style={{ padding: 24, textAlign: 'center' }}>
+              <div style={{ marginBottom: 16, color: 'var(--success)', fontWeight: 600 }}>对标文案已锁定（{countChars(refScript)} 字） <Button type="link" size="small" onClick={() => { setRefScriptLocked(false); setStep(2); }}>修改对标</Button></div>
               <p style={{ marginBottom: 16, color: 'var(--text-secondary)' }}>
                 达人：<strong>{selectedPersona?.name}</strong> &nbsp;|&nbsp;
-                产品：<strong>{productName || '（未识别）'}</strong> &nbsp;|&nbsp;
+                产品：<strong>{currentProduct?.nickname || productName || '（未识别）'}</strong> &nbsp;|&nbsp;
                 卖点顺序：<strong>{spOrder}</strong> &nbsp;|&nbsp;
                 对标字数：<strong>{countChars(refScript)}</strong> 字
               </p>
@@ -493,8 +602,7 @@ function LivestreamWriterInner({ initKolId }: { initKolId?: number }) {
           {/* 操作栏 */}
           {chatMessages.length > 0 && (
             <div className="card" style={{ padding: 16 }}>
-              <TextArea
-                rows={3}
+              <Input
                 placeholder="告诉 AI 哪里需要修改，或继续追问..."
                 value={userInput}
                 onChange={e => setUserInput(e.target.value)}

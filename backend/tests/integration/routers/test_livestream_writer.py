@@ -31,12 +31,12 @@ async def seed_configs(test_session):
 @pytest.fixture
 async def kol_with_both_fields(test_session):
     """插入一个 persona 和 content_plan 均非空的 KOL。"""
-    await test_session.execute(text(
+    kol_id = (await test_session.execute(text(
         "INSERT INTO kols (name, status, persona, content_plan, deleted_at) "
-        "VALUES ('测试达人', 'signed', '达人人格', '内容规划', NULL) "
-        "ON CONFLICT DO NOTHING"
-    ))
+        "VALUES ('测试达人', 'signed', '达人人格', '内容规划', NULL) RETURNING id"
+    ))).scalar_one()
     await test_session.commit()
+    return kol_id
 
 
 @pytest.fixture
@@ -48,6 +48,25 @@ async def kol_missing_persona(test_session):
         "ON CONFLICT DO NOTHING"
     ))
     await test_session.commit()
+
+
+@pytest.fixture
+async def kol_with_current_product(test_session):
+    """创建完整档案和唯一当前商品，验证生成时以服务端事实为准。"""
+    kol_id = (await test_session.execute(text(
+        "INSERT INTO kols (name, status, persona, content_plan, background, experience, relationships, unique_story, extra_notes, deleted_at) "
+        "VALUES ('直播测试达人', 'signed', '原有人设', '内容规划', '基本身份', '真实经历', '关系网', '独家经历', '其他补充', NULL) "
+        "RETURNING id"
+    ))).scalar_one()
+    product_id = (await test_session.execute(text(
+        "INSERT INTO qianchuan_products (nickname, core_selling_point, mechanism, mechanism_exclusive, unique_selling) "
+        "VALUES ('数据库商品', '数据库卖点', '买一赠一', true, '独家权益') RETURNING id"
+    ))).scalar_one()
+    await test_session.execute(text(
+        "INSERT INTO kol_active_products (kol_id, product_id) VALUES (:kol_id, :product_id)"
+    ), {"kol_id": kol_id, "product_id": product_id})
+    await test_session.commit()
+    return {"kol_id": kol_id, "product_id": product_id}
 
 
 # ---------------------------------------------------------------------------
@@ -177,6 +196,7 @@ class TestKolsPersonas:
             headers={"Authorization": f"Bearer {operator_token}"},
         )
         kol = next(p for p in resp.json()["data"]["personas"] if p["name"] == "测试达人")
+        assert isinstance(kol["id"], int)
         assert "soul" in kol
         assert "contentPlan" in kol
         assert kol["soul"] == "达人人格"
@@ -268,6 +288,142 @@ class TestChat:
         assert resp.status_code == 200
         assert "text/plain" in resp.headers["content-type"]
         assert "直播脚本内容" in resp.text
+
+    @pytest.mark.asyncio
+    async def test_independent_first_generation_keeps_legacy_inputs(self, test_client, operator_token):
+        """独立入口不应因首次生成而被强制要求工作台红人和当前商品。"""
+        captured_messages = []
+
+        async def mock_stream(*args, **kwargs):
+            captured_messages.extend(kwargs["messages"])
+            yield "独立入口脚本"
+
+        with patch(
+            "app.routers.operator_livestream_writer.yunwu_adapter.chat_stream",
+            side_effect=mock_stream,
+        ):
+            resp = await test_client.post(
+                "/api/tools/livestream-writer/chat",
+                json={
+                    "messages": [{"role": "user", "content": "按已有卖点卡生成"}],
+                    "systemPrompt": "独立入口的人设、卖点卡与对标上下文",
+                    "createJob": True,
+                },
+                headers={"Authorization": f"Bearer {operator_token}"},
+            )
+
+        assert resp.status_code == 200
+        assert "独立入口的人设、卖点卡与对标上下文" in captured_messages[0]["content"]
+
+    @pytest.mark.asyncio
+    async def test_initial_generation_uses_server_kol_and_current_product_context(
+        self, test_client, operator_token, kol_with_current_product
+    ):
+        captured_messages = []
+
+        async def mock_stream(*args, **kwargs):
+            captured_messages.extend(kwargs["messages"])
+            yield "直播脚本内容"
+
+        with patch(
+            "app.routers.operator_livestream_writer.yunwu_adapter.chat_stream",
+            side_effect=mock_stream,
+        ):
+            resp = await test_client.post(
+                "/api/tools/livestream-writer/chat",
+                json={
+                    "messages": [{"role": "user", "content": "请生成开播方案"}],
+                    "systemPrompt": "前端伪造商品：过期卖点",
+                    "workspace_mode": True,
+                    "kol_id": kol_with_current_product["kol_id"],
+                    "reference_script": "已确认的对标直播文案",
+                    "reference_confirmed": True,
+                    "sp_order": "背书→机制→种草",
+                    "createJob": True,
+                },
+                headers={"Authorization": f"Bearer {operator_token}"},
+            )
+
+        assert resp.status_code == 200
+        context = "\n".join(message["content"] for message in captured_messages)
+        for expected in ("数据库商品", "数据库卖点", "买一赠一", "独家权益", "真实经历", "关系网", "独家经历", "其他补充", "内容规划", "已确认的对标直播文案"):
+            assert expected in context
+        assert "前端伪造商品：过期卖点" not in context
+
+    @pytest.mark.asyncio
+    async def test_workspace_follow_up_rebuilds_server_context(
+        self, test_client, operator_token, kol_with_current_product
+    ):
+        """工作台追问与自动压缩同样必须重建红人、商品、对标和卖点顺序上下文。"""
+        captured_messages = []
+
+        async def mock_stream(*args, **kwargs):
+            captured_messages.extend(kwargs["messages"])
+            yield "修改后的脚本"
+
+        with patch(
+            "app.routers.operator_livestream_writer.yunwu_adapter.chat_stream",
+            side_effect=mock_stream,
+        ):
+            resp = await test_client.post(
+                "/api/tools/livestream-writer/chat",
+                json={
+                    "messages": [{"role": "user", "content": "请压缩到对标字数内"}],
+                    "systemPrompt": "前端伪造的后续系统提示词",
+                    "workspace_mode": True,
+                    "kol_id": kol_with_current_product["kol_id"],
+                    "reference_script": "已确认的后续对标文案",
+                    "reference_confirmed": True,
+                    "sp_order": "机制→背书→种草",
+                    "createJob": False,
+                },
+                headers={"Authorization": f"Bearer {operator_token}"},
+            )
+
+        assert resp.status_code == 200
+        context = "\n".join(message["content"] for message in captured_messages)
+        for expected in ("数据库商品", "数据库卖点", "真实经历", "已确认的后续对标文案", "机制→背书→种草"):
+            assert expected in context
+        assert "前端伪造的后续系统提示词" not in context
+
+    @pytest.mark.asyncio
+    async def test_workspace_requires_confirmed_reference_on_follow_up(
+        self, test_client, operator_token, kol_with_current_product
+    ):
+        resp = await test_client.post(
+            "/api/tools/livestream-writer/chat",
+            json={
+                "messages": [{"role": "user", "content": "继续改"}],
+                "systemPrompt": "",
+                "workspace_mode": True,
+                "kol_id": kol_with_current_product["kol_id"],
+                "reference_script": "未确认的对标文案",
+                "reference_confirmed": False,
+            },
+            headers={"Authorization": f"Bearer {operator_token}"},
+        )
+        assert resp.status_code == 400
+        assert resp.json()["code"] == "REFERENCE_SCRIPT_REQUIRED"
+
+    @pytest.mark.asyncio
+    async def test_workspace_requires_current_product_on_follow_up(
+        self, test_client, operator_token, kol_with_both_fields
+    ):
+        resp = await test_client.post(
+            "/api/tools/livestream-writer/chat",
+            json={
+                "messages": [{"role": "user", "content": "继续改"}],
+                "systemPrompt": "",
+                "workspace_mode": True,
+                "kol_id": kol_with_both_fields,
+                "reference_script": "已确认的对标文案",
+                "reference_confirmed": True,
+                "sp_order": "背书→机制→种草",
+            },
+            headers={"Authorization": f"Bearer {operator_token}"},
+        )
+        assert resp.status_code == 400
+        assert resp.json()["code"] == "CURRENT_PRODUCT_REQUIRED"
 
 
 # ---------------------------------------------------------------------------

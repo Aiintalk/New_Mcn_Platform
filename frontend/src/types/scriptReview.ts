@@ -33,6 +33,8 @@ export interface ReviewRequest {
     mechanism?: string;
     core_selling_point?: string;
   } | null;
+  kol_id?: number;
+  product_id?: number;
 }
 
 /** POST /operator/qianchuan-script-review/save-output 请求体 */

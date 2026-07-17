@@ -14,7 +14,7 @@ app/routers/operator_workspace.py
 from datetime import datetime, timezone
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -332,8 +332,16 @@ async def update_active_products(
     kol_id: int,
     body: ActiveProductsRequest,
     request: Request,
+    response: Response,
     current_user: User = Depends(require_operator),
 ):
+    if len(body.product_ids) > 1:
+        response.status_code = 422
+        return error_response(
+            ErrorCode.VALIDATION_ERROR,
+            "一个红人一次只能选择一个当前商品",
+        )
+
     async with AsyncSessionLocal() as session:
         await _get_kol_or_404(session, kol_id)
 

@@ -81,12 +81,19 @@ function getDateRange(range: string): { start_date: string; end_date: string } {
   return                         { start_date: fmt(shift(-6)),  end_date: fmt(today) }; // 近7天
 }
 
-const PROVIDERS = ['全部', '云雾', '硅基流动', 'GLM'];
+const PROVIDERS = [
+  { label: '全部', value: '全部' },
+  { label: '云雾', value: 'yunwu' },
+  { label: '硅基流动', value: 'siliconflow' },
+  { label: 'GLM', value: 'glm' },
+  { label: 'Gemini', value: 'gemini' },
+];
 
 const PROVIDER_BASE_URL: Record<string, string> = {
   yunwu:       'https://yunwu.ai/v1',
   siliconflow: 'https://api.siliconflow.cn/v1',
   glm:         'https://open.bigmodel.cn/api/paas/v4',
+  gemini:      'https://generativelanguage.googleapis.com',
 };
 const CHART_COLORS = ['#4096FF', '#52C41A', '#FF7A45', '#FAAD14', '#9254DE'];
 
@@ -1711,12 +1718,12 @@ function AiConfigTab() {
       {/* Filter bar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 20 }}>
         <div style={{ display: 'flex', gap: 6 }}>
-          {PROVIDERS.map(p => (
+          {PROVIDERS.map(({ label, value }) => (
             <button
-              key={p}
-              className={`btn btn-sm ${providerFilter === p ? 'btn-primary' : 'btn-ghost'}`}
-              onClick={() => setProviderFilter(p)}
-            >{p}</button>
+              key={value}
+              className={`btn btn-sm ${providerFilter === value ? 'btn-primary' : 'btn-ghost'}`}
+              onClick={() => setProviderFilter(value)}
+            >{label}</button>
           ))}
         </div>
         <select
@@ -1951,6 +1958,7 @@ function AiConfigTab() {
               <Select.Option value="yunwu">云雾</Select.Option>
               <Select.Option value="siliconflow">硅基流动</Select.Option>
               <Select.Option value="glm">GLM</Select.Option>
+              <Select.Option value="gemini">Gemini</Select.Option>
             </Select>
           </Form.Item>
           <Form.Item label="Base URL" name="base_url" rules={[{ required: true, message: '请输入 Base URL' }]}>
@@ -1987,6 +1995,7 @@ function AiConfigTab() {
               <Select.Option value="yunwu">云雾</Select.Option>
               <Select.Option value="siliconflow">硅基流动</Select.Option>
               <Select.Option value="glm">GLM</Select.Option>
+              <Select.Option value="gemini">Gemini</Select.Option>
             </Select>
           </Form.Item>
           <Form.Item label="Base URL" name="base_url" rules={[{ required: true, message: '请输入 Base URL' }]}>
@@ -2021,6 +2030,7 @@ function AiConfigTab() {
               <Select.Option value="yunwu">云雾</Select.Option>
               <Select.Option value="siliconflow">硅基流动</Select.Option>
               <Select.Option value="glm">GLM</Select.Option>
+              <Select.Option value="gemini">Gemini</Select.Option>
             </Select>
           </Form.Item>
         </Form>

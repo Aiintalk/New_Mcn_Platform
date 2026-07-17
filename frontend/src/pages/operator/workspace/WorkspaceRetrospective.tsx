@@ -28,11 +28,11 @@ type View = 'list' | 'edit' | 'detail';
 
 // 5 类材料定义
 const MATERIAL_FIELDS = [
-  { key: 'live_data',         label: '直播汇总数据', accept: '.xlsx,.csv',       multiple: false },
-  { key: 'material_data',     label: '素材明细数据', accept: '.xlsx,.csv',       multiple: false },
-  { key: 'review_text',       label: '团队复盘文字', accept: '.docx,.txt',       multiple: false },
-  { key: 'live_script',       label: '直播间脚本',   accept: '.docx,.txt',       multiple: false },
-  { key: 'material_scripts',  label: '千川素材脚本', accept: '.docx,.txt',       multiple: true  },
+  { key: 'live_data',         label: '直播汇总数据', accept: '.xlsx,.xls,.csv,.md',   multiple: false },
+  { key: 'material_data',     label: '素材明细数据', accept: '.xlsx,.xls,.csv,.md',   multiple: false },
+  { key: 'review_text',       label: '团队复盘文字', accept: '.docx,.txt,.md',   multiple: false },
+  { key: 'live_script',       label: '直播间脚本',   accept: '.docx,.txt,.md',   multiple: false },
+  { key: 'material_scripts',  label: '千川素材脚本', accept: '.docx,.txt,.md',   multiple: true  },
 ] as const;
 
 type MaterialKey = typeof MATERIAL_FIELDS[number]['key'];
@@ -192,15 +192,11 @@ export default function WorkspaceRetrospective({ kolId }: WorkspaceRetrospective
     const fileArr = Array.from(files);
     setUploading((prev) => ({ ...prev, [field]: true }));
     try {
-      const { text } = await parseFiles(kolId, fileArr);
+      const { files: parsedFiles } = await parseFiles(kolId, fileArr);
       if (field === 'material_scripts') {
-        const newScripts = fileArr.map((f, i) => ({
-          name: f.name,
-          text: i === 0 ? text : '',
-        }));
-        setMaterialScripts((prev) => [...prev, ...newScripts]);
+        setMaterialScripts((prev) => [...prev, ...parsedFiles]);
       } else {
-        setParsedFields((prev) => ({ ...prev, [field]: text }));
+        setParsedFields((prev) => ({ ...prev, [field]: parsedFiles.map((item) => item.text).join('\n\n') }));
       }
       message.success(`${MATERIAL_FIELDS.find((f) => f.key === field)?.label ?? ''} 解析成功`);
     } catch (err: unknown) {
@@ -522,79 +518,43 @@ export default function WorkspaceRetrospective({ kolId }: WorkspaceRetrospective
               <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--gray-700)', marginBottom: 'var(--sp-3)' }}>
                 上传材料
               </div>
-              <div
-                style={{
-                  border: '1px solid var(--border)',
-                  borderRadius: 'var(--radius-md)',
-                  overflow: 'hidden',
-                }}
-              >
-                {MATERIAL_FIELDS.map((field, idx) => {
-                  const isParsed =
-                    field.key === 'material_scripts'
-                      ? materialScripts.length > 0
-                      : !!parsedFields[field.key];
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 'var(--sp-3)' }}>
+                {MATERIAL_FIELDS.filter((field) => field.key !== 'material_scripts').map((field, index) => {
+                  const isParsed = !!parsedFields[field.key];
                   const isUploading = uploading[field.key];
+                  const icon = ['📊', '📈', '📝', '🎙️'][index];
                   return (
-                    <div
-                      key={field.key}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        padding: 'var(--sp-4) var(--sp-5)',
-                        background: idx % 2 === 0 ? 'var(--bg-muted)' : 'var(--bg-surface)',
-                        borderBottom: idx < MATERIAL_FIELDS.length - 1 ? '1px solid var(--border)' : 'none',
-                        gap: 'var(--sp-4)',
-                      }}
-                    >
-                      {/* 状态点 */}
-                      <span
-                        className={`step-dot ${isParsed ? 'success' : 'pending'}`}
-                        style={{ flexShrink: 0 }}
-                      />
-
-                      {/* 标签 */}
-                      <span style={{ flex: 1, fontSize: 13, color: 'var(--gray-700)', fontWeight: 500 }}>
-                        {field.label}
-                        <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--gray-400)' }}>
-                          {field.accept.replace(/\./g, '').toUpperCase()}
-                          {field.multiple ? '（多文件）' : ''}
-                        </span>
-                      </span>
-
-                      {/* 已解析信息 */}
-                      {isParsed && (
-                        <span
-                          className="badge badge-success"
-                          style={{ fontSize: 11 }}
-                        >
-                          {field.key === 'material_scripts'
-                            ? `已上传 ${materialScripts.length} 份`
-                            : '已解析'}
-                        </span>
-                      )}
-
-                      {/* 上传按钮 */}
-                      <input
-                        data-testid={`file-input-${field.key}`}
-                        ref={(el) => { fileInputRefs.current[field.key] = el; }}
-                        type="file"
-                        accept={field.accept}
-                        multiple={field.multiple}
-                        style={{ display: 'none' }}
-                        onChange={(e) => handleFileChange(field.key, e.target.files)}
-                      />
-                      <button
-                        className="btn btn-ghost btn-sm"
-                        disabled={isUploading}
-                        onClick={() => fileInputRefs.current[field.key]?.click()}
-                      >
-                        {isUploading ? '解析中...' : isParsed ? '重新上传' : '上传文件'}
-                      </button>
+                    <div key={field.key} data-testid={`material-card-${field.key}`} className="workspace-upload-tile" style={{ alignItems: 'stretch', textAlign: 'left' }}>
+                      <input data-testid={`file-input-${field.key}`} ref={(el) => { fileInputRefs.current[field.key] = el; }} type="file" accept={field.accept} style={{ display: 'none' }} onChange={(e) => handleFileChange(field.key, e.target.files)} />
+                      <span style={{ fontSize: 24 }}>{icon}</span>
+                      <strong>{field.label}</strong>
+                      <small>{field.key === 'material_data' ? '每条素材消耗 / ROI / 成交' : field.key === 'review_text' ? 'Word / TXT，仅供参考' : field.key === 'live_script' ? '主播当天使用的脚本' : 'Excel / CSV'}</small>
+                      <button className="btn btn-ghost btn-sm" disabled={isUploading} onClick={() => fileInputRefs.current[field.key]?.click()}>{isUploading ? '解析中...' : isParsed ? '重新上传' : '上传文件'}</button>
+                      {isParsed && <span className="badge badge-success" style={{ alignSelf: 'flex-start', fontSize: 11 }}>已解析</span>}
                     </div>
                   );
                 })}
               </div>
+              <div data-testid="material-scripts-card" className="workspace-upload-tile" style={{ marginTop: 'var(--sp-3)', alignItems: 'stretch', textAlign: 'left' }}>
+                <input data-testid="file-input-material_scripts" ref={(el) => { fileInputRefs.current.material_scripts = el; }} type="file" accept={MATERIAL_FIELDS.find((field) => field.key === 'material_scripts')?.accept} multiple style={{ display: 'none' }} onChange={(e) => handleFileChange('material_scripts', e.target.files)} />
+                <span style={{ fontSize: 24 }}>🎬</span>
+                <strong>千川素材脚本</strong>
+                <small>可多选，Word / TXT / Markdown</small>
+                <button className="btn btn-ghost btn-sm" disabled={uploading.material_scripts} onClick={() => fileInputRefs.current.material_scripts?.click()}>{uploading.material_scripts ? '解析中...' : materialScripts.length > 0 ? '继续添加 / 重新上传' : '上传文件'}</button>
+                {materialScripts.length > 0 && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{materialScripts.map((script, index) => <span key={`${script.name}-${index}`} className="badge badge-success" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><span>{script.name}</span><button type="button" aria-label={`删除 ${script.name}`} onClick={() => setMaterialScripts((items) => items.filter((_, itemIndex) => itemIndex !== index))} style={{ border: 0, background: 'transparent', color: 'inherit', cursor: 'pointer', padding: 0 }}>×</button></span>)}</div>}
+              </div>
+              {materialScripts.map((script, index) => (
+                <div key={`${script.name}-${index}`} style={{ marginTop: 'var(--sp-3)' }}>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600 }}>{script.name}</label>
+                  <textarea
+                    aria-label={`${script.name} 正文`}
+                    value={script.text}
+                    onChange={(event) => setMaterialScripts((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, text: event.target.value } : item))}
+                    rows={5}
+                    style={{ width: '100%', boxSizing: 'border-box', marginTop: 4 }}
+                  />
+                </div>
+              ))}
             </div>
 
             {/* 流式分析进度 */}

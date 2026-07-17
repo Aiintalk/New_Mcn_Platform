@@ -11,13 +11,18 @@ app/routers/operator_material_library.py
   POST   /kols/{kol_id}/generate-soul   AI 生成 soul.md 初稿
 """
 import json
-from fastapi import APIRouter, Depends, Query, Request
+import logging
+import tempfile
+from pathlib import Path
+from uuid import uuid4
+
+from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
 from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.response import success_response, error_response, ErrorCode
-from app.middlewares.auth import get_current_user
+from app.middlewares.auth import get_current_user, require_admin_or_operator
 from app.models.user import User
 from app.models.kol import Kol
 from app.models.log import OperationLog
@@ -29,15 +34,25 @@ from app.models.kol_intake import (
 )
 from app.models.credential import AiModel
 from app.adapters import yunwu as yunwu_adapter
+from app.adapters import oss as oss_adapter
+from app.services import document_parser
 from pydantic import BaseModel
 from typing import Optional
 
-router = APIRouter(prefix="/tools/material-library", tags=["material-library"])
+router = APIRouter(
+    prefix="/tools/material-library",
+    tags=["material-library"],
+    dependencies=[Depends(require_admin_or_operator)],
+)
 
 VALID_TYPES = [
     "红人爆款文案", "红人喜欢的内容", "风格参考",
     "千川爆款文案", "千川喜欢的内容", "千川风格参考",
 ]
+MAX_VIDEO_UPLOAD_BYTES = 500 * 1024 * 1024
+MAX_DOCUMENT_UPLOAD_BYTES = 20 * 1024 * 1024
+_UPLOAD_READ_CHUNK_BYTES = 1024 * 1024
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -54,19 +69,106 @@ class ReferenceCreate(BaseModel):
     source: str = "抖音"
     type: str
     content: str
+    data_description: Optional[str] = None
+    document_name: Optional[str] = None
+    document_type: Optional[str] = None
+    document_size: Optional[int] = None
+
+
+class ReferenceUpdate(BaseModel):
+    title: Optional[str] = None
+    data_description: Optional[str] = None
+    content: Optional[str] = None
+    document_name: Optional[str] = None
+    document_type: Optional[str] = None
+    document_size: Optional[int] = None
 
 
 # ---------------------------------------------------------------------------
 # 辅助
 # ---------------------------------------------------------------------------
-def _require_operator(current_user: User = Depends(get_current_user)) -> User:
-    if not current_user.is_active:
-        raise ValueError("用户已停用")
-    return current_user
-
-
 def _get_ip(request: Request) -> str:
     return request.headers.get("x-forwarded-for", request.client.host if request.client else "unknown")
+
+
+async def _get_active_kol(db: AsyncSession, kol_id: int) -> Kol | None:
+    return (await db.execute(
+        select(Kol).where(Kol.id == kol_id, Kol.deleted_at.is_(None))
+    )).scalar_one_or_none()
+
+
+async def _get_active_reference(
+    db: AsyncSession, kol_id: int, ref_id: int
+) -> KolReference | None:
+    return (await db.execute(
+        select(KolReference).where(
+            KolReference.id == ref_id,
+            KolReference.kol_id == kol_id,
+            KolReference.deleted_at.is_(None),
+        )
+    )).scalar_one_or_none()
+
+
+async def _read_document_with_limit(file: UploadFile, max_bytes: int) -> bytes | None:
+    """分块读取有限大小文档，避免路由与解析器各读一次上传流。"""
+    content = bytearray()
+    total = 0
+    while True:
+        chunk = await file.read(_UPLOAD_READ_CHUNK_BYTES)
+        if not chunk:
+            return bytes(content)
+        total += len(chunk)
+        if total > max_bytes:
+            return None
+        content.extend(chunk)
+
+
+async def _write_upload_to_temp_file(
+    file: UploadFile, max_bytes: int
+) -> tuple[Path, int] | None:
+    """分块写入系统临时文件；超限或异常时立即清理临时文件。"""
+    suffix = Path(file.filename or "").suffix
+    temp_path: Path | None = None
+    total = 0
+    completed = False
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb", prefix="material-video-", suffix=suffix, delete=False
+        ) as temporary:
+            temp_path = Path(temporary.name)
+            while True:
+                chunk = await file.read(_UPLOAD_READ_CHUNK_BYTES)
+                if not chunk:
+                    completed = True
+                    return temp_path, total
+                total += len(chunk)
+                if total > max_bytes:
+                    return None
+                temporary.write(chunk)
+    finally:
+        if temp_path is not None and not completed:
+            temp_path.unlink(missing_ok=True)
+
+
+def _reference_to_dict(ref: KolReference) -> dict:
+    """返回安全的素材数据：私有对象键和签名地址不进入页面数据。"""
+    return {
+        "id": ref.id,
+        "title": ref.title,
+        "likes": ref.likes,
+        "source": ref.source,
+        "type": ref.type,
+        "content": ref.content,
+        "data_description": ref.data_description,
+        "document_name": ref.document_name,
+        "document_type": ref.document_type,
+        "document_size": ref.document_size,
+        "has_video": bool(ref.video_oss_key),
+        "video_name": ref.video_name,
+        "video_content_type": ref.video_content_type,
+        "video_size": ref.video_size,
+        "created_at": ref.created_at.isoformat() if ref.created_at else None,
+    }
 
 
 async def _get_latest_intake(db: AsyncSession, kol_name: str) -> dict | None:
@@ -116,18 +218,30 @@ async def _get_latest_intake(db: AsyncSession, kol_name: str) -> dict | None:
 @router.get("/kols")
 async def list_kols(
     search: str = Query(default="", description="按红人名搜索"),
+    page: int = Query(default=1, ge=1, description="页码"),
+    page_size: int = Query(default=20, ge=1, le=100, description="每页数量"),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     """红人列表，每行含：基本信息 + persona 有无 + content_plan 有无 + 素材数 + intake 状态。"""
     # 基础查询：未软删的红人
-    base = select(Kol).where(Kol.deleted_at.is_(None))
+    filters = [Kol.deleted_at.is_(None)]
     if search:
-        base = base.where(Kol.name.ilike(f"%{search}%"))
-    base = base.order_by(Kol.updated_at.desc())
+        filters.append(Kol.name.ilike(f"%{search}%"))
+    total = (await db.execute(select(func.count(Kol.id)).where(*filters))).scalar_one()
+    base = (
+        select(Kol)
+        .where(*filters)
+        .order_by(Kol.updated_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
     kols = (await db.execute(base)).scalars().all()
     if not kols:
-        return success_response(data=[])
+        return success_response(data={
+            "items": [],
+            "pagination": {"page": page, "page_size": page_size, "total": total},
+        })
 
     kol_ids = [k.id for k in kols]
 
@@ -173,7 +287,10 @@ async def list_kols(
             "updated_at": k.updated_at.isoformat() if k.updated_at else None,
         })
 
-    return success_response(data=result)
+    return success_response(data={
+        "items": result,
+        "pagination": {"page": page, "page_size": page_size, "total": total},
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -186,8 +303,8 @@ async def get_kol_detail(
     user: User = Depends(get_current_user),
 ):
     """红人详情：persona + content_plan + references 按类型分组。"""
-    kol = (await db.execute(select(Kol).where(Kol.id == kol_id))).scalar_one_or_none()
-    if not kol or kol.deleted_at:
+    kol = await _get_active_kol(db, kol_id)
+    if not kol:
         return error_response(ErrorCode.RESOURCE_NOT_FOUND, "红人不存在")
 
     # 素材按类型分组
@@ -200,14 +317,7 @@ async def get_kol_detail(
 
     grouped = {}
     for r in refs:
-        grouped.setdefault(r.type, []).append({
-            "id": r.id,
-            "title": r.title,
-            "likes": r.likes,
-            "source": r.source,
-            "content": r.content,
-            "created_at": r.created_at.isoformat() if r.created_at else None,
-        })
+        grouped.setdefault(r.type, []).append(_reference_to_dict(r))
 
     return success_response(data={
         "id": kol.id,
@@ -233,8 +343,8 @@ async def update_profile(
     user: User = Depends(get_current_user),
 ):
     """更新 kols.persona（soul.md）和/或 kols.content_plan。"""
-    kol = (await db.execute(select(Kol).where(Kol.id == kol_id))).scalar_one_or_none()
-    if not kol or kol.deleted_at:
+    kol = await _get_active_kol(db, kol_id)
+    if not kol:
         return error_response(ErrorCode.RESOURCE_NOT_FOUND, "红人不存在")
 
     changes = []
@@ -273,8 +383,8 @@ async def create_reference(
     user: User = Depends(get_current_user),
 ):
     """添加一条参考素材（6 种类型之一）。"""
-    kol = (await db.execute(select(Kol).where(Kol.id == kol_id))).scalar_one_or_none()
-    if not kol or kol.deleted_at:
+    kol = await _get_active_kol(db, kol_id)
+    if not kol:
         return error_response(ErrorCode.RESOURCE_NOT_FOUND, "红人不存在")
 
     if body.type not in VALID_TYPES:
@@ -287,6 +397,10 @@ async def create_reference(
         source=body.source,
         type=body.type,
         content=body.content,
+        data_description=body.data_description,
+        document_name=body.document_name,
+        document_type=body.document_type,
+        document_size=body.document_size,
         created_by=user.id,
     )
     db.add(ref)
@@ -303,21 +417,221 @@ async def create_reference(
     ))
     await db.commit()
     await db.refresh(ref)
-
-    return success_response(data={
-        "id": ref.id,
-        "kol_id": ref.kol_id,
-        "title": ref.title,
-        "likes": ref.likes,
-        "source": ref.source,
-        "type": ref.type,
-        "content": ref.content,
-        "created_at": ref.created_at.isoformat() if ref.created_at else None,
-    })
+    return success_response(data={"kol_id": ref.kol_id, **_reference_to_dict(ref)})
 
 
 # ---------------------------------------------------------------------------
-# 5. DELETE /kols/{kol_id}/references/{ref_id} — 删除素材（软删除）
+# 5. PUT /kols/{kol_id}/references/{ref_id} — 编辑素材正文和元数据
+# ---------------------------------------------------------------------------
+@router.put("/kols/{kol_id}/references/{ref_id}")
+async def update_reference(
+    kol_id: int,
+    ref_id: int,
+    body: ReferenceUpdate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """编辑标题、数据说明、正文和解析来源元数据，不触碰现有视频。"""
+    ref = await _get_active_reference(db, kol_id, ref_id)
+    if not ref:
+        return error_response(ErrorCode.RESOURCE_NOT_FOUND, "素材不存在")
+
+    changes = []
+    for field in (
+        "title", "data_description", "content", "document_name", "document_type", "document_size"
+    ):
+        value = getattr(body, field)
+        if value is not None:
+            setattr(ref, field, value)
+            changes.append(field)
+
+    db.add(OperationLog(
+        user_id=user.id,
+        username=user.username,
+        role=user.role,
+        action="material_library_update_reference",
+        target_type="kol_reference",
+        target_id=ref_id,
+        detail={"kol_id": kol_id, "updated_fields": changes},
+        ip=_get_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    ))
+    await db.commit()
+    await db.refresh(ref)
+    return success_response(data={"kol_id": ref.kol_id, **_reference_to_dict(ref)})
+
+
+# ---------------------------------------------------------------------------
+# 6. POST /kols/{kol_id}/references/parse-document — 上传后先解析，保存前可编辑
+# ---------------------------------------------------------------------------
+@router.post("/kols/{kol_id}/references/parse-document")
+async def parse_reference_document(
+    kol_id: int,
+    file: UploadFile = File(...),
+    request: Request = None,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """解析一份脚本文档；只返回文本和元数据，不保存原文件路径或内容副本。"""
+    if not await _get_active_kol(db, kol_id):
+        return error_response(ErrorCode.RESOURCE_NOT_FOUND, "红人不存在")
+
+    content = await _read_document_with_limit(file, MAX_DOCUMENT_UPLOAD_BYTES)
+    if content is None:
+        return error_response(
+            ErrorCode.VALIDATION_ERROR,
+            f"文档文件大小不能超过 {MAX_DOCUMENT_UPLOAD_BYTES // 1024 // 1024}MB",
+        )
+    try:
+        item = document_parser.parse_file_content_to_item(file.filename or "unknown", content)
+    except ValueError as exc:
+        return error_response(ErrorCode.VALIDATION_ERROR, str(exc))
+    except Exception as exc:
+        logger.warning("material_library: failed to parse document %s: %s", file.filename, exc)
+        return error_response(ErrorCode.VALIDATION_ERROR, "无法从文件中提取有效文字内容，请尝试复制文档内容手动粘贴")
+
+    db.add(OperationLog(
+        user_id=user.id,
+        username=user.username,
+        role=user.role,
+        action="material_library_parse_document",
+        target_type="kol_reference_document",
+        target_id=None,
+        detail={"kol_id": kol_id, "filename": item["name"], "document_size": len(content)},
+        ip=_get_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    ))
+    await db.commit()
+    return success_response(data={
+        "text": item["text"],
+        "document_name": item["name"],
+        "document_type": file.content_type,
+        "document_size": len(content),
+    })
+
+
+def _video_oss_key(kol_id: int, ref_id: int, filename: str) -> str:
+    suffix = Path(filename).suffix.lower()
+    return f"material-library/{kol_id}/{ref_id}/{uuid4().hex}{suffix}"
+
+
+# ---------------------------------------------------------------------------
+# 7. POST /kols/{kol_id}/references/{ref_id}/video — 上传或显式替换视频
+# ---------------------------------------------------------------------------
+@router.post("/kols/{kol_id}/references/{ref_id}/video")
+async def upload_reference_video(
+    kol_id: int,
+    ref_id: int,
+    file: UploadFile = File(...),
+    request: Request = None,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """视频先上传新对象，再替换元数据；私有对象键不返回给前端。"""
+    ref = await _get_active_reference(db, kol_id, ref_id)
+    if not ref:
+        return error_response(ErrorCode.RESOURCE_NOT_FOUND, "素材不存在")
+    if not (file.content_type or "").startswith("video/"):
+        return error_response(ErrorCode.VALIDATION_ERROR, "请上传视频文件")
+
+    content_length = request.headers.get("content-length") if request else None
+    if content_length and content_length.isdigit() and int(content_length) > MAX_VIDEO_UPLOAD_BYTES + _UPLOAD_READ_CHUNK_BYTES:
+        return error_response(
+            ErrorCode.VALIDATION_ERROR,
+            f"视频文件大小不能超过 {MAX_VIDEO_UPLOAD_BYTES // 1024 // 1024}MB",
+        )
+
+    temp_path: Path | None = None
+    try:
+        uploaded = await _write_upload_to_temp_file(file, MAX_VIDEO_UPLOAD_BYTES)
+        if uploaded is None:
+            return error_response(
+                ErrorCode.VALIDATION_ERROR,
+                f"视频文件大小不能超过 {MAX_VIDEO_UPLOAD_BYTES // 1024 // 1024}MB",
+            )
+        temp_path, video_size = uploaded
+        if not video_size:
+            return error_response(ErrorCode.VALIDATION_ERROR, "视频文件不能为空")
+
+        filename = file.filename or "video"
+        new_key = _video_oss_key(kol_id, ref_id, filename)
+        try:
+            await oss_adapter.upload_file_from_path(
+                new_key, temp_path, file.content_type or "application/octet-stream", db, user.id
+            )
+        except (KeyError, RuntimeError):
+            return error_response(ErrorCode.EXTERNAL_SERVICE_ERROR, "视频上传失败，请检查对象存储配置后重试")
+
+        old_key = ref.video_oss_key
+        ref.video_oss_key = new_key
+        ref.video_name = filename
+        ref.video_content_type = file.content_type
+        ref.video_size = video_size
+        db.add(OperationLog(
+            user_id=user.id,
+            username=user.username,
+            role=user.role,
+            action="material_library_replace_video" if old_key else "material_library_upload_video",
+            target_type="kol_reference",
+            target_id=ref_id,
+            detail={"kol_id": kol_id, "filename": filename, "video_size": video_size},
+            ip=_get_ip(request),
+            user_agent=request.headers.get("user-agent"),
+        ))
+        await db.commit()
+        await db.refresh(ref)
+
+        if old_key:
+            try:
+                await oss_adapter.delete_file(old_key, db, user.id)
+            except (KeyError, RuntimeError):
+                db.add(OperationLog(
+                    user_id=user.id,
+                    username=user.username,
+                    role=user.role,
+                    action="material_library_replace_video_cleanup_failed",
+                    target_type="kol_reference",
+                    target_id=ref_id,
+                    detail={"kol_id": kol_id},
+                    ip=_get_ip(request),
+                    user_agent=request.headers.get("user-agent"),
+                ))
+                await db.commit()
+
+        return success_response(data={"kol_id": ref.kol_id, **_reference_to_dict(ref)})
+    finally:
+        if temp_path is not None:
+            try:
+                temp_path.unlink(missing_ok=True)
+            except OSError as exc:
+                logger.warning("material_library: failed to remove temporary video %s: %s", temp_path, exc)
+
+
+# ---------------------------------------------------------------------------
+# 8. GET /kols/{kol_id}/references/{ref_id}/video/playback — 短时签名播放地址
+# ---------------------------------------------------------------------------
+@router.get("/kols/{kol_id}/references/{ref_id}/video/playback")
+async def get_reference_video_playback(
+    kol_id: int,
+    ref_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    ref = await _get_active_reference(db, kol_id, ref_id)
+    if not ref:
+        return error_response(ErrorCode.RESOURCE_NOT_FOUND, "素材不存在")
+    if not ref.video_oss_key:
+        return error_response(ErrorCode.FILE_NOT_FOUND, "素材未上传视频")
+    try:
+        url = await oss_adapter.get_download_url(ref.video_oss_key, db, expires=900, user_id=user.id)
+    except (KeyError, RuntimeError):
+        return error_response(ErrorCode.EXTERNAL_SERVICE_ERROR, "视频播放地址生成失败，请检查对象存储配置后重试")
+    return success_response(data={"url": url, "expires_in": 900})
+
+
+# ---------------------------------------------------------------------------
+# 9. DELETE /kols/{kol_id}/references/{ref_id} — 删除素材（软删除）
 # ---------------------------------------------------------------------------
 @router.delete("/kols/{kol_id}/references/{ref_id}")
 async def delete_reference(
@@ -328,16 +642,11 @@ async def delete_reference(
     user: User = Depends(get_current_user),
 ):
     """软删除一条参考素材。"""
-    ref = (
-        await db.execute(
-            select(KolReference).where(
-                and_(KolReference.id == ref_id, KolReference.kol_id == kol_id)
-            )
-        )
-    ).scalar_one_or_none()
-    if not ref or ref.deleted_at:
+    ref = await _get_active_reference(db, kol_id, ref_id)
+    if not ref:
         return error_response(ErrorCode.RESOURCE_NOT_FOUND, "素材不存在")
 
+    video_oss_key = ref.video_oss_key
     ref.deleted_at = func.now()
     db.add(OperationLog(
         user_id=user.id,
@@ -351,6 +660,24 @@ async def delete_reference(
         user_agent=request.headers.get("user-agent"),
     ))
     await db.commit()
+
+    if video_oss_key:
+        try:
+            await oss_adapter.delete_file(video_oss_key, db, user.id)
+        except (KeyError, RuntimeError):
+            db.add(OperationLog(
+                user_id=user.id,
+                username=user.username,
+                role=user.role,
+                action="material_library_delete_video_cleanup_failed",
+                target_type="kol_reference",
+                target_id=ref_id,
+                detail={"kol_id": kol_id},
+                ip=_get_ip(request),
+                user_agent=request.headers.get("user-agent"),
+            ))
+            await db.commit()
+            return success_response(message="素材已删除，视频对象清理失败已记录")
 
     return success_response(message="删除成功")
 

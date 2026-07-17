@@ -348,6 +348,16 @@ CREATE INDEX idx_tikhub_call_logs_created ON tikhub_call_logs(created_at DESC);
 | `027_oss_call_logs.sql` | oss_call_logs 表（OSS 调用日志） | Sprint 4+ |
 | `028_service_credentials_test_fields.sql` | service_credentials 加 last_tested_at / last_latency_ms 字段 | Sprint 4+ |
 | `029_asr_call_logs.sql` | asr_call_logs 表（ASR 调用日志） | Sprint 4+ |
+| `050_material_library_media.sql` | `kol_references` 增加文档元数据与私有视频对象字段 | M2 红人工作台还原 |
+| `051_qianchuan_full_video_preview_config.sql` | 初始化完整视频成片预审独立 `full_video` 配置键 | M2 红人工作台还原 |
+| `052_enable_qianchuan_full_video_workspace_tab.sql` | 为既有工作台配置追加 `film-review` 页签 | M2 红人工作台还原 |
+### 完整视频成片预审的数据边界（M2 红人工作台还原）
+
+完整视频预审**不新增业务表**：复用 `qianchuan_preview_configs`（完整视频使用独立 `full_video` 配置键，Prompt + `ai_model_id`）、`ai_models`（必须选择 provider=`gemini` 的 active 模型）、`credentials`（provider=`gemini` 的统一凭证）、`task_jobs`、`outputs`、`external_service_logs`、`ai_call_logs` 和 `oss_call_logs`。
+
+- `task_jobs.input_payload` 只允许记录不可变的 `kol_id`，以及 `original`、`edited` 的临时 OSS 对象键、原始文件名、MIME 类型和字节数；不得保存视频正文、公开 URL 或 Gemini API key。保存报告时从该 `kol_id` 写入 `outputs.content_json`，不信任前端归属字段。
+- 分析成功、供应商失败、超时和客户端断开时，均尝试删除 Gemini Files 临时文件与临时 OSS 对象；删除失败仅记调用日志，不删除任务错误事实。
+- `outputs.content` 保存 Markdown 报告；`outputs.content_json` 保存任务号、两个文件名和分析模式 `full_video`，不保存视频对象键。
 
 ---
 
@@ -985,6 +995,14 @@ migration 033 UPSERT `workspace_tools` 表：
 | `source` | VARCHAR(100) | 否 | 来源，默认 '抖音' |
 | `type` | VARCHAR(50) | 是 | 6 类之一（见下） |
 | `content` | TEXT | 是 | 正文内容 |
+| `data_description` | TEXT | 否 | 自由文本的数据/点赞数说明；保留既有 `likes` 数值字段兼容 |
+| `document_name` | VARCHAR(500) | 否 | 解析来源脚本文档的原始文件名；原文件不做永久本地保存 |
+| `document_type` | VARCHAR(100) | 否 | 解析来源脚本文档的 MIME 类型 |
+| `document_size` | BIGINT | 否 | 解析来源脚本文档的字节数 |
+| `video_oss_key` | VARCHAR(1024) | 否 | 视频原片的私有对象存储键，不保存公开链接 |
+| `video_name` | VARCHAR(500) | 否 | 视频原始文件名 |
+| `video_content_type` | VARCHAR(100) | 否 | 视频 MIME 类型 |
+| `video_size` | BIGINT | 否 | 视频字节数 |
 | `created_by` | BIGINT FK→users | 否 | 审计用 |
 | `created_at` | TIMESTAMPTZ | 是 | 默认 NOW() |
 | `updated_at` | TIMESTAMPTZ | 是 | 默认 NOW() |
@@ -992,14 +1010,17 @@ migration 033 UPSERT `workspace_tools` 表：
 
 `type` 枚举：`红人爆款文案 / 红人喜欢的内容 / 风格参考 / 千川爆款文案 / 千川喜欢的内容 / 千川风格参考`
 
+文档解析后的正文保存到 `content`，运营可在保存前或编辑时修改；视频只保存私有对象键，读取时由后端鉴权后生成短时签名播放地址。素材删除始终先软删数据库记录，再按对象存储适配层规则删除关联视频对象并写服务调用日志；旧素材的新增字段均可为空。
+
 ### 28.2 索引
 
 - `idx_kol_references_kol_type`：`(kol_id, type) WHERE deleted_at IS NULL` — 列表分组查询主索引
-- `idx_kol_references_kol_recent`：`(kol_id, created_at DESC)` — 最新素材排序
+- `idx_kol_references_kol_recent`：`(kol_id, created_at DESC) WHERE deleted_at IS NULL` — 最新素材排序
+- `idx_kol_references_video_oss_key`：`(video_oss_key) WHERE video_oss_key IS NOT NULL AND deleted_at IS NULL` — 私有视频对象查询与清理
 
 ### 28.3 迁移文件
 
-`034_material_library.sql`
+`034_material_library.sql`（基础表）和 `050_material_library_media.sql`（文档元数据、私有视频对象字段与索引）
 
 ---
 
@@ -1221,3 +1242,18 @@ migration 035 UPDATE：
 ### 35.3 迁移文件
 
 `045_retrospective.sql`
+
+---
+
+## 36. kol_active_products 当前商品关联（M2 核心工作流）
+
+`kol_active_products` 继续复用为红人与平台共享千川产品库的当前商品关联，不新增数据表。
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | BIGSERIAL | 是 | PK |
+| `kol_id` | BIGINT FK kols | 是 | 红人；UNIQUE，每名红人最多一条有效关联 |
+| `product_id` | BIGINT FK qianchuan_products | 是 | 当前选择的共享商品 |
+| `created_at` | TIMESTAMPTZ | 是 | 关联创建时间 |
+
+迁移文件：`049_kol_active_products_single_current_product.sql`。现有数据库升级时，迁移会先检测同一 `kol_id` 的历史重复关联；发现重复会明确中止，需人工确认后再清理，避免自动删除运营选择。应用层仍须在写入时整体替换旧关联，防止前端多选绕过业务规则。
