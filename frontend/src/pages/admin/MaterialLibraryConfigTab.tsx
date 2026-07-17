@@ -24,7 +24,7 @@ export default function MaterialLibraryConfigTab() {
           is_active: cfg.is_active,
         });
       }
-      setModels(modelList);
+      setModels(modelList.items ?? []);
     } catch {
       message.error('加载配置失败');
     } finally {

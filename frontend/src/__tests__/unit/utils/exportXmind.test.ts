@@ -40,17 +40,17 @@ describe('buildContent', () => {
 
   it('branches map to children.attached[]', () => {
     const content = buildContent(sampleMindmap);
-    const attached = content.sheets[0].rootTopic.children.attached;
+    const attached = content.sheets[0].rootTopic.children!.attached;
     expect(attached).toHaveLength(2);
     expect(attached[0].title).toBe('内容创作');
-    expect(attached[0].children.attached).toHaveLength(3);
-    expect(attached[0].children.attached[0].title).toBe('选题');
+    expect(attached[0].children!.attached).toHaveLength(3);
+    expect(attached[0].children!.attached[0].title).toBe('选题');
     expect(attached[1].title).toBe('账号定位');
   });
 
   it('summary stored in rootTopic.notes.plain.content', () => {
     const content = buildContent(sampleMindmap);
-    expect(content.sheets[0].rootTopic.notes.plain.content).toBe('本视频讲解运营技巧');
+    expect(content.sheets[0].rootTopic.notes!.plain!.content).toBe('本视频讲解运营技巧');
   });
 
   it('empty summary → no notes field', () => {
@@ -70,7 +70,7 @@ describe('buildContent', () => {
       branches: [{ title: '空分支', children: [] }],
     };
     const content = buildContent(noKids);
-    const branch = content.sheets[0].rootTopic.children.attached[0];
+    const branch = content.sheets[0].rootTopic.children!.attached[0];
     expect(branch.children).toBeUndefined();
   });
 });

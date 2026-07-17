@@ -71,7 +71,7 @@ describe('personaWriter stream error extraction (PR #18 Bug #14)', () => {
     );
 
     await expect(
-      chatStream({ transcript: 't', structure: 's', history: [] }, () => {}),
+      chatStream({ scene: 'writing', persona_id: 1, transcript: 't', structure_analysis: 's', messages: [] }, () => {}),
     ).rejects.toThrow('内容生成失败');
   });
 
@@ -101,7 +101,7 @@ describe('personaWriter stream error extraction (PR #18 Bug #14)', () => {
     );
 
     await expect(
-      chatStream({ transcript: 't', structure: 's', history: [] }, () => {}),
+      chatStream({ scene: 'writing', persona_id: 1, transcript: 't', structure_analysis: 's', messages: [] }, () => {}),
     ).rejects.toThrow(/生成失败: 500/);
   });
 });

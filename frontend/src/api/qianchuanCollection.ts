@@ -11,7 +11,6 @@ import { get, post, put, del } from './request';
 import { useAuthStore } from '../store/authStore';
 import type {
   CollectionPersona,
-  CollectionScript,
   ScriptListResponse,
   CreateScriptBody,
 } from '../types/qianchuanCollection';

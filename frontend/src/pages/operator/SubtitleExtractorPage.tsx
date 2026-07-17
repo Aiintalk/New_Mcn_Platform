@@ -10,7 +10,7 @@
  * - 批量 Excel 拖拽上传（Phase 6 加入 react-dropzone）
  */
 import { useEffect, useRef, useState } from 'react';
-import { Input, Button, Typography, Space, App, Alert, Dropdown, Card } from 'antd';
+import { Input, Button, Typography, Space, App, Dropdown, Card } from 'antd';
 import { DownOutlined, CopyOutlined, DownloadOutlined, InboxOutlined } from '@ant-design/icons';
 import * as XLSX from 'xlsx';
 import JSZip from 'jszip';
@@ -20,7 +20,6 @@ import {
   generateMindmap,
   createBatch,
   getBatchByJobCode,
-  listHistory,
   saveOutput,
 } from '../../api/subtitle';
 import type {
@@ -249,7 +248,7 @@ export default function SubtitleExtractorPage() {
   };
 
   const doSaveOutput = async () => {
-    if (!result?.text) {
+    if (!result?.transcript) {
       message.warning('请先生成字幕');
       return;
     }

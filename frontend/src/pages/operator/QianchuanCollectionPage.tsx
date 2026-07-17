@@ -32,7 +32,7 @@ export default function QianchuanCollectionPage() {
   const [scriptModalOpen, setScriptModalOpen] = useState(false);
   const [scriptForm] = Form.useForm();
   const [scriptSubmitting, setScriptSubmitting] = useState(false);
-  const [parsedText, setParsedText] = useState('');
+  const [, setParsedText] = useState('');
   const [parsingFile, setParsingFile] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 

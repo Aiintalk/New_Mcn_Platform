@@ -7,8 +7,8 @@
  * - 字幕↔思维导图切换（mock generateMindmap + 同容器切换）
  * - 批量提交（mock createBatch + parseBatchItems 计数）
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { App } from 'antd';
 

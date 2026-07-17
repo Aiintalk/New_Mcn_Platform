@@ -19,6 +19,7 @@ interface XmindTopic {
   children?: {
     attached: XmindTopic[];
   };
+  notes?: { plain?: { content: string } };
 }
 
 interface XmindSheet {
@@ -63,7 +64,7 @@ function buildContent(mindmap: MindmapResult): { sheets: XmindSheet[] } {
   // summary 放到根 topic 的 notes（XMind notes 字段）
   if (mindmap.summary) {
     // XMind 8 schema: rootTopic.notes.plain.content
-    (rootTopic as unknown as { notes?: { plain?: { content: string } } }).notes = {
+    rootTopic.notes = {
       plain: { content: mindmap.summary },
     };
   }

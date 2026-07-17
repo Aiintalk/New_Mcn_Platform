@@ -2,7 +2,6 @@ import { get, post, put, del } from './request';
 import type {
   PersonaOption,
   Reference,
-  Product,
   ProductsPage,
   ParsedProductDocument,
   VideoInfo,

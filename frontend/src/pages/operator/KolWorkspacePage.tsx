@@ -176,7 +176,7 @@ export default function KolWorkspacePage() {
           {activeTab === 'livestream-writer' && <LivestreamWriterModule kolId={kolId} />}
           {activeTab === 'livestream-review' && <LivestreamReviewModule kolId={kolId} />}
           {activeTab === 'values-writer' && <ValuesWriterModule kolId={kolId} />}
-          {activeTab === 'script-review' && <QianchuanScriptReviewModule kolId={kolId} />}
+          {activeTab === 'script-review' && <QianchuanScriptReviewModule />}
           {activeTab === 'retrospective' && <WorkspaceRetrospective kolId={kolId} />}
         </main>
       </div>
