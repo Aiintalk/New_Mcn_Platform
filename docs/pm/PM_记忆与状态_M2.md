@@ -2,9 +2,9 @@
 
 > 2026-07-14 红人工作台旧版核心流程还原（分支 `feature/kol-core-workflow`）：批次一至四已完成并通过二阶段代码复审；批次五已完成八模块定向回归、前端全量回归和浏览器入口检查。已执行本地验收库迁移 `050`、`051`、`052`。待联合验收的外部前置条件：Gemini（谷歌完整视频模型）启用模型与统一凭证、可用 OSS（对象存储）凭证、两条真实原片/剪辑成片。详见 `backend/docs/tests/M2_红人工作台旧版功能还原_测试报告.md` 与 `docs/pm/M2_红人工作台旧版功能还原_开发验收清单.md`。
 
-> 最后更新：2026-07-17（**PR #28 + PR #29 + PR #24 同日合并 main**：PR #28 `feat: restore KOL workspace core workflow`（红人工作台旧版八模块还原 + 视觉优化 + 4 个新 migration 049-052，235 文件 +8258/-1888，PM 接手修 4 处项目红线违规后 merge `ba376ce9`）；PR #29 `ci: 翻严 Gate 1+2 + 补 middlewares/core 覆盖率`（22 TS 错误 + 2 AntD 漂移 + 14 新测试，21 文件 +220/-46，merge `0cc760b5`）；PR #24 `chore: ignore docs/walkthrough/`（merge `4952e88c`）。上一个：2026-07-12 PR #25 + PR #26（红人状态重构 + 工作台入口 + UI 一致性 + 补契约测试）。再上一个：2026-07-07 PR #21（PR #18 测试补漏）。再上一个：2026-07-07 PR #18（Bug #12-17 修复）。再上一个：2026-07-03 PR #20 + PR #19（provider + AI 多服务商切换）。再上一个：2026-07-01（管理端配置页 UX 完善）。再上一个：2026-06-30 PR #13（红人工作台 Sprint 18-23）。再上一个：2026-06-28 旧架构数据全量迁移）
+> 最后更新：2026-07-17（**AIGC 工具回归测试评价体系 — 设计阶段**：在 `feature/aigc-evaluation` 独立分支完成 spec + 分阶段实施计划，spec 过三轮独立 agent review、计划过两轮 review 收敛；产出周会文档 + 数据模型关系图（HTML）+ Open Design 简报；一期=千川仿写 + 3 维度 + AI 初评/人工校准 + 手动/版本创建触发，独立 `eval_` 表、不动现有模块，待周会对齐后进入实施）。同日稍早 **PR #28 + PR #29 + PR #24 合并 main**：PR #28 `feat: restore KOL workspace core workflow`（红人工作台旧版八模块还原 + 视觉优化 + 4 个新 migration 049-052，235 文件 +8258/-1888，PM 接手修 4 处项目红线违规后 merge `ba376ce9`）；PR #29 `ci: 翻严 Gate 1+2 + 补 middlewares/core 覆盖率`（merge `0cc760b5`）；PR #24 `chore: ignore docs/walkthrough/`（merge `4952e88c`）。上一个：2026-07-12 PR #25 + PR #26（红人状态重构 + 工作台入口 + UI 一致性 + 补契约测试）。再上一个：2026-07-07 PR #21 + PR #18。再上一个：2026-07-03 PR #20 + PR #19（provider + AI 多服务商切换）。再上一个：2026-07-01 管理端配置页 UX 完善。再上一个：2026-06-30 PR #13 红人工作台 Sprint 18-23。再上一个：2026-06-28 旧架构数据全量迁移）
 
-> **🚧 当前状态**：main 上最新合并 = **PR #28**（2026-07-17，merge `ba376ce9`）+ PR #29（CI Gate 1+2 翻严 + Gate 3 部分）+ PR #24（chore）+ PR #26 + PR #25（2026-07-12）+ PR #21 + PR #18（2026-07-07）+ PR #20 + PR #19（2026-07-03）。**Open PRs = 0**。下一步候选：补 services/routers 覆盖率 → 翻严 coverage gate / legacy 迁移工具归档 / Sprint 17 backlog。
+> **🚧 当前状态**：main 上最新合并 = **PR #28**（2026-07-17，merge `ba376ce9`）+ PR #29（CI Gate 1+2 翻严 + Gate 3 部分）+ PR #24（chore）+ PR #26 + PR #25（2026-07-12）+ PR #21 + PR #18（2026-07-07）+ PR #20 + PR #19（2026-07-03）。**Open PRs = 0**。**进行中分支 `feature/aigc-evaluation`**：AIGC 评测体系（spec + 实施计划已就绪，待周会结论落地后进入开发）。下一步候选：aigc-evaluation 周会结论落地 / 补 services/routers 覆盖率 → 翻严 coverage gate / legacy 迁移工具归档 / Sprint 17 backlog。
 
 > **📋 Sprint 17 backlog**（已写需求文档，待开工）：管理端调用日志扩展（用户列 + 功能列）—— `docs/pm/M2_Sprint17_管理端调用日志扩展_需求文档.md`
 
@@ -35,6 +35,43 @@
 ## 二、M2 阶段（当前）
 
 > **Sprint 编号说明**：main 与 feature/kol-workspace 两分支并行开发期间各自用了 Sprint 18/19 编号，内容不同（main = 素材库/字幕；feature = 红人工作台）。合并后按"保留双方记录、时间序"原则记录如下，最新在前。
+
+### M2 工作项 — AIGC 工具回归测试评价体系（aigc-evaluation）🔄 设计阶段（分支 feature/aigc-evaluation，2026-07-17，待周会对齐）
+
+**核心定位**：给工具平台的 AIGC 功能建一套「评价工具的工具」—— 每次改完提示词，用固定测试集 + 固定评分标准量化追踪版本效果变化（整体/维度/样本类型上是变好还是变差），替代现在「少数案例 + 主观判断」的迭代方式。背景来源：0605 视频制作流程探讨 + 0709 开发工具与工作流优化会议。
+
+**一期范围**：
+- 被测工具：千川仿写（qianchuan-writer）
+- 评分维度：文案质量 / 种草力 / 人设一致性（权重 0.4/0.35/0.25）
+- 评分方式：AI 初评 + 人工校准（校准结果沉淀为基准）
+- 测试集：人工录入（初期 10–30 条，标签化管理）
+- 版本快照：平台内显式创建，**不可编辑**（改配置走复制新版本），保证可复现
+- 触发：手动 + 版本创建后自动触发；定时批量二期
+- **一期不打通现有工作流**：独立 `backend/app/evaluation/` + `frontend/src/evaluation/` + 独立 `eval_` 表，只读复用 yunwu adapter / kol 数据，不碰现有 router/model/表
+
+**架构方案**：方案 B（可配置评测平台）+ 预留方案 C（插件化）扩展点（`tool_code` 字段、JSONB 输入、generator/scorer 函数分派）。
+
+**已完成（本分支已提交）**：
+| 产物 | 路径 | 说明 |
+|------|------|------|
+| 技术设计稿 | `docs/superpowers/specs/2026-07-17-aigc-evaluation-system-design.md` | 14 章，过三轮独立 agent review 收敛 |
+| 分阶段实施计划 | `docs/superpowers/plans/2026-07-17-aigc-evaluation.md` | 6 Phase 路线图，过两轮 review 收敛 |
+| 周会对齐文档 | `docs/evaluation/weekly-alignment-summary.md` | 定位/5 概念/流程/角色/影响边界/6 待拍板问题 |
+| 数据模型关系图 | `docs/evaluation/data-model-diagram.html` | 浏览器可开，9 张表 ER 图 |
+| Open Design 简报 | `docs/evaluation/open-design-brief.md` | 现有 UI 风格（Stone 暖灰+橙 #f59a23）+ 10 个待设计页面 |
+
+**spec 关键设计点**（已 review 确认）：
+- 9 张 `eval_` 表：dimensions / rubrics / test_cases / versions / runs / case_results（归一化存生成输出）/ scores / human_labels / schedule_policies
+- 版本快照 `config_payload` 固化 resolved model_id+provider + system_prompt_template（带占位符，运行时二次渲染）+ 维度权重（dimension_id 为 key）+ 评分模型，保证历史可复现
+- 红线全合规：所有写操作写 OperationLog（红线 #2）；AsyncSessionLocal 模块注册 conftest patch（红线 #7）；评分 prompt 占位符统一 `{{}}`（对齐 render_system_prompt）；前端走 request.ts（红线 #3）
+- `eval_case_results` 归一化存 generated_output，避免维度级重复存储
+- 主数据表统一 `deleted_at` 软删；评分 JSON 输出走 `extra_body={"response_format":...}` 透传 + 后备正则解析
+
+**待确认（周会拍板）**：① 3 维度+权重 ② AI 初评+人工校准模式 ③ 一期只做千川仿写 ④ 版本不可编辑 ⑤ 测试集谁维护 ⑥ 运营是否参与录入/校准。
+
+**下一步**：周会结论 → 调 spec → 展开 Phase 1 bite-sized TDD → 开发（独立分支，不推 main，PR 人工合并）。
+
+---
 
 ### M2 工作项 — PR #25 红人入驻状态重构 + 运营端红人工作台入口 + UI 一致性 ✅ 完成（main，2026-07-12，merge `c7aaeb7d`）
 
