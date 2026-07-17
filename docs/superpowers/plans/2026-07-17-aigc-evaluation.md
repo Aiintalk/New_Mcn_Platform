@@ -22,7 +22,7 @@
 - **Prompt 占位符**：统一双花括号 `{{}}`，与 `render_system_prompt` 一致。
 - **评分 JSON 输出**：通过 `extra_body={"response_format": {"type": "json_object"}}` 透传（`yunwu.chat` 无 `response_format` 形参），后备正则提取 `{...}`。
 - **版本快照不可编辑**：无 `PUT versions/{id}`；改配置走 `clone` 新版本；`config_payload` 固化 resolved `model_id`+`provider`+`system_prompt_template`+维度权重（dimension_id 为 key）+评分模型。
-- **下一个 migration 编号 = `049`**。
+- **下一个 migration 编号 = `053`**（rebase 后更新：main 的 PR #28 已占用 049–052）。
 - **覆盖率门禁**：Models ≥ 90% / Services ≥ 80% / API ≥ 70% / 整体 ≥ 75%（`python scripts/run_coverage.py --gate`）。
 - **不推 main**：分支提交 → 发 PR → 人工合并。
 
@@ -48,7 +48,7 @@
 **Goal:** 建立 9 张 `eval_` 表的 schema 和 ORM，管理员可在测试库里建表/读写维度。
 
 **Files:**
-- Create: `backend/migrations/049_eval_core.sql`（9 表 + 索引 + seed 维度）
+- Create: `backend/migrations/053_eval_core.sql`（9 表 + 索引 + seed 维度）
 - Create: `backend/app/evaluation/__init__.py`
 - Create: `backend/app/evaluation/constants.py`（tool_code 常量、维度名常量、trigger_type/status 枚举）
 - Create: `backend/app/evaluation/models/__init__.py` + 9 个 model 文件：`dimension.py` / `rubric.py` / `test_case.py` / `version.py` / `run.py` / `case_result.py` / `score.py` / `human_label.py` / `schedule_policy.py`
@@ -60,13 +60,13 @@
 
 **Tasks:**
 1. 写 `test_eval_models.py`：建表（metadata.create_all）、各表插入/查询、软删 `deleted_at` 过滤、唯一约束（`eval_case_results(run_id, test_case_id)`、`eval_scores(case_result_id, dimension_id)`）、ON DELETE 级联（删 run 连带删 case_results→scores）。
-2. 写 migration `049_eval_core.sql`：9 张表 + spec §5.5 全部索引 + seed 3 个维度（copy_quality 0.4 / conversion_power 0.35 / persona_consistency 0.25）+ seed rubric 等级占位。
+2. 写 migration `053_eval_core.sql`：9 张表 + spec §5.5 全部索引 + seed 3 个维度（copy_quality 0.4 / conversion_power 0.35 / persona_consistency 0.25）+ seed rubric 等级占位。
 3. 写 `constants.py`：`EVAL_TOOL_QIANCHUAN_WRITER = "qianchuan-writer"`、触发/状态枚举字符串。
 4. 写 9 个 ORM model（参照现有 `QianchuanWriterConfig` 风格，`Base` 来自 `app.core.database`；需补 `Numeric`/`SmallInteger`/`JSONB`/`ARRAY(String)` 导入）。
 5. `app/models/__init__.py` **跨包注册** eval models（关键：conftest 依赖 `import app.models` 触发 `Base.metadata.create_all` 覆盖所有表，否则测试库建不出 eval 表）。在 `__init__.py` 末尾加 `from app.evaluation.models.dimension import EvalDimension` 等 9 行 import + 同步 `__all__`。
 6. 跑测试 → 通过 → commit。
 
-**Test gate:** `pytest tests/unit/models/test_eval_models.py -v` 全绿；`migration 049` 在测试库 `metadata.create_all` 后可建表。
+**Test gate:** `pytest tests/unit/models/test_eval_models.py -v` 全绿；`migration 053` 在测试库 `metadata.create_all` 后可建表。
 
 **Dependencies:** 无。
 
