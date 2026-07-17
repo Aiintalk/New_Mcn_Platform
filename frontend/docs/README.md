@@ -101,19 +101,21 @@ frontend/
 │   │   │   ├── LivestreamWriterPage.tsx #   直播脚本仿写
 │   │   │   ├── LivestreamReviewPage.tsx #   直播间脚本复盘
 │   │   │   ├── PersonaReviewPage.tsx  #     人设脚本复盘
-│   │   │   ├── KolWorkspacePage.tsx   #     红人工作台 Shell（Sprint 18-20）路由 /kol-workspace/:kol_id，10 个激活导航项；2026-07-12 对齐全站侧栏 UI（190px 深色导航 + 橙色 active）并优化写作工具页布局
-│   │   │   └── workspace/             #     工作台子模块（Sprint 18-19）
-│   │   │       ├── WorkspaceDashboard.tsx      #  工作台首页（对标账号 + 在售商品）
-│   │   │       ├── WorkspacePersona.tsx        #  人物档案 5 分区 inline 编辑器（Sprint 19）
-│   │   │       ├── WorkspaceReferences.tsx     #  素材库 6 类管理（Sprint 19）
-│   │   │       └── QianchuanProductsModule.tsx #  千川产品库 CRUD
+│   │   │   ├── KolWorkspacePage.tsx   #     红人工作台 Shell（Sprint 18-20+23）路由 /kol-workspace/:kol_id，13 个导航项（dashboard/persona/references/products/qianchuan-writer/seeding-writer/persona-writer/livestream-writer/livestream-review/values-writer/script-review/film-review/retrospective）；2026-07-12 对齐全站侧栏 UI（190px 深色导航 + 橙色 active）；2026-07-14 PR #28 还原旧版八模块 + 启用 film-review 页签
+│   │   │   └── workspace/             #     工作台子模块（Sprint 18-19+23）
+│   │   │       ├── WorkspaceDashboard.tsx      #  工作台首页（对标账号 + 当前商品；2026-07-14 PR #28 改"在售商品"为"当前商品"，单选）
+│   │   │       ├── WorkspacePersona.tsx        #  人物档案 5 分区 inline 编辑器（Sprint 19；2026-07-14 PR #28 统一人物上下文读取供所有脚本工具复用）
+│   │   │       ├── WorkspaceReferences.tsx     #  素材库 6 类管理 + 文档解析 + 私有视频上传/播放/替换/软删除（Sprint 19；2026-07-14 PR #28 补媒体能力 + OSS 私有桶短时签名）
+│   │   │       ├── WorkspaceRetrospective.tsx  #  复盘（五类材料 + AI 分析 + 多脚本逐份解析 + 红人维度列表/草稿/重新复盘/复制/导出，2026-07-14 PR #28）
+│   │   │       └── QianchuanProductsModule.tsx #  千川产品库 CRUD + 单一当前商品约束（2026-07-14 PR #28 加唯一有效关联）
 │   │   │   （QianchuanWriterPage/SeedingWriterPage/PersonaWriterPage/LivestreamWriterPage/LivestreamReviewPage 均已拆出 XxxModule 组件供工作台内嵌，Sprint 19；2026-07-12 PersonaWriterModule/SeedingWriterModule 在工作台内启用 workspace-tool-module 紧凑布局，Persona/Seeding/Qianchuan/TikTok 写作步骤卡片统一补 workspace-step-card 内边距）
-│   │   │   （另有 ValuesWriterPage.tsx — 价值观仿写，Sprint 20 新增：4 步向导=选价值观+情绪方向+生成内容+迭代优化，同时导出 ValuesWriterModule 供工作台内嵌；2026-07-01 加「保存到历史」按钮 + 历史抽屉，复用 components/OutputHistoryDrawer）
+│   │   │   （另有 FilmReviewModule — 千川成片预审模块，2026-07-14 PR #28 新增：上传原片+剪辑成片，调用 Gemini 完整视频分析，流式报告，保存到产出中心 + Word 导出；工作台内由 film-review tab 激活，独立页 FilmReviewPage.tsx 同源；不退化为关键帧模式）
+│   │   │   （另有 ValuesWriterPage.tsx — 价值观仿写，Sprint 20 新增：4 步向导=选价值观+情绪方向+生成内容+迭代优化，同时导出 ValuesWriterModule 供工作台内嵌；2026-07-01 加「保存到历史」按钮 + 历史抽屉，复用 components/OutputHistoryDrawer；2026-07-14 PR #28 还原旧版四步流程=输入爆款原文+选当前商品+推导情绪方向+生成脚本和报告+双字组合相似度算法）
 │   │   │   （另有 QianchuanScriptReviewPage.tsx — 千川脚本预审，Sprint 21 新增：直销/价值观双模式，结构化评分（rating/must_fix/suggestions/passed）；2026-07-01 加「保存到历史」按钮 + 历史抽屉（自定义 renderItem 渲染评分 Tag））
 │   │   │   （另有 QianchuanWriterPage.tsx — 千川文案写作，Sprint 14 新增）
 │   │   │   （另有 PersonaWriterPage.tsx — 人设脚本仿写，Sprint 15 重写 placeholder 上线）
 │   │   │   （另有 SeedingWriterPage.tsx — 种草内容仿写，Sprint 16 新增：4 步向导=选达人+产品信息+对标验证+种草仿写）
-│   │   │   （另有 MaterialLibraryPage.tsx — 素材库，Sprint 18 新增（迁移自旧架构）：左右分栏=红人列表+4 Tab（人格档案/内容规划/参考素材/入驻信息），支持 AI 从入驻问卷生成 soul.md 初稿）
+│   │   │   （另有 MaterialLibraryPage.tsx — 素材库，Sprint 18 新增（迁移自旧架构）：左右分栏=红人列表+4 Tab（人格档案/内容规划/参考素材/入驻信息），支持 AI 从入驻问卷生成 soul.md 初稿；2026-07-14 PR #28 工作台 WorkspaceReferences 子模块补文档解析 + 私有视频上传/播放/替换/软删除）
 │   │   │   （另有 SubtitleExtractorPage.tsx — 字幕提取，Sprint 19 新增（迁移自旧架构）：3 Tab（单条提取/思维导图/批量提取），抖音链接→ASR→字幕+AI 思维导图，支持 SRT/Excel/Zip 导出 + 保存到产出中心）
 │   │   ├── auth/                      #   登录/改密码
 │   │   │   ├── LoginPage.tsx
@@ -184,6 +186,7 @@ frontend/
 │       └── M2_Sprint16_前端任务_seeding-writer.md  #  种草内容仿写（Sprint 16）
 │       └── M2_Sprint24_前端任务_红人工作台UI一致性优化_v1.md  #  红人工作台 UI 一致性优化
 │       └── M2_Sprint24_前端任务_开发验收_红人工作台UI一致性优化_v1.md  #  红人工作台 UI 一致性优化验收
+│       └── M2_Sprint23_前端任务_红人工作台旧版功能还原_v1.md  #  红人工作台旧版八模块还原（PR #28 补归档）
 │
 ├── vitest.config.ts                   # Vitest 测试配置
 ├── vite.config.ts                     # Vite 构建配置
