@@ -23,8 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.adapters import gemini_video
 from app.adapters import oss as oss_adapter
 from app.adapters import yunwu as yunwu_adapter
-from app.core import database
-from app.core.database import get_db
+from app.core.database import AsyncSessionLocal, get_db
 from app.core.response import ErrorCode, error_response, success_response
 from app.middlewares.auth import get_current_user
 from app.models.log import OperationLog
@@ -287,7 +286,7 @@ def _sse(event: str, data: dict) -> str:
 
 
 async def _set_video_task_error(task_id: int, message: str, error_code: str = ErrorCode.EXTERNAL_SERVICE_ERROR) -> None:
-    async with database.AsyncSessionLocal() as task_db:
+    async with AsyncSessionLocal() as task_db:
         task = await task_db.get(TaskJob, task_id)
         if task:
             task.status = "failed"
@@ -386,7 +385,7 @@ async def analyze_video(
         error_message: str | None = None
         started = time.monotonic()
         try:
-            async with database.AsyncSessionLocal() as stream_db:
+            async with AsyncSessionLocal() as stream_db:
                 async for chunk in gemini_video.stream_full_video_analysis(
                     original_path=original_path,
                     edited_path=edited_path,
@@ -411,7 +410,7 @@ async def analyze_video(
             yield _sse("error", {"message": f"分析失败：{error_message}"})
             yield _sse("failed", {"task_id": task.id})
         finally:
-            async with database.AsyncSessionLocal() as cleanup_db:
+            async with AsyncSessionLocal() as cleanup_db:
                 for oss_key in oss_keys:
                     try:
                         await oss_adapter.delete_file(oss_key, cleanup_db, current_user.id)

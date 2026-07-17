@@ -348,6 +348,7 @@ async def _require_current_product(db: AsyncSession, kol_id: int):
 @router.post("/derive-directions", response_model=None)
 async def derive_directions(
     body: DeriveDirectionsRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_operator),
 ):
@@ -394,6 +395,21 @@ async def derive_directions(
                                "original_length": len(body.original_script), "model_id": model_id},
                 result_summary={"output_kind": "emotion_directions"},
             ))
+            db.add(OperationLog(
+                user_id=current_user.id,
+                username=current_user.username,
+                role=current_user.role,
+                action="values_writer_derive_directions",
+                target_type="kol",
+                target_id=body.kol_id,
+                detail={
+                    "product_id": product.id,
+                    "model_id": model_id,
+                    "direction_count": len(directions),
+                },
+                ip=_get_ip(request),
+                user_agent=request.headers.get("user-agent"),
+            ))
             await db.commit()
             return success_response(data={"directions": directions})
         except (RuntimeError, ValueError, json.JSONDecodeError) as exc:
@@ -407,6 +423,7 @@ async def derive_directions(
 @router.post("/generate")
 async def generate_value_script(
     body: GenerateValueScriptRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_operator),
 ):
@@ -456,6 +473,21 @@ async def generate_value_script(
                                    "original_length": len(body.original_script), "model_id": model_id},
                     result_summary={"output_kind": "structured_script"},
                 ))
+                stream_db.add(OperationLog(
+                    user_id=current_user.id,
+                    username=current_user.username,
+                    role=current_user.role,
+                    action="values_writer_generate",
+                    target_type="kol",
+                    target_id=body.kol_id,
+                    detail={
+                        "product_id": product.id,
+                        "model_id": model_id,
+                        "direction_type": body.direction.type,
+                    },
+                    ip=_get_ip(request),
+                    user_agent=request.headers.get("user-agent"),
+                ))
                 await stream_db.commit()
                 yield _sse_chunk(output)
             except ValueError as exc:
@@ -470,6 +502,7 @@ async def generate_value_script(
 @router.post("/iterate-structured")
 async def iterate_structured_value_script(
     body: StructuredIterateRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_operator),
 ):
@@ -525,6 +558,21 @@ async def iterate_structured_value_script(
                     status="success", created_by=user_id,
                     input_payload={"kol_id": body.kol_id, "product_id": product.id, "history_count": len(body.history), "model_id": model_id},
                     result_summary={"output_kind": "structured_iteration"},
+                ))
+                stream_db.add(OperationLog(
+                    user_id=current_user.id,
+                    username=current_user.username,
+                    role=current_user.role,
+                    action="values_writer_iterate_structured",
+                    target_type="kol",
+                    target_id=body.kol_id,
+                    detail={
+                        "product_id": product.id,
+                        "model_id": model_id,
+                        "history_count": len(body.history),
+                    },
+                    ip=_get_ip(request),
+                    user_agent=request.headers.get("user-agent"),
                 ))
                 await stream_db.commit()
                 yield _sse_chunk(output)
