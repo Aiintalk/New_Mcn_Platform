@@ -2,9 +2,9 @@
 
 > 2026-07-14 红人工作台旧版核心流程还原（分支 `feature/kol-core-workflow`）：批次一至四已完成并通过二阶段代码复审；批次五已完成八模块定向回归、前端全量回归和浏览器入口检查。已执行本地验收库迁移 `050`、`051`、`052`。待联合验收的外部前置条件：Gemini（谷歌完整视频模型）启用模型与统一凭证、可用 OSS（对象存储）凭证、两条真实原片/剪辑成片。详见 `backend/docs/tests/M2_红人工作台旧版功能还原_测试报告.md` 与 `docs/pm/M2_红人工作台旧版功能还原_开发验收清单.md`。
 
-> 最后更新：2026-07-12（**红人工作台 UI 一致性优化**：`/kol-workspace/:kol_id` 左侧导航对齐全站 190px 深色侧栏 + 橙色 active；人设仿写/种草仿写 Module 模式启用 `workspace-tool-module` 左对齐紧凑布局；新增 `workspace-step-card` 修复人设/种草/千川/TikTok 写作步骤卡片输入框贴边；新增 3 个工作台视觉一致性回归断言，KolWorkspacePage 21/21 通过。**分支 `fix/ui-and-interaction` 待合并到 main**）。上一个：2026-07-07 PR #21 合并到 main（PR #18 测试补漏 + tikhub adapter 12 预存失败修复，merge commit `06e3fcd1`）。再上一个：同日稍早 PR #18 合并到 main（Bug #12-17 修复）。再上一个：2026-07-03 qianchuan-edit-review provider 切换 + ai_model_id 解析彻底修复（PR #20 已合并 main）。再上一个：同日稍早完成 AI 多服务商切换不生效修复（13 个 router 的 chat_stream 调用补传 `provider` 参数 + yunwu.py 防御空 choices 数组，PR #19）。再上一个：2026-07-01（**管理端配置页 UX 完善**：`/admin/workspace` 工具列表操作列加「配置」按钮直达对应 Tab + 4 个预留 Tab 占位 + 修 selling-point-extractor 映射 bug；同日稍早完成 values-writer + script-review 补历史记录功能 P0 #2）。再上一个：2026-06-30（**PR #13 红人工作台 Sprint 18-23 合并到 main**：merge commit `b9d50c6`，含 Sprint 22 复盘 + Sprint 21 千川脚本预审 + Sprint 23 工作台配置 + Sprint 18-20 工作台主体；feature/kol-workspace 分支保留持续开发。再上一个：2026-06-28 旧架构数据全量迁移到新架构 — 12 服务 260 文件 → 8 业务表，272 INSERT + 20 UPDATE + 32 KOL，迁移工具 `backend/scripts/migrate_legacy_data.py` + 迁移记录文档仍在工作区待提交）
+> 最后更新：2026-07-17（**PR #28 + PR #29 + PR #24 同日合并 main**：PR #28 `feat: restore KOL workspace core workflow`（红人工作台旧版八模块还原 + 视觉优化 + 4 个新 migration 049-052，235 文件 +8258/-1888，PM 接手修 4 处项目红线违规后 merge `ba376ce9`）；PR #29 `ci: 翻严 Gate 1+2 + 补 middlewares/core 覆盖率`（22 TS 错误 + 2 AntD 漂移 + 14 新测试，21 文件 +220/-46，merge `0cc760b5`）；PR #24 `chore: ignore docs/walkthrough/`（merge `4952e88c`）。上一个：2026-07-12 PR #25 + PR #26（红人状态重构 + 工作台入口 + UI 一致性 + 补契约测试）。再上一个：2026-07-07 PR #21（PR #18 测试补漏）。再上一个：2026-07-07 PR #18（Bug #12-17 修复）。再上一个：2026-07-03 PR #20 + PR #19（provider + AI 多服务商切换）。再上一个：2026-07-01（管理端配置页 UX 完善）。再上一个：2026-06-30 PR #13（红人工作台 Sprint 18-23）。再上一个：2026-06-28 旧架构数据全量迁移）
 
-> **🚧 当前状态**：main 上最新合并 = PR #21（PR #18 测试补漏 + tikhub adapter 修复，2026-07-07）+ PR #18（Bug #12-17 系统反馈问题，2026-07-07）+ PR #20（qianchuan-edit-review provider 修复，2026-07-03）+ PR #19（AI 多服务商切换，2026-07-03）。`feature/kol-workspace` 分支保留持续开发。下一步候选：legacy 迁移工具归档（4 个 untracked 文件）/ KolWorkspacePage 测试失败修复 / Sprint 17 backlog。
+> **🚧 当前状态**：main 上最新合并 = **PR #28**（2026-07-17，merge `ba376ce9`）+ PR #29（CI Gate 1+2 翻严 + Gate 3 部分）+ PR #24（chore）+ PR #26 + PR #25（2026-07-12）+ PR #21 + PR #18（2026-07-07）+ PR #20 + PR #19（2026-07-03）。**Open PRs = 0**。下一步候选：补 services/routers 覆盖率 → 翻严 coverage gate / legacy 迁移工具归档 / Sprint 17 backlog。
 
 > **📋 Sprint 17 backlog**（已写需求文档，待开工）：管理端调用日志扩展（用户列 + 功能列）—— `docs/pm/M2_Sprint17_管理端调用日志扩展_需求文档.md`
 
@@ -36,9 +36,9 @@
 
 > **Sprint 编号说明**：main 与 feature/kol-workspace 两分支并行开发期间各自用了 Sprint 18/19 编号，内容不同（main = 素材库/字幕；feature = 红人工作台）。合并后按"保留双方记录、时间序"原则记录如下，最新在前。
 
-### M2 工作项 — 红人工作台 UI 一致性优化 🔄 进行中（分支 fix/ui-and-interaction，2026-07-12，PR #25 待合并）
+### M2 工作项 — PR #25 红人入驻状态重构 + 运营端红人工作台入口 + UI 一致性 ✅ 完成（main，2026-07-12，merge `c7aaeb7d`）
 
-**背景**：用户反馈 `/kol-workspace/` 红人工作台页面存在明显 UI 问题，重点是左侧 tab、人设仿写和种草仿写在工作台内的样式不协调。澄清后确认实际路由需要 `/kol-workspace/:kol_id`，本次按 `/kol-workspace/1` 做本地验证。
+**背景**：用户反馈 `/kol-workspace/` 红人工作台页面存在明显 UI 问题（重点是左侧 tab、人设仿写和种草仿写在工作台内的样式不协调），同时同事（Aiintalk）的 `fix/ui-and-interaction` 分支还包含红人状态计算重构 + 运营端工作台入口等更深层的后端改动。PM 接手后合并 main 解决 HistoryList.tsx 冲突（与 PR #18 Bug #12 同一件事，保留 main 版本）+ 跑 CI 通过后合并。
 
 **改动**：
 - `KolWorkspacePage`：抽出 `workspace-shell` / `workspace-sidebar` / `workspace-nav-item` 等 class，左侧导航从 160px 调整为 190px，对齐全站 Operator/Admin 侧栏；active 状态改为全站同款橙色块。
@@ -51,7 +51,53 @@
 - `npx vitest run src/__tests__/components/pages/KolWorkspacePage.test.tsx`：21/21 通过（新增工作台 shell class + writer module 紧凑布局 + writer step card 留白 3 个断言；顺手修正对标账号弹窗旧文案断言）。
 - Chrome 真实页面预览：`/kol-workspace/1` 首页、人设仿写、种草仿写均正常；侧栏宽度 190px，内嵌工具最大宽度 960px；种草仿写步骤卡片测得 `padding: 20px`，输入框距卡片左边约 21px。
 
-**红线合规**：未改接口/表/权限/后端；未改 JSON API 调用；仅前端 UI 与测试/文档更新。
+**PR #25 改动总览**（19 文件 +844/-114）：
+
+| 模块 | 文件 | 变更 |
+|------|------|------|
+| 后端 - 路由 | `admin_kols.py` | 新增 `_compute_status(persona, content_plan)` 动态计算 4 种状态；`_kol_to_dict` 改用计算字段；`UpdateKolRequest` 删除 `status` 字段；GET 列表 status 查询参数改用 persona/content_plan 组合条件 |
+| 后端 - 中间件 | `middlewares/auth.py` | 新增 `require_admin_or_operator` 权限函数（admin + operator 可读，含强制改密检查）；`list_kols`/`get_kol` 权限从 `require_admin` 放宽到新函数；写操作仍 `require_admin` |
+| 前端 - 页面 | `KolHubPage.tsx`（新） | 运营端红人工作台入口 `/kol-hub`（426 行） |
+| 前端 - 菜单 | Operator 布局 | 「创作中心」→「AI工具箱」+ 新增一级菜单「红人工作台」（**UI 规范偏离**：原记忆说新功能入口放「创作中心」，需确认这是有意变更还是无意偏离） |
+| 前端 - 种草文 | `SeedingWriterPage.tsx` | 产品库选择加「刷新列表」+「+新建商品」按钮 |
+| 前端 - 字幕 | `subtitle/HistoryList.tsx` | 批量 transcript 全文展示 + 复制按钮（与 PR #18 Bug #12 同件事，rebase 时保留 main 版本） |
+| 前端 - UI 一致性 | 多文件 + `admin.css` | 红人工作台侧栏 190px 对齐全站 / `workspace-tool-module` Module 模式左对齐 / `workspace-step-card` 步骤卡片留白 / 橙色 active 块 |
+| 文档 | `frontend/docs/README.md` / `前端规范.md` | 同步 KolHubPage + workspace-step-card 等 class |
+
+**已 deprecated**：DB 列 `kols.status`（仍保留，代码不再读写，未来通过 migration 删除）。
+
+**CI 验证**：Backend pass / Frontend pass，mergeStateStatus CLEAN。
+
+**遗留待补**（→ PR #26 完成）：契约文档（admin_kols API 从未在 Base_API 定义）+ `_compute_status` 单元测试 + `require_admin_or_operator` 权限测试 + 根/backend README 同步。
+
+---
+
+### M2 工作项 — PR #26 补 PR #25 契约文档 + 单元/权限测试 ✅ 完成（main，2026-07-12，merge `176e250d`）
+
+**背景**：PR #25 合并前 PM 识别出 3 个阻塞项（契约 + 测试 + README 同步），与用户商定先合并 PR #25（功能代码 + CI 通过），再开 PR #26 单独补漏（纯文档 + 测试，不动生产代码）。
+
+**补漏内容**（5 文件 +396/-0）：
+
+| # | 文件 | 内容 |
+|---|------|------|
+| 1 | `backend/docs/base/MCN_M2_Base_API.md` | 新增 §6A「红人管理接口」章节：6 端点总览 + 各端点详细请求/响应/错误码 + §6A.8 status 计算字段说明（4 种状态 + 触发条件 + 空判定逻辑 `bool(value and value.strip())`）+ DB 列 kols.status deprecated 标注 |
+| 2 | `backend/tests/unit/services/test_kol_status.py`（新） | `_compute_status` 6 个单元测试：4 种正常状态 + 2 个空白字符串边界（纯空格/Tab/换行应当作空） |
+| 3 | `backend/tests/integration/routers/test_admin_kols_permissions.py`（新） | `require_admin_or_operator` 5 个权限测试：admin 200 / operator 200（新放宽）/ viewer 403 / 无 token 401 / 未改密 admin 403；局部 fixture `viewer_user` + `force_password_admin_user`（放文件内，YAGNI） |
+| 4 | `README.md`（根） | 功能模块段加「红人工作台」描述（/kol-hub 入口 + 4 种动态状态） |
+| 5 | `backend/docs/README.md` | 最近改动段加 `2026-07-12 PR #25` 条目（改动表 + deprecated 说明 + 契约/测试指引） |
+
+**验证**：
+- 本地：admin_kols 7 passed（已有）+ 权限 5 passed（新）+ compute_status 6 passed（新）= 18 passed
+- CI：Backend 10m47s pass + Frontend 1m40s pass
+
+**红线合规**：
+- ✅ #4 契约同步：Base_API §6A 完整定义 6 端点
+- ✅ #5 README 同步：根 + backend README 都更新
+- ✅ 测试 PR 不改契约、不改 router 结构、不改前端业务代码
+
+**重要教训**：
+1. **「先合并再补漏」是有效的 PR 策略**：当功能代码已 CI 绿 + 用户急用，可以拆为「功能 PR」+「补漏 PR」两个 PR；补漏 PR 风险更低（纯文档/测试），合并更快。
+2. **测试 fixture YAGNI**：viewer / force_password 这类 fixture 第一次出现时放测试文件内即可（不污染全局 conftest），等未来复用频次高了再提取。
 
 ---
 

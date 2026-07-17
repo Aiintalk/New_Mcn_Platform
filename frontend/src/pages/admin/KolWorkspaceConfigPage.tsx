@@ -23,6 +23,7 @@ const TAB_LABELS: Record<WorkspaceTabCode, string> = {
   'livestream-review': '直播复盘',
   'values-writer':     '价值观仿写',
   'script-review':     '千川脚本预审',
+  'film-review':       '成片预审',
   'retrospective':     '复盘',
 };
 
