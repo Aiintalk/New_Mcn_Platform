@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AIGC 评估体系 — 数据模型关系图</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  body {
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    margin: 0; padding: 32px; background: #fafafa; color: #222;
+  }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  .sub { color: #666; font-size: 13px; margin-bottom: 24px; }
+  .card {
+    background: #fff; border: 1px solid #e5e5e5; border-radius: 8px;
+    padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  .legend { margin-top: 20px; font-size: 13px; color: #555; line-height: 1.8; }
+  .legend code { background: #f0f0f0; padding: 1px 6px; border-radius: 3px; }
+  .nav { margin: 16px 0 0; font-size: 12px; color: #999; }
+  #diagram { overflow-x: auto; }
+</style>
+</head>
+<body>
+  <h1>AIGC 评估体系 — 数据模型关系图</h1>
+  <div class="sub">New_Mcn_Platform · evaluation 模块 · 9 张表 · 双击此文件用浏览器打开</div>
+
+  <div class="card">
+    <div id="diagram">
+<pre class="mermaid">
+erDiagram
+    eval_dimensions ||--o{ eval_rubrics : "1维度对多细则"
+    eval_dimensions ||--o{ eval_scores : "被评分"
+    eval_test_cases ||--o{ eval_case_results : "生成结果"
+    eval_versions ||--o{ eval_runs : "作为被测版本"
+    eval_runs ||--o{ eval_case_results : "包含"
+    eval_case_results ||--o{ eval_scores : "被评分"
+    eval_scores ||--o{ eval_human_labels : "被人工校准"
+    eval_versions ||--o{ eval_schedule_policies : "被定时引用"
+
+    eval_dimensions {
+        bigint id PK
+        varchar tool_code
+        varchar name
+        varchar display_name
+        decimal default_weight
+        smallint score_min
+        smallint score_max
+        text prompt_template
+        boolean is_active
+        timestamp deleted_at
+    }
+    eval_rubrics {
+        bigint id PK
+        bigint dimension_id FK
+        smallint level
+        text criteria
+        varchar scenario_tag
+        boolean is_active
+    }
+    eval_test_cases {
+        bigint id PK
+        varchar tool_code
+        varchar name
+        jsonb input_payload
+        text expected_output
+        text_array tags
+        boolean is_active
+        timestamp deleted_at
+    }
+    eval_versions {
+        bigint id PK
+        varchar tool_code
+        varchar name
+        jsonb config_payload
+        bigint parent_version_id FK
+        boolean auto_run_on_create
+        text_array auto_run_tags
+        timestamp deleted_at
+    }
+    eval_runs {
+        bigint id PK
+        bigint version_id FK
+        varchar name
+        varchar trigger_type
+        varchar status
+        text_array filter_tags
+        int total_cases
+        int completed_cases
+        int failed_cases
+        jsonb metadata
+    }
+    eval_case_results {
+        bigint id PK
+        bigint run_id FK
+        bigint test_case_id FK
+        text generated_output
+        jsonb output_payload
+        jsonb input_snapshot
+    }
+    eval_scores {
+        bigint id PK
+        bigint case_result_id FK
+        bigint dimension_id FK
+        decimal weight_used
+        decimal ai_score
+        text ai_reasoning
+        decimal human_score
+    }
+    eval_human_labels {
+        bigint id PK
+        bigint score_id FK
+        decimal old_score
+        decimal new_score
+        text feedback
+    }
+    eval_schedule_policies {
+        bigint id PK
+        varchar name
+        varchar cron
+        bigint version_id FK
+        text_array filter_tags
+        boolean is_active
+    }
+</pre>
+    </div>
+
+    <div class="legend">
+      <strong>关系读法：</strong><br>
+      <code>||--o{</code> 表示「1 对多」（左边 1 条，右边多条）。<br>
+      <strong>核心链路：</strong>
+      <code>eval_versions</code> → <code>eval_runs</code> → <code>eval_case_results</code> → <code>eval_scores</code> → <code>eval_human_labels</code><br>
+      <strong>维度侧：</strong><code>eval_dimensions</code> → <code>eval_rubrics</code>，维度同时被 <code>eval_scores</code> 引用。<br>
+      <strong>归一化：</strong>一个 case×run 的生成输出只存一份在 <code>eval_case_results</code>，多个维度的评分引用它，避免重复存储。
+    </div>
+  </div>
+
+  <div class="nav">源文档：docs/superpowers/specs/2026-07-17-aigc-evaluation-system-design.md（§5 数据模型）</div>
+
+<script>
+  mermaid.initialize({ startOnLoad: true, theme: 'default', securityLevel: 'loose' });
+</script>
+</body>
+</html>
