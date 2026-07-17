@@ -113,22 +113,19 @@ jobs:
         run: npm ci
 
       # ------------------------------------------------------------------
-      # Type check：当前 baseline-warn-only
-      # 当前 frontend 源码 + 测试文件里有 ~25 处 TypeScript 错误（详见 PR 描述），
-      # 涉及 src/api/, src/pages/ 业务代码，修复需要业务变更，
-      # 不在本次 CI bootstrap PR 范围。
-      # 后续拆分多个 fix PR 修完再翻回严格（删 continue-on-error）。
+      # Type check：严格门禁（fix/ci-gate-frontend-typescript 翻严格）
+      # 22 处 TS 错误全修复：11 处 unused import/var + 11 处类型契约对齐
+      # （PersonaChatRequest/XmindTopic/ReviewRequest + getAiModels PagedData 解包
+      #   + SubtitleItem 字段名 + 漏写 .items）。
       # ------------------------------------------------------------------
       - name: Type check
-        continue-on-error: true
         run: npx tsc -b
 
       # ------------------------------------------------------------------
-      # Run vitest：当前 baseline-warn-only
-      # 9 个 test 文件 / 2 个 assertion 失败（AntD class 漂移等）。
-      # 失败日志继续输出便于排查，但暂不阻塞合并。
-      # 后续 fix PR 修完再翻回严格。
+      # Run vitest：严格门禁（fix/ci-gate-frontend-typescript 翻严格）
+      # 之前 baseline-warn-only 的 2 个 assertion 失败已修复：
+      #   - QianchuanWriterPage: "人物档案预览" → "人格档案"（UI 改文案后测试对齐）
+      #   - MaterialLibraryConfigTab: mock 从 array 改为 PagedData 结构（对齐 API 契约）
       # ------------------------------------------------------------------
       - name: Run vitest
-        continue-on-error: true
         run: npm test

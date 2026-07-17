@@ -8,7 +8,13 @@ from fastapi import HTTPException
 
 from app.core.response import ErrorCode
 from app.core.security import create_access_token
-from app.middlewares.auth import get_current_user, require_admin, require_password_changed
+from app.middlewares.auth import (
+    get_current_user,
+    get_current_user_optional,
+    require_admin,
+    require_admin_or_operator,
+    require_password_changed,
+)
 from app.models.user import User
 
 
@@ -150,3 +156,85 @@ class TestRequirePasswordChanged:
     async def test_require_password_changed_already_changed_returns_user(self, admin_user):
         result = await require_password_changed(current_user=admin_user)
         assert result.id == 1
+
+
+class TestRequireAdminOrOperator:
+    """require_admin_or_operator: admin + operator 都可读；其他角色拒绝。"""
+
+    @pytest.mark.asyncio
+    async def test_admin_role_returns_user(self, admin_user):
+        result = await require_admin_or_operator(current_user=admin_user)
+        assert result.role == "admin"
+
+    @pytest.mark.asyncio
+    async def test_operator_role_returns_user(self, operator_user):
+        result = await require_admin_or_operator(current_user=operator_user)
+        assert result.role == "operator"
+
+    @pytest.mark.asyncio
+    async def test_other_role_raises_403(self):
+        user = _make_user(role="user")
+        with pytest.raises(HTTPException) as exc_info:
+            await require_admin_or_operator(current_user=user)
+        assert exc_info.value.status_code == 403
+        assert exc_info.value.detail["code"] == ErrorCode.PERMISSION_DENIED
+
+    @pytest.mark.asyncio
+    async def test_force_change_password_raises_403(self):
+        user = _make_user(role="admin", password_changed_at=None)
+        with pytest.raises(HTTPException) as exc_info:
+            await require_admin_or_operator(current_user=user)
+        assert exc_info.value.detail["code"] == ErrorCode.AUTH_FORCE_CHANGE_PASSWORD
+
+
+class TestGetCurrentUserOptional:
+    """get_current_user_optional: 有 token 解析返回 User，无 token 或无效都返回 None，不抛异常。"""
+
+    @pytest.mark.asyncio
+    async def test_no_token_returns_none(self):
+        result = await get_current_user_optional(token=None)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_invalid_token_returns_none(self):
+        result = await get_current_user_optional(token="invalid.token.here")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_valid_token_returns_user(self):
+        user = _make_user(token_version=0)
+        token = create_access_token(user_id=1, username="test", role="admin", token_version=0)
+        with patch("app.middlewares.auth.AsyncSessionLocal", _mock_session_context_manager(user)):
+            result = await get_current_user_optional(token=token)
+            assert result.id == 1
+
+    @pytest.mark.asyncio
+    async def test_user_not_found_returns_none(self):
+        token = create_access_token(user_id=999, username="ghost", role="admin", token_version=0)
+        with patch("app.middlewares.auth.AsyncSessionLocal", _mock_session_context_manager(user=None)):
+            result = await get_current_user_optional(token=token)
+            assert result is None
+
+    @pytest.mark.asyncio
+    async def test_deleted_user_returns_none(self):
+        user = _make_user(deleted_at=datetime.now(tz=timezone.utc))
+        token = create_access_token(user_id=1, username="test", role="admin", token_version=0)
+        with patch("app.middlewares.auth.AsyncSessionLocal", _mock_session_context_manager(user)):
+            result = await get_current_user_optional(token=token)
+            assert result is None
+
+    @pytest.mark.asyncio
+    async def test_token_version_mismatch_returns_none(self):
+        user = _make_user(token_version=5)
+        token = create_access_token(user_id=1, username="test", role="admin", token_version=0)
+        with patch("app.middlewares.auth.AsyncSessionLocal", _mock_session_context_manager(user)):
+            result = await get_current_user_optional(token=token)
+            assert result is None
+
+    @pytest.mark.asyncio
+    async def test_disabled_user_returns_none(self):
+        user = _make_user(status="disabled")
+        token = create_access_token(user_id=1, username="test", role="admin", token_version=0)
+        with patch("app.middlewares.auth.AsyncSessionLocal", _mock_session_context_manager(user)):
+            result = await get_current_user_optional(token=token)
+            assert result is None

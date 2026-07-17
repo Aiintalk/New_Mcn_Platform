@@ -36,10 +36,13 @@ const sampleConfig = {
   updated_at: '2026-06-25T10:00:00Z',
 };
 
-const sampleModels = [
-  { id: 3, name: 'Claude Sonnet', model_id: 'claude-sonnet-4-6' },
-  { id: 4, name: 'GLM-4.6', model_id: 'glm-4.6' },
-];
+const sampleModels = {
+  items: [
+    { id: 3, name: 'Claude Sonnet', model_id: 'claude-sonnet-4-6' },
+    { id: 4, name: 'GLM-4.6', model_id: 'glm-4.6' },
+  ],
+  pagination: { page: 1, page_size: 20, total: 2, total_pages: 1 },
+};
 
 describe('MaterialLibraryConfigTab', () => {
   beforeEach(() => {

@@ -147,7 +147,7 @@ describe('QianchuanWriterPage', () => {
     await openSelectAndPick(user, /孙知羽/);
 
     await waitFor(() => {
-      expect(screen.getByText('人物档案预览')).toBeInTheDocument();
+      expect(screen.getByText('人格档案')).toBeInTheDocument();
       expect(screen.getByText(/美妆博主/)).toBeInTheDocument();
     });
   });

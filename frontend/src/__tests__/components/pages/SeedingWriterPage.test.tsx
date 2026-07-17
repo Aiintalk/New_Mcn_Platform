@@ -113,12 +113,6 @@ async function openSelectAndPick(user: UserInstance, optionText: RegExp, selectI
   await user.click(screen.getByText(optionText));
 }
 
-/** Type text into a textarea/input by placeholder regex */
-async function typeInto(user: UserInstance, placeholder: RegExp, text: string): Promise<void> {
-  await waitFor(() => screen.getByPlaceholderText(placeholder));
-  await user.type(screen.getByPlaceholderText(placeholder), text);
-}
-
 /** Step 1 helper: select persona and go to step 2 */
 async function selectPersonaAndAdvance(user: UserInstance): Promise<void> {
   await openSelectAndPick(user, /孙知羽/);
