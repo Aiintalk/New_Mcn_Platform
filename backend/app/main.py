@@ -71,6 +71,8 @@ from app.routers import admin_values_writer, operator_values_writer
 from app.routers import admin_script_review, operator_script_review
 from app.routers import admin_retrospective, operator_retrospective
 from app.routers import admin_kol_workspace
+from app.evaluation.routers.admin_evaluation import router as admin_eval_router
+from app.evaluation.routers.operator_evaluation import router as operator_eval_router
 
 
 @asynccontextmanager
@@ -196,3 +198,5 @@ app.include_router(operator_script_review.router, prefix="/api")
 app.include_router(admin_retrospective.router, prefix="/api")
 app.include_router(operator_retrospective.router, prefix="/api")
 app.include_router(admin_kol_workspace.router, prefix="/api")
+app.include_router(admin_eval_router, prefix="/api")
+app.include_router(operator_eval_router, prefix="/api")
