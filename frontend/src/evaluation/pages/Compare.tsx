@@ -1,0 +1,333 @@
+/**
+ * 版本对比报告（设计稿 compare.html）
+ *
+ * 数据：GET /api/operator/evaluation/compare?run_a=&run_b=
+ * 展示：总体 / 维度 / 样本级 diff，标 ▲▼→
+ */
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { App, Button, Card, InputNumber, Select, Skeleton, Table, Tag } from 'antd';
+import { SwapOutlined } from '@ant-design/icons';
+import type { ColumnsType } from 'antd/es/table';
+import '../../styles/variables.css';
+import '../styles/eval.css';
+import { compareRuns } from '../api';
+import type { EvalCaseDelta, EvalComparisonReport, EvalDimensionDelta } from '../types';
+import { Callout, DiffIndicator, PageHeader, ScoreChip } from '../components/primitives';
+
+const SAMPLE_A = 'A';
+const SAMPLE_B = 'B';
+const MAX_SCORE = 10;
+
+export default function ComparePage() {
+  const { message } = App.useApp();
+  const [runA, setRunA] = useState<number | null>(null);
+  const [runB, setRunB] = useState<number | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [report, setReport] = useState<EvalComparisonReport | null>(null);
+  const [filterDir, setFilterDir] = useState<'all' | EvalCaseDelta['direction']>('all');
+
+  const handleCompare = useCallback(async () => {
+    if (runA === null || runB === null) {
+      message.warning('请填入两个 run id');
+      return;
+    }
+    if (runA === runB) {
+      message.warning('请选择不同的 run');
+      return;
+    }
+    setLoading(true);
+    try {
+      const data = await compareRuns(runA, runB);
+      setReport(data);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '加载失败';
+      message.error(msg);
+    } finally {
+      setLoading(false);
+    }
+  }, [runA, runB, message]);
+
+  // 首次自动加载示例（run_a=1, run_b=2）便于预览
+  useEffect(() => {
+    setRunA(1);
+    setRunB(2);
+    // 不自动触发，让用户点击「对比」
+  }, []);
+
+  const filteredCases = useMemo(() => {
+    if (!report) return [];
+    if (filterDir === 'all') return report.case_deltas;
+    return report.case_deltas.filter((c) => c.direction === filterDir);
+  }, [report, filterDir]);
+
+  const counts = useMemo(() => {
+    if (!report) return { all: 0, improve: 0, worsen: 0, flat: 0 };
+    return {
+      all: report.case_deltas.length,
+      improve: report.case_deltas.filter((c) => c.direction === 'improve').length,
+      worsen: report.case_deltas.filter((c) => c.direction === 'worsen').length,
+      flat: report.case_deltas.filter((c) => c.direction === 'flat').length,
+    };
+  }, [report]);
+
+  const columns: ColumnsType<EvalCaseDelta> = [
+    {
+      title: '样本',
+      dataIndex: 'test_case_name',
+      key: 'test_case_name',
+      render: (v) => <span style={{ color: 'var(--gray-900)', fontWeight: 500 }}>{v}</span>,
+    },
+    {
+      title: 'A 分',
+      dataIndex: 'avg_a',
+      key: 'avg_a',
+      width: 110,
+      render: (v: number | null) => <ScoreChip score={v} />,
+    },
+    {
+      title: 'B 分',
+      dataIndex: 'avg_b',
+      key: 'avg_b',
+      width: 110,
+      render: (v: number | null) => <ScoreChip score={v} />,
+    },
+    {
+      title: '变化',
+      dataIndex: 'delta',
+      key: 'delta',
+      width: 110,
+      render: (v: number | null, r) => {
+        const dir = r.direction;
+        const arrow = dir === 'improve' ? '▲' : dir === 'worsen' ? '▼' : '→';
+        const cls = dir === 'improve' ? 'diff-up' : dir === 'worsen' ? 'diff-down' : 'diff-flat';
+        return (
+          <span className={cls}>
+            {arrow} {v !== null ? Math.abs(v).toFixed(1) : '0.0'}
+          </span>
+        );
+      },
+    },
+    {
+      title: '方向',
+      dataIndex: 'direction',
+      key: 'direction',
+      width: 100,
+      render: (dir: EvalCaseDelta['direction']) => {
+        const meta = {
+          improve: { color: 'success', text: '改善' },
+          worsen: { color: 'error', text: '恶化' },
+          flat: { color: 'default', text: '持平' },
+        }[dir];
+        return (
+          <Tag color={meta.color} style={{ margin: 0 }}>
+            {meta.text}
+          </Tag>
+        );
+      },
+    },
+  ];
+
+  return (
+    <div className="eval-page">
+      <PageHeader
+        title="版本对比报告"
+        description='comparator.py 取两个 run 的 scores，计算总体 / 维度 / 样本级 diff，回答"新版到底变好还是变差"。'
+        actions={
+          <Button icon={<SwapOutlined />} disabled={!report} onClick={() => {
+            if (runA !== null && runB !== null) {
+              setRunA(runB);
+              setRunB(runA);
+            }
+          }}>
+            交换 A / B
+          </Button>
+        }
+      />
+
+      <Card className="mb-5" styles={{ body: { padding: 24 } }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 16, alignItems: 'end' }}>
+          <div>
+            <label className="text-sm" style={{ display: 'block', marginBottom: 6, color: 'var(--gray-700)', fontWeight: 500 }}>
+              A 基线运行
+            </label>
+            <InputNumber
+              style={{ width: '100%' }}
+              placeholder="run id (旧版本)"
+              value={runA ?? undefined}
+              onChange={(v) => setRunA(typeof v === 'number' ? v : null)}
+              min={1}
+            />
+          </div>
+          <div>
+            <label className="text-sm" style={{ display: 'block', marginBottom: 6, color: 'var(--gray-700)', fontWeight: 500 }}>
+              B 新版运行
+            </label>
+            <InputNumber
+              style={{ width: '100%' }}
+              placeholder="run id (新版本)"
+              value={runB ?? undefined}
+              onChange={(v) => setRunB(typeof v === 'number' ? v : null)}
+              min={1}
+            />
+          </div>
+          <div>
+            <label className="text-sm" style={{ display: 'block', marginBottom: 6, color: 'var(--gray-700)', fontWeight: 500 }}>
+              对比范围
+            </label>
+            <Select
+              style={{ width: '100%' }}
+              defaultValue="intersection"
+              options={[{ label: '相同样本交集', value: 'intersection' }]}
+            />
+          </div>
+          <Button type="primary" loading={loading} onClick={() => void handleCompare()}>
+            对比
+          </Button>
+        </div>
+      </Card>
+
+      {loading ? (
+        <Skeleton active paragraph={{ rows: 8 }} />
+      ) : report ? (
+        <>
+          <div className="stats-grid">
+            <div className="stat-card">
+              <div className="stat-label">A 基线平均分 (run #{report.run_a_id})</div>
+              <div className="stat-value">{report.overall_avg_a !== null ? report.overall_avg_a.toFixed(2) : '—'}</div>
+            </div>
+            <div className="stat-card accent">
+              <div className="stat-label">B 新版平均分 (run #{report.run_b_id})</div>
+              <div className="stat-value">{report.overall_avg_b !== null ? report.overall_avg_b.toFixed(2) : '—'}</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-label">整体变化</div>
+              <div
+                className="stat-value"
+                style={{
+                  color:
+                    (report.overall_delta ?? 0) > 0
+                      ? 'var(--success)'
+                      : (report.overall_delta ?? 0) < 0
+                        ? 'var(--danger)'
+                        : 'var(--gray-500)',
+                }}
+              >
+                {report.overall_delta !== null
+                  ? `${report.overall_delta > 0 ? '+' : ''}${report.overall_delta.toFixed(2)}`
+                  : '—'}
+              </div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-label">改善 / 恶化 / 持平</div>
+              <div className="stat-value" style={{ fontSize: 20, lineHeight: 1.4 }}>
+                <span style={{ color: 'var(--success)' }}>{counts.improve}</span>{' '}
+                <span className="text-muted">/</span>{' '}
+                <span style={{ color: 'var(--danger)' }}>{counts.worsen}</span>{' '}
+                <span className="text-muted">/</span>{' '}
+                <span style={{ color: 'var(--gray-500)' }}>{counts.flat}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="card mb-5">
+            <div className="card-header">
+              <h3>维度差异</h3>
+              <span className="ch-sub">每个维度两个 run 的平均分对比</span>
+            </div>
+            <div className="card-body">
+              {report.dimension_deltas.length === 0 ? (
+                <div className="empty-state">
+                  <div className="es-text">暂无维度数据</div>
+                </div>
+              ) : (
+                <DimensionBars deltas={report.dimension_deltas} />
+              )}
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="card-header">
+              <h3>样本级差异</h3>
+              <span className="ch-sub">共 {counts.all} 条样本</span>
+            </div>
+            <div className="card-body flush">
+              <div className="sub-tabs" style={{ padding: '0 var(--sp-5)', marginBottom: 0 }}>
+                {(
+                  [
+                    { key: 'all', label: '全部' },
+                    { key: 'improve', label: '改善' },
+                    { key: 'worsen', label: '恶化' },
+                    { key: 'flat', label: '持平' },
+                  ] as const
+                ).map((t) => (
+                  <button
+                    key={t.key}
+                    type="button"
+                    className={`sub-tab ${filterDir === t.key ? 'active' : ''}`}
+                    onClick={() => setFilterDir(t.key)}
+                  >
+                    {t.label} <span className="count">{counts[t.key]}</span>
+                  </button>
+                ))}
+              </div>
+              <Table<EvalCaseDelta>
+                rowKey="test_case_id"
+                columns={columns}
+                dataSource={filteredCases}
+                size="middle"
+                pagination={{ pageSize: 20 }}
+                style={{ padding: '0 var(--sp-5)' }}
+              />
+            </div>
+          </div>
+        </>
+      ) : (
+        <Callout variant="info" icon="i">
+          填入两个 run id 后点击「对比」。A 应为旧版本基线运行，B 为新版本对照运行；样本交集为两次运行都包含的样本。
+        </Callout>
+      )}
+    </div>
+  );
+}
+
+/** 维度 diff 双向条形图 */
+function DimensionBars({ deltas }: { deltas: EvalDimensionDelta[] }) {
+  return (
+    <div>
+      {deltas.map((d) => {
+        const aW = ((d.avg_a ?? 0) / MAX_SCORE) * 100;
+        const bW = ((d.avg_b ?? 0) / MAX_SCORE) * 100;
+        return (
+          <div className="compare-row" key={d.dimension_id}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+              <span className="fw-600">{d.dimension_name}</span>
+              <DiffIndicator delta={d.delta} />
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div className="compare-line">
+                <span className="compare-label">{SAMPLE_A}</span>
+                <div className="compare-track">
+                  <div
+                    className="compare-fill"
+                    style={{ width: `${aW}%`, background: 'var(--gray-400)' }}
+                  />
+                </div>
+                <span className="compare-val">{d.avg_a !== null ? d.avg_a.toFixed(1) : '—'}</span>
+              </div>
+              <div className="compare-line">
+                <span className="compare-label">{SAMPLE_B}</span>
+                <div className="compare-track">
+                  <div
+                    className="compare-fill"
+                    style={{ width: `${bW}%`, background: 'var(--brand)' }}
+                  />
+                </div>
+                <span className="compare-val">{d.avg_b !== null ? d.avg_b.toFixed(1) : '—'}</span>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
