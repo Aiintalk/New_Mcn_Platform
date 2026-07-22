@@ -4,6 +4,11 @@
 > **受众**：含非开发岗位。讲清楚「是什么、为什么、怎么做、对现有系统有什么影响」。  
 > **配套材料**：本文 + Open Design 交互设计稿 + `data-model-diagram.html`（数据模型关系图）。  
 > **日期**：2026-07-17
+>
+> **🔄 v2 更新提示（2026-07-20）**：本文为 0717 周会版本。设计已于 0717 周会后迭代到 **v2**，主要新增：① **策略层 + 超集**（按业务/红人组合评测方案）；② **分场景评分细则**（同维度不同品类细则不同，如美妆看皮肤刺激、减肥看是否反弹）；③ **评委模型管理 + 多供应商适配器**；④ 评测模块**完全独立、不依赖 ai_models**。
+> - **白话概要 v2**（安雅/周会讲述用）：`docs/evaluation/weekly-alignment-summary-v2.md`
+> - **完整设计 v2**：`docs/superpowers/specs/2026-07-20-aigc-evaluation-system-design.md`
+> - **评分标准/权重对齐**（安雅）：`docs/evaluation/scoring-alignment-anya.md`
 
 ---
 
