@@ -26,8 +26,8 @@
 - **策略层一期架构预留（v2）**：`eval_strategies` 建表 + seed 一条 `default` 策略（全超集 + 默认权重）；`eval_runs.strategy_id` 一期恒指 default；**一期不提供策略配置 UI**，`business_type`/`kol_id` 挂载点留空预留。
 - **评分权重 TBD 安雅（v2）**：3 维度权重 0.4/0.35/0.25 为占位值，独立配置（维度默认 < 版本快照 < 策略层三级覆盖），不硬编码，待安雅草拟确认后调 seed。
 - **分场景 rubric 变体（v2）**：同一维度按 `scenario_tag` 维护多套 level×criteria 细则（护肤/减肥/默认…）；一期 `rubric_selector`/`scenario_tag` 结构预留、匹配不启用（全用 default 变体），细则在池子里策略负责选（spec §2.8.2）。
-- **评委模型管理（v2）**：评委模型一等概念、**评测自管 model_id（不读 ai_models/credentials）**——新增 `eval_judge_models` 候选池表（model_id 当字符串自存、不 FK ai_models，建表预留，候选清单 = 专项调研 TODO）+ 版本快照 `config_payload.scoring_model_id`/`scoring_adapter`（可复现）+ 策略级 `scoring_model_override`/`scoring_adapter_override` 覆盖（spec §2.9）。
-- **LLM 适配器抽象（v2）**：generator/scorer 经 `adapter_registry.route(model_id, adapter)` 取适配器，**不直接 import yunwu**；一期仅 `YunwuAdapter`，`LLMAdapter` 接口 + registry 预留并行适配器（Gemini/Kimi/直连 OpenAI）。`config_payload`/`eval_judge_models` 都带 `adapter` 字段（一期取值仅 `"yunwu"`）。
+- **评委模型管理（v2）**：评委模型一等概念、**评测自管 model_id（不读 ai_models/credentials）**——新增 `eval_judge_models` 候选池表（model_id 当字符串自存、不 FK ai_models，建表预留，候选清单 = 专项调研 TODO）+ 版本快照 `config_payload.scoring_model_id`/`scoring_provider`/`scoring_adapter`（可复现）+ 策略级三件套覆盖 `scoring_model_override`/`scoring_provider_override`/`scoring_adapter_override`（spec §2.9/§5.4）+ **run 启动时 resolve 出的实际评委身份写入 `eval_runs.metadata.resolved_scoring`**（可复现+可对比评委，spec §2.9.4）。
+- **LLM 适配器抽象（v2，方案 B）**：`adapter_registry.get(adapter_name)` **归 runner 用**——runner（持 db）取适配器，分别用被测 model_id 绑 `generate_fn`、评委 model_id 绑 `score_fn`，**注入** generator/scorer；generator/scorer 仍是纯函数（**不 import yunwu、不持 db、不经 registry**），二期加新适配器只改 registry + 新 adapter 文件。一期仅 `YunwuAdapter`。`config_payload`/`eval_judge_models` 都带 `adapter` 字段（一期 `"yunwu"`）。详见 spec §2.9.3。
 - **下一个 migration 编号 = `053`**（main 的 PR #28 已占用 049–052）。
 - **覆盖率门禁**：Models ≥ 90% / Services ≥ 80% / API ≥ 70% / 整体 ≥ 75%（`python scripts/run_coverage.py --gate`）。
 - **不推 main**：分支提交 → 发 PR → 人工合并。
@@ -63,14 +63,26 @@
 - Test: `backend/tests/unit/models/test_eval_models.py`
 
 **Interfaces:**
-- Produces: 11 个 ORM 类（含 **`EvalStrategy`** + **`EvalJudgeModel`**），字段与 spec §5.4 完全一致；`EvalRun` 含 `strategy_id`；`LLMAdapter` 接口 + `adapter_registry.route(model_id, adapter)`（一期只返回 `YunwuAdapter`）。
+- Produces: 11 个 ORM 类（含 **`EvalStrategy`** + **`EvalJudgeModel`**），字段与 spec §5.4 完全一致；`EvalRun` 含 `strategy_id`；`LLMAdapter` 接口 + `adapter_registry.get(adapter_name) -> LLMAdapter`（一期只返回 `YunwuAdapter`）。adapter 契约：
+  ```python
+  # adapters/base.py
+  class LLMAdapter(Protocol):
+      async def chat(self, *, messages: list[dict], model_id: str,
+                     db: AsyncSession, provider: str = "yunwu",
+                     temperature: float = 0.7, max_tokens: int = 4096,
+                     extra_body: dict | None = None) -> str: ...
+  # adapters/yunwu.py —— 委托现有 app.adapters.yunwu（模块级 async 函数）
+  class YunwuAdapter:
+      async def chat(self, *, messages, model_id, db, provider="yunwu", **kw) -> str:
+          return await yunwu.chat(messages, db, model_id, provider, **kw)
+  ```
 
 **Tasks:**
-1. 写 `test_eval_models.py`：建表（metadata.create_all）、各表插入/查询、软删 `deleted_at` 过滤、唯一约束（`eval_case_results(run_id, test_case_id)`、`eval_scores(case_result_id, dimension_id)`、`eval_strategies(tool_code,name)`、`eval_judge_models(model_id,adapter)`）、ON DELETE 级联（删 run 连带删 case_results→scores）、`eval_runs.strategy_id` 外键。
-2. 写 migration `053_eval_core.sql`：**11 张表** + spec §5.5 全部索引（含两条部分唯一索引）+ seed 3 个维度（copy_quality 0.4 / conversion_power 0.35 / persona_consistency 0.25，**权重 TBD 安雅、占位值**）+ seed rubric 等级占位 + **seed 一条 `eval_strategies` default 策略**（`test_case_selector={"all":true}`、权重/rubric/scoring 覆盖空、business_type/kol_id 空、is_active=true）。`eval_judge_models` 建表，**一期 seed 极简或留空**（候选清单 = 专项调研 TODO）。
+1. 写 `test_eval_models.py`：建表（metadata.create_all）、各表插入/查询、软删 `deleted_at` 过滤、唯一约束（`eval_case_results(run_id, test_case_id)`、`eval_scores(case_result_id, dimension_id)`、`eval_strategies(tool_code,name)`、`eval_judge_models(model_id,adapter)`、**`eval_rubrics(dimension_id, scenario_tag, level) WHERE is_active=true NULLS NOT DISTINCT`**——含 NULL scenario_tag 场景同 level 插两次应抛 IntegrityError）、ON DELETE 级联（删 run 连带删 case_results→scores）、`eval_runs.strategy_id` 外键。
+2. 写 migration `053_eval_core.sql`（**.sql 文件，项目用 .sql 不用 alembic**）：**11 张表** + spec §5.5 全部索引，含**两条部分唯一索引**：① `eval_rubrics UNIQUE(dimension_id, scenario_tag, level) WHERE is_active=true NULLS NOT DISTINCT`；② `eval_strategies UNIQUE(tool_code, name) WHERE deleted_at IS NULL`。seed 3 个维度（copy_quality 0.4 / conversion_power 0.35 / persona_consistency 0.25，**权重 TBD 安雅、占位值**）+ seed rubric 等级占位 + **seed 一条 `eval_strategies` default 策略**（`test_case_selector={"all":true}`、`dimension_weight_overrides='{}'::jsonb`（空对象，用维度默认权重；二期 per-KOL 策略 seed 时 key 必须是 dimension_id 字符串，spec §2.8.2）、`rubric_selector` 空、三个 scoring_*_override 空、business_type/kol_id 空、is_active=true）。`eval_judge_models` 建表，**一期 seed 极简或留空**（候选清单 = 专项调研 TODO）。
 3. 写 `constants.py`：`EVAL_TOOL_QIANCHUAN_WRITER`、触发/状态枚举、`DEFAULT_STRATEGY_NAME = "default"`、`DEFAULT_ADAPTER = "yunwu"`。
-4. 写 11 个 ORM model（参照现有 `QianchuanWriterConfig` 风格，`Base` 来自 `app.core.database`；补 `Numeric`/`SmallInteger`/`JSONB`/`ARRAY(String)` 导入）。`EvalRun` 加 `strategy_id`；`EvalStrategy` 含 `scoring_model_override`/`scoring_adapter_override`。
-5. 写 `adapters/`：`base.py`（`LLMAdapter` 抽象基类，`async chat`/`chat_stream`）+ `yunwu.py`（`YunwuAdapter` 委托现有 `app.adapters.yunwu`）+ `registry.py`（`route(model_id, adapter)` 一期恒返回 `YunwuAdapter`）。**generator/scorer 后续经 registry 取适配器，不直接 import yunwu**。
+4. 写 11 个 ORM model（参照现有 `QianchuanWriterConfig` 风格，`Base` 来自 `app.core.database`；补 `Numeric`/`SmallInteger`/`JSONB`/`ARRAY(String)` 导入）。`EvalRun` 加 `strategy_id`；**`EvalStrategy` 含评委三件套覆盖 `scoring_model_override`/`scoring_provider_override`/`scoring_adapter_override`**（spec §5.4 B-C3）；其 JSONB 字段 `dimension_weight_overrides`/`rubric_selector` 的 **key 均为 dimension_id 字符串**（spec §2.8.2，防维度改名失效）。
+5. 写 `adapters/`：`base.py`（`LLMAdapter` Protocol，签名见 Interfaces）+ `yunwu.py`（`YunwuAdapter` 委托现有 `app.adapters.yunwu` 模块级函数，db 作参数传入、不自开 session）+ `registry.py`（`get(adapter_name) -> LLMAdapter`，一期恒返回 `YunwuAdapter`）。**adapter 模块不 import AsyncSessionLocal**（db 由 runner 传入），conftest patch 列表不含 adapter。generator/scorer **不经 registry**——registry 归 runner（Phase 3），runner 绑 chat_fn 注入（方案 B，spec §2.9.3）。
 6. `app/models/__init__.py` **跨包注册** 11 个 eval model（顶部与其他 import 同段加 11 行 + 同步 `__all__`，否则 conftest 的 `metadata.create_all` 建不出 eval 表）。
 7. 跑测试 → 通过 → commit。
 
@@ -93,18 +105,19 @@
 - Test: `backend/tests/unit/services/test_eval_rubric_resolver.py` / `test_eval_generator.py` / `test_eval_scorer.py` / `test_eval_comparator.py`
 
 **Interfaces:**
-- Consumes: Phase 1 的 ORM + `adapter_registry`；AI 调用以可注入 callable 形式（`generate_fn`/`score_fn` 参数），测试用 mock。**生产路径** generator/scorer 经 `adapter_registry.route(model_id, adapter)` 取适配器调 AI（一期恒 yunwu），**不直接 import yunwu**——二期加新适配器不动这俩。评委模型从 `eval_versions.config_payload.scoring_model_id`/`scoring_adapter` 或 `eval_strategies.scoring_model_override`/`scoring_adapter_override` 取（策略级优先，见 spec §2.9）。
+- Consumes: Phase 1 的 ORM。**generator/scorer 是纯函数，接收 runner 注入的 callable**（`generate_fn`/`score_fn`），**不经 registry、不 import yunwu、不持 db**——测试直接传 mock callable；生产路径由 runner（Phase 3）经 `adapter_registry.get` 绑定 chat_fn 注入（方案 B，spec §2.9.3）。评委模型由 runner resolve（strategy 三件套 override > version.config_payload，spec §2.9.2），G/S 不关心评委身份。
 - Produces:
   - `rubric_resolver.build_scoring_prompt(dimension, rubrics, context) -> str`
-  - `generator.render_generation_prompt(template, input_payload) -> str`
-  - `scorer.parse_score_response(raw, score_min, score_max) -> ParsedScore`
-  - `comparator.compare_runs(cases_a, cases_b) -> ComparisonReport`，入参为「带 `test_case_id` 的 `case_result` 元组 + 其 scores」列表（由 runner/API 层组装），**不能传裸 scores**（`EvalScore` 只有 `case_result_id`、跨 run 主键不同，无法对齐）；或更简：传 `(run_a_id, run_b_id, db)` 由 comparator 内部 join 对齐
+  - `generator.generate(generate_fn, version, test_case) -> str`（内部调 `render_generation_prompt` + `generate_fn`）
+  - `scorer.score(score_fn, dimension, rubrics, generated_output) -> ParsedScore`（内部调 `score_fn` + `parse_score_response`）
+  - `generator.render_generation_prompt(template, input_payload) -> str` / `scorer.parse_score_response(raw, score_min, score_max) -> ParsedScore`（纯渲染/解析，G/S 内部 helper）
+  - `async comparator.compare_runs(run_a_id, run_b_id, db) -> ComparisonReport`（**签名收敛**：唯一调用方是 operator router 的 `GET /compare?run_a=&run_b=`，只有 run id；comparator 内部按 `test_case_id` 跨 run join 对齐 case_result→scores，B-I2）
 
 **Tasks:**
 1. `rubric_resolver`：双花括号占位符替换 + rubric 等级拼接 + scenario_tag 一期不参与选择（spec §2.4）。
 2. `generator`：两步渲染（先 `render_system_prompt`，再 eval 渲染器）+ 缺失值 fallback 空串。
 3. `scorer`：JSON 解析三策略（json mode 输出 / 代码块提取 / `{...}` 正则）+ score 范围校验 + 缺失字段默认。
-4. `comparator`：总体平均分 diff、每维度平均分 diff、样本级（**按 `test_case_id` 对齐**两次 run 的 case_result，再比 score；不能用 case_result 主键对齐，跨 run 主键不同）↑↓→ 分类。**签名收敛**：`EvalScore` 只有 `case_result_id` 无 `test_case_id`，故 comparator 入参应接受「带 test_case_id 的 case_result 元组 + 其 scores」的联合结构（由 runner/API 层组装），而非裸 `scores` 列表；bite-sized 阶段据此定形签名。
+4. `comparator`：总体平均分 diff、每维度平均分 diff、样本级（**按 `test_case_id` 对齐**两次 run 的 case_result，再比 score；跨 run 主键不同，不能用 case_result 主键对齐）↑↓→ 分类。签名 `async compare_runs(run_a_id, run_b_id, db)`，内部按 `test_case_id` join `eval_case_results`+`eval_scores` 对齐（见 Interfaces，B-I2）。
 5. 每个服务先写失败测试 → 实现 → 通过 → commit（TDD，每个服务一个 commit）。
 
 **Test gate:** 4 个服务单测全绿，覆盖率 ≥ 80%。AI 全程 mock，无真实调用。
@@ -118,25 +131,25 @@
 **Goal:** 串起一次完整 run：生成→存 case_result→评分→存 score→更新 run 状态，case 级错误隔离，异步执行。
 
 **Files:**
-- Create: `backend/app/evaluation/services/runner.py`（编排：查 test_cases → 逐 case 调 generator/scorer（纯函数）→ **runner 自己**写 case_results/scores → 更新 completed/failed 计数 + 失败原因写入 `eval_runs.metadata['errors']`）
-- Create: `backend/app/evaluation/services/scheduler.py`（手动触发入口 + 版本创建后自动触发；一期定时触发占位）
+- Create: `backend/app/evaluation/services/runner.py`（编排：**run 启动时 resolve 评委身份（strategy 三件套 override > version.config_payload）写入 `eval_runs.metadata['resolved_scoring']`** → 经 `adapter_registry.get` 取适配器，分别绑 `generate_fn`/`score_fn` 注入 generator/scorer → 逐 case 生成+评分 → runner 自己写 case_results/scores → 更新 completed/failed 计数 + 失败原因写入 `metadata['errors']`）
+- Create: `backend/app/evaluation/services/scheduler.py`（手动触发入口 + 版本创建后自动触发；**一期定时触发占位——不消费 `eval_schedule_policies` 表**，该表一期仅建表+admin CRUD，scheduler 二期才读它做定时触发，B-I4）
 - Modify: `backend/tests/conftest.py`（`_SESSION_LOCAL_PATCH_TARGETS` 加 `app.evaluation.services.runner.AsyncSessionLocal` + `app.evaluation.services.scheduler.AsyncSessionLocal`；generator/scorer 纯函数不 import，不加）
 
 **Interfaces:**
 - Consumes: Phase 1 ORM + Phase 2 服务（AI callable 注入）。
 - Produces:
-  - `runner.execute_run(run_id, *, generate_fn, score_fn) -> None`（case 级 try/except，单 case 失败不中断）
+  - `runner.execute_run(run_id, db, *, generate_fn=None, score_fn=None) -> None`：`generate_fn`/`score_fn` 为 None 时 runner 经 `adapter_registry.get` 自行绑定（生产路径）；**测试传 mock 直接绕过 adapter/credentials**（B-I1，避开 credentials 表依赖）。case 级 try/except 单 case 失败不中断；**副作用：run 启动时写入 `metadata['resolved_scoring']`**。
   - `scheduler.trigger_run(version_id, filter_tags, trigger_type, user_id) -> run_id`（建 run 时**绑定 default 策略** `strategy_id`，一期无策略参数）
 
 **Tasks:**
-1. 写 runner 测试（mock AI）：3 case × 2 维度的 happy path → 全部 case_results/scores 落库 + run.status=completed；run 的 `strategy_id` 指向 default 策略。
+1. 写 runner 测试（**注入 mock generate_fn/score_fn 绕过 adapter**）：3 case × 2 维度的 happy path → 全部 case_results/scores 落库 + run.status=completed；run 的 `strategy_id` 指向 default 策略；**断言 `run.metadata['resolved_scoring']` 含 model_id/provider/adapter 三键**（B-C2）。
 2. 测试 case 级隔离：第 2 case 生成抛异常 → run 仍 completed，failed_cases=1，其余 case 正常；**且该 case 的 error message 落入 `run.metadata['errors']`**（spec §6.5）。
-3. 实现 runner（`AsyncSessionLocal` 后台 session；DB 写入归 runner，generator/scorer 只返回结果）。runner 按 `run.strategy` 的 `test_case_selector` 取样本子集；**权重按三级优先级取最 specific 的覆盖**（spec §2.4）：`eval_strategies.dimension_weight_overrides`（策略层）→ `eval_versions.config_payload.dimension_weights`（版本快照）→ `eval_dimensions.default_weight`（维度默认），命中即用、写入 `eval_scores.weight_used`。
+3. 实现 runner（`AsyncSessionLocal` 后台 session；DB 写入归 runner，generator/scorer 只返回结果）。**run 启动时先 resolve 评委身份**（strategy 三件套 override > version.config_payload.scoring_*，spec §2.9.2）写入 `run.metadata['resolved_scoring']`；**若 generate_fn/score_fn 为 None，经 `adapter_registry.get(adapter)` 取适配器，用被测 model_id 绑 generate_fn、评委 model_id 绑 score_fn**（方案 B）；然后按 `run.strategy.test_case_selector` 取样本子集；**`rubric_selector` 一期为空，runner 用 default 变体**（spec §2.4 阶段边界）；**权重按三级优先级取最 specific 的覆盖**（spec §2.4）：`eval_strategies.dimension_weight_overrides`（策略层）→ `eval_versions.config_payload.dimension_weights`（版本快照）→ `eval_dimensions.default_weight`（维度默认），命中即用、写入 `eval_scores.weight_used`。
 4. 写 scheduler 测试：手动触发建 run（绑 default 策略）+ 调 runner；版本创建后自动触发。
 5. 改 conftest patch 列表（runner + scheduler 两路径）。
 6. 通过 → commit。
 
-> **测试策略**：runner 单测直接 `await runner.execute_run(...)`（绕过 endpoint/BackgroundTask，同步断言落库）；集成测试（Phase 4）经 endpoint 触发后轮询 `GET /runs/{id}` 到终态再断言。
+> **测试策略**：runner 单测直接 `await runner.execute_run(run_id, db, generate_fn=mock, score_fn=mock)`（注入 mock 绕过 adapter/BackgroundTask，同步断言落库）；集成测试（Phase 4）经 endpoint 触发后轮询 `GET /runs/{id}` 到终态再断言。
 
 **Test gate:** runner/scheduler 单测绿；case 级隔离验证通过。
 
@@ -164,11 +177,11 @@
 
 **Tasks:**
 1. schemas（每个接口的 request/response Pydantic）。
-2. admin router（参照 `admin_qianchuan_writer.py` 风格，每个写操作写 OperationLog）。**schedule-policies POST/PUT 必须用 `croniter` 校验 cron 表达式**，非法返回 400（spec §3.4），写失败测试。**版本创建 `POST /versions` 走「关联维护」（v2）**：可选传 `source_kol_id`（存入 `eval_versions.source_kol_id`）；服务端按 spec §4.4 三步抠 prompt——`kol_override = await resolve_prompt(kol_id,"qianchuan-writer","system_prompt",db)`（async，第 4 参 db）→ 返回 None 时读 `QianchuanWriterConfig.system_prompt` 兜底（**cfg 未找到则用空串 `""`**）→ `kol_ctx = await get_kol_context(db, kol_id)`（async，第 1 参 db）→ 固化为 `config_payload.system_prompt_template`（**带占位符模板，非渲染后文本**）。**`source_kol_id` 为空时跳过三步**（resolve_prompt 返回 None、不调 get_kol_context），由管理员直接填 config_payload。**不改这三个现有服务/表**。一期不暴露策略 CRUD（strategy 仅 seed 的 default，run 自动绑）。
+2. admin router（参照 `admin_qianchuan_writer.py` 风格，每个写操作写 OperationLog）。**schedule-policies POST/PUT 必须用 `croniter` 校验 cron 表达式**，非法返回 400（spec §3.4），写失败测试。**先确认 `croniter` 在 `backend/requirements*.txt`，未装则添加**（新依赖，B-I3）。**版本创建 `POST /versions` 走「关联维护」（v2）**：可选传 `source_kol_id`（存入 `eval_versions.source_kol_id`）；服务端按 spec §4.4 三步抠 prompt——`kol_override = await resolve_prompt(kol_id,"qianchuan-writer","system_prompt",db)`（async，第 4 参 db）→ 返回 None 时读 `QianchuanWriterConfig.system_prompt` 兜底（**cfg 未找到则用空串 `""`**）→ `kol_ctx = await get_kol_context(db, kol_id)`（async，第 1 参 db）→ 固化为 `config_payload.system_prompt_template`（**带占位符模板，非渲染后文本**）。**`source_kol_id` 为空时跳过三步**（resolve_prompt 返回 None、不调 get_kol_context），由管理员直接填 config_payload。**不改这三个现有服务/表**。一期不暴露策略 CRUD（strategy 仅 seed 的 default，run 自动绑）。
 3. operator router（参照 `operator_qianchuan_writer.py`，鉴权用 `require_operator`——按手术刀原则**在本文件内复制** `require_operator`/`_get_ip`，不抽公共；运行触发走 scheduler）。
 4. `main.py` include + conftest patch：**凡 `import AsyncSessionLocal` 的文件都注册**（以 grep 实际 import 点为准）。特别注意：若运行触发用 `BackgroundTask` 且回调在 router 文件内 `async with AsyncSessionLocal() as db` 自开 session，则**该 router 文件也要 patch**；若回调复用 scheduler/runner 的 session（不在此文件 import），则本 router 不 patch。admin router 纯 `Depends(get_db)` CRUD，不 patch。
 5. **人工校准 `PUT /scores/{id}/human-label`**：必须在**单事务**内完成 ①更新 `eval_scores.human_score`/`human_feedback` ②插入 `eval_human_labels` 历史记录 ③写 OperationLog；集成测试断言事务原子性（spec §5.4）。
-6. 集成测试：鉴权（401/403）+ happy path + OperationLog 写入断言 + 账号隔离 + 版本不可编辑（PUT 返回 405）+ 软删（DELETE 置 `deleted_at`）+ 非法 cron → 400。**AI 在集成测试全 mock**（patch `yunwu_adapter.chat`，或经 scheduler 注入 mock generate_fn/score_fn）。
+6. 集成测试：鉴权（401/403）+ happy path + OperationLog 写入断言 + 账号隔离 + 版本不可编辑（PUT 返回 405）+ 软删（DELETE 置 `deleted_at`）+ 非法 cron → 400。**AI 在集成测试全 mock**——收敛 mock 点为 **patch `app.evaluation.adapters.yunwu.YunwuAdapter.chat`**（或 patch `adapter_registry.get` 返回 mock adapter），不碰真实 yunwu/credentials（B-I1）。
 7. 通过 → commit。
 
 **OperationLog action 命名清单（统一前缀 `evaluation_`）**：`evaluation_dimension_create/update/delete`、`evaluation_rubric_update`、`evaluation_version_create/clone/delete`、`evaluation_test_case_create/update/delete`、`evaluation_run_trigger/cancel`、`evaluation_human_label_submit`、`evaluation_schedule_policy_create/update/delete`（与 spec §6.6 一致）。
@@ -232,7 +245,7 @@
 ## 测试与覆盖率策略（贯穿所有 Phase）
 
 - **TDD**：每个任务先写失败测试。
-- **AI 全 mock**：Phase 2/3/4 测试不调真实 AI（注入 callable / mock yunwu）。
+- **AI 全 mock**：Phase 2/3 直接注入 mock `generate_fn`/`score_fn`（绕过 adapter/credentials）；Phase 4 集成测试 patch `YunwuAdapter.chat` 或 `adapter_registry.get`（B-I1）。不调真实 AI。
 - **分层覆盖率**：models ≥ 90% / services ≥ 80% / routers ≥ 70% / 整体 ≥ 75%。
 - **convention_guard**：后端守卫自动拦截红线 #1#2#3#6#7。
 - **case 级隔离测试**：Phase 3 必测（单个 case 失败不中断 run）。

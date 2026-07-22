@@ -179,9 +179,10 @@ Dimension（维度）
 | 不同达人/品类用不同 rubric | `eval_rubrics` 支持按 `scenario_tag` / `kol_id` 过滤（未来） |
 | 动态生成评分 prompt | `rubric` 和 `dimension` 支持变量占位符，由 `rubric_resolver.py` 渲染 |
 
-**`scenario_tag` 的阶段边界**：
-- **一期**：`eval_rubrics.scenario_tag` 仅作**标记字段**，`rubric_resolver.py` 不参与 rubric 选择逻辑 —— 一个维度的所有 active rubric 统一拼接进评分 prompt。
-- **未来**：才启用场景匹配（先精确匹配 test_case tag，否则回退到默认 rubric；同维度多匹配时取 level 合集或按优先级）。一期不做匹配，避免评分标准不一致。
+**`scenario_tag` 的语义与阶段边界**：
+- **语义**：`scenario_tag` 标识 rubric 的**业务场景变体**，取值与策略的 `business_type` 对应（如 `skincare`/`diet`/`default`），**不是** test_case 的 tag。
+- **一期**：仅作**标记字段**，`rubric_resolver.py` 不参与选择——所有维度统一用 `default` 变体。
+- **未来**：由 **策略级 `rubric_selector`**（按 dimension 选 scenario 变体，见 §2.8.2）启用选择，而非运行时按 test_case tag 匹配。一期不做选择，避免评分标准不一致。
 
 一期维度定义（**权重为占位值，TBD 安雅草拟确认**；周会明确权重独立配置、后续好调整）：
 
@@ -191,7 +192,7 @@ Dimension（维度）
 | 种草力 | `conversion_power` | 卖点展示、转化驱动、行动引导 | 0.35 |
 | 人设一致性 | `persona_consistency` | 是否符合达人 persona / 语言风格 | 0.25 |
 
-**权重独立配置、不硬编码**，有两层覆盖点（优先级：策略层 > 版本快照 > 维度默认）：
+**权重独立配置、不硬编码**，有三级覆盖点（优先级：策略层 > 版本快照 > 维度默认）：
 1. `eval_dimensions.default_weight`：维度默认权重（上表占位值）。
 2. `eval_versions.config_payload.dimension_weights`：版本快照级覆盖（dimension_id 为 key）。
 3. `eval_strategies.dimension_weight_overrides`：策略级覆盖（见 §2.8 策略层）。
@@ -332,7 +333,7 @@ eval_runs
 | copy_quality | `default`（NULL） | 10 | 通用文案质量满分标准 |
 | copy_quality | `default`（NULL） | 8 | 通用文案质量良好标准 |
 
-`rubric_selector` 示例：护肤业务策略选 `{copy_quality: "skincare", conversion_power: "default", ...}`，runner 渲染评分 prompt 时，`{{rubric_text}}` 填入 skincare 那套细则。**评分细则在池子里（超集），策略负责挑哪一套**——细则可跨策略复用，不内嵌进策略 JSONB。
+`rubric_selector` 示例：护肤业务策略选 `{"1": "skincare", "2": "default", ...}`（**key 为 dimension_id 字符串**，与 `dimension_weight_overrides` 的 key 体系一致，避免维度改名导致映射失效），runner 渲染评分 prompt 时，`{{rubric_text}}` 填入该维度 skincare 那套细则。**评分细则在池子里（超集），策略负责挑哪一套**——细则可跨策略复用，不内嵌进策略 JSONB。
 
 > **注①**：权重实际有**三级覆盖**（见 §2.4）：策略层 `dimension_weight_overrides` > 版本快照 `config_payload.dimension_weights` > 维度默认 `default_weight`。「版本快照权重」是独立于 super set 和策略层的第三层（绑在被测工具配置上），图中未单独画出，runner 取最 specific 的命中值。
 >
@@ -342,7 +343,7 @@ eval_runs
 
 一期**不做策略配置 UI**，但数据模型与概念**预留**，确保二期加 per-KOL/业务评测策略时不返工：
 
-1. **新增 `eval_strategies` 实体**（见 §5.4）：一个策略 = `tool_code` + `test_case` 子集选择（标签或 ID 列表）+ `dimension_weight_overrides` + `rubric_selector`（按维度选 rubric 场景变体，见 §2.8.2）+ `scoring_model_override`（评委模型覆盖，见 §2.9）+ 可选 `business_type`/`kol_id` 挂载点。
+1. **新增 `eval_strategies` 实体**（见 §5.4）：一个策略 = `tool_code` + `test_case` 子集选择（标签或 ID 列表）+ `dimension_weight_overrides` + `rubric_selector`（按维度选 rubric 场景变体，见 §2.8.2）+ 评委三件套覆盖（`scoring_model_override`/`scoring_provider_override`/`scoring_adapter_override`，见 §2.9）+ 可选 `business_type`/`kol_id` 挂载点。
 2. **一期默认策略**：seed 一条 `name='default'` 策略 = 全超集（全部 active test_cases + 维度默认权重），一期所有 run 绑定它。
 3. **`eval_runs` 增加 `strategy_id`**（一期恒等于 default 策略），让 run 自带策略上下文，二期切换策略无需改 run 结构。
 4. **预留挂载点**：`eval_strategies.business_type` / `kol_id` 可空，一期不建「业务模板」表；将来工作台引入业务模板层，评测策略直接挂上去。
@@ -356,7 +357,7 @@ eval_runs
 
 评测模块要**独立于现有业务表**（便于将来拆分）。因此：
 
-- **不读 `ai_models`、不读 `credentials`**——模型身份（`model_id`/`provider`/`adapter`）在评测自己的表里当**字符串**存，自包含。
+- **评测代码层面不读 `ai_models`、不读 `credentials`**——模型身份（`model_id`/`provider`/`adapter`）在评测自己的表里当**字符串**存，自包含。（运行时适配器内部会用到 credentials 表拿凭证——那是适配器的职责，不是评测代码读。）
 - **实际调 AI 经适配器**（yunwu 等）：评测把 `model_id` 字符串传给适配器，由适配器内部解决凭证/模型路由——这是适配器的职责（共用 AI 网关），**不是评测读 ai_models/credentials**。
 - 现有业务模块对 `ai_models`/`credentials` 的用法**完全不受影响**（评测不碰这两张表）。
 
@@ -365,13 +366,13 @@ eval_runs
 | 层 | 内容 | 落点 |
 |----|------|------|
 | **① 评委模型登记**（评测自管，新表） | 哪些模型可当评委、版本化（`glm-4.7`/`glm-5.2`/`kimi-k2`/`gemini-2.5` 各算不同 model_id）、适用哪种**内容/输出类型**（文案类→glm/kimi；视频类→gemini/qwen）、走哪个**适配器** | 新增 `eval_judge_models` 表（见 §5.4），`model_id` 当字符串自存、**不 FK 引用 ai_models**；**具体候选清单 = 专项调研 TODO**，一期建表预留、内容后填 |
-| **② 选用记录**（版本/策略级） | 某次评测实际用哪个评委（可复现 + 可对比评委差异）| `eval_versions.config_payload.scoring_model_id`+`scoring_provider`+`scoring_adapter`（版本快照固化）+ `eval_strategies.scoring_model_override`/`scoring_adapter_override`（策略级覆盖，策略优先）|
+| **② 选用记录**（版本/策略级） | 某次评测实际用哪个评委（可复现 + 可对比评委差异）| `eval_versions.config_payload.scoring_model_id`+`scoring_provider`+`scoring_adapter`（版本快照固化）+ `eval_strategies` 三个 override（model/provider/adapter，策略级覆盖，策略优先）+ run 启动时 resolve 的实际身份写入 `eval_runs.metadata.resolved_scoring`（见 §2.9.4）|
 
 > `model_id` 只是一个字符串标识（适配器认得即可），评测不校验它是否在 `ai_models` 里存在——评委是否可用由适配器调用时决定。
 
 #### 2.9.3 多供应商适配器抽象（一期简单实现 + 设计预留）
 
-现状：generator/scorer 直连 `yunwu_adapter`（yunwu 内部可切 `provider`，但只覆盖 yunwu 代理的模型）。若某评委模型**不走 yunwu**（直连 Gemini / 直联 Kimi / 直连 OpenAI），现有架构接不进来。
+现状：若评委模型**不走 yunwu**（直连 Gemini / 直联 Kimi / 直连 OpenAI），现有架构接不进来。
 
 设计预留：引入 **LLM 适配器抽象**，一期实现仅 yunwu，结构支持并行适配器：
 
@@ -382,16 +383,22 @@ LLMAdapter 接口（chat / chat_stream）
   ├── KimiAdapter         （未来，直联 Kimi/OpenAI）
   └── ...                 （按需扩展）
         ↑
-  adapter_registry.route(model_id, adapter_name) → 选适配器
+  adapter_registry.get(adapter_name) → 返回适配器类/工厂
 ```
 
+**关键：registry 归 runner 用，generator/scorer 仍是纯函数（B-C1 收口）**。`yunwu.chat` 需要 `db`（内部锁凭证），与「generator/scorer 纯函数、不持 session」冲突。解法：
+
+- **runner**（持有 `db`）经 `adapter_registry.get(adapter_name)` 取适配器 → 用 resolve 出的 `model_id`/`provider` 绑定成 `chat_fn` callable → **注入** generator/scorer。
+- generator/scorer 只接收 `generate_fn`/`score_fn` callable，**不 import yunwu、不持 db**，保持可纯单测（§6.1/§6.7 不变）。
+- 二期加 Gemini/Kimi 适配器：只改 `adapter_registry` 注册 + 新增 adapter 文件，**不动 generator/scorer/runner 的调用代码**。
+
 - `config_payload` / `eval_judge_models` 在 `model_id`+`provider` 之外，**都带 `adapter` 字段**（走哪个适配器，一期取值仅 `"yunwu"`）。
-- generator/scorer 通过 `adapter_registry` 取适配器再调，**不直接 `import yunwu`**——这样二期加新适配器不动 generator/scorer。
 - 一期：registry 只注册 yunwu，行为与现状一致；**抽象层是预留，不增加一期复杂度**。
 
 #### 2.9.4 一期落地（简单）
 
-- 评委模型：用 `config_payload.scoring_model_id` + `scoring_provider` + `scoring_adapter="yunwu"`（版本快照固化，保证可复现）。
+- 评委模型：用 `config_payload.scoring_model_id` + `scoring_provider` + `scoring_adapter="yunwu"`（版本快照固化，保证可复现）；策略级可用 `eval_strategies` 的三个 override 覆盖（见 §5.4）。
+- **评委身份持久化（B-C2）**：run 启动时 runner 把 **resolve 出的实际评委身份**写入 `eval_runs.metadata.resolved_scoring = {model_id, provider, adapter}`，保证「可复现 + 可对比评委差异」——即使后续 strategy/version 被改或软删，历史 run 的评委身份仍可查。
 - `eval_judge_models` 表：**建表（结构预留），一期 seed 极简或不 seed**，候选池二期填、专项调研产出候选清单。
 - `adapter_registry`：一期只有 yunwu 一个实现，接口定义好。
 
@@ -418,7 +425,7 @@ backend/app/evaluation/
 │   └── judge_model.py           # eval_judge_models：评委模型候选池（v2，预留）
 ├── adapters/                    # LLM 适配器抽象（v2，一期仅 yunwu，预留并行适配器）
 │   ├── base.py                  # LLMAdapter 接口（chat/chat_stream）
-│   ├── registry.py              # adapter_registry.route(model_id, adapter) → 选适配器
+│   ├── registry.py              # adapter_registry.get(adapter_name) → 选适配器（归 runner 用，spec §2.9.3）
 │   └── yunwu.py                 # YunwuAdapter（包现有 app.adapters.yunwu，一期实现）
 ├── services/
 │   ├── runner.py                # 编排一次完整运行
@@ -654,7 +661,7 @@ sequenceDiagram
     participant V as eval_versions
     participant TC as eval_test_cases
     participant G as generator.py
-    participant Y as yunwu_adapter
+    participant Y as adapter（经 adapter_registry，一期 YunwuAdapter）
     participant S as scorer.py
 
     U->>EP: 创建版本快照
@@ -662,12 +669,12 @@ sequenceDiagram
     U->>EP: 录入/选择测试集
     EP->>TC: 保存 input_payload
     U->>EP: 触发运行
-    EP->>G: 读取版本 + 测试集
-    G->>Y: chat() 生成被测输出
+    EP->>G: runner 经 registry 取 adapter，绑定 db+model 为 chat_fn，注入 generator/scorer（G/S 仍是纯函数）
+    G->>Y: 经注入的 chat_fn 调用 生成被测输出
     Y-->>G: generated_output
     G->>S: 输出 + 维度配置
     loop 每个维度
-        S->>Y: chat() 评分
+        S->>Y: 经注入的 chat_fn 调用 评分
         Y-->>S: score + reasoning
     end
     S->>EP: 写入 eval_scores
@@ -762,7 +769,6 @@ erDiagram
     eval_dimensions ||--o{ eval_rubrics : has
     eval_dimensions ||--o{ eval_scores : scored_by
     eval_test_cases ||--o{ eval_case_results : generates
-    eval_test_cases ||--o{ eval_scores : produces
     eval_versions ||--o{ eval_runs : runs_as
     eval_strategies ||--o{ eval_runs : uses_strategy
     eval_runs ||--o{ eval_case_results : contains
@@ -886,6 +892,7 @@ erDiagram
         jsonb dimension_weight_overrides
         jsonb rubric_selector
         varchar scoring_model_override
+        varchar scoring_provider_override
         varchar scoring_adapter_override
         varchar business_type
         bigint kol_id FK
@@ -906,6 +913,8 @@ erDiagram
         timestamp deleted_at
     }
 ```
+
+> **注**：`eval_judge_models` 在 ER 图里是孤立表（无关系线）——这是设计有意：它经 `model_id` 字符串与 `eval_versions`/`eval_strategies` **软关联**（不 FK 引用 ai_models），故不画关系线。
 
 ### 5.3 数据模型关系图（HTML）
 
@@ -942,9 +951,11 @@ erDiagram
 | dimension_id | BIGINT FK → eval_dimensions.id ON DELETE CASCADE | 所属维度 |
 | level | SMALLINT | 分数等级，如 1/3/5/7/10 |
 | criteria | TEXT | 该等级的标准描述 |
-| scenario_tag | VARCHAR(64) | 可选，如 `"anxiety"`、`"temptation"`，未来支持场景适配 |
+| scenario_tag | VARCHAR(64) | 可空，业务场景变体标记，取值对应 `business_type`（如 `"skincare"`/`"diet"`/`"default"`，见 §2.8.2；一期不用，default 变体 tag 留空）|
 | is_active | BOOLEAN | 是否启用 |
 | created_at / updated_at | TIMESTAMPTZ | |
+
+**唯一约束**：`UNIQUE (dimension_id, scenario_tag, level) WHERE is_active = true NULLS NOT DISTINCT`（PG15+ 支持 `NULLS NOT DISTINCT`，防止同维度同场景同 level 录两条导致 rubric_resolver 拼接歧义；B-I1）。
 
 #### `eval_test_cases` — 测试集样本
 
@@ -1015,7 +1026,7 @@ erDiagram
 | total_cases | INT | 总样本数 |
 | completed_cases | INT | 已完成数 |
 | failed_cases | INT | 失败数 |
-| metadata | JSONB | 运行参数、错误信息、token 消耗统计等 |
+| metadata | JSONB | 运行参数、错误信息、token 消耗统计等；**必含 `resolved_scoring = {model_id, provider, adapter}`**（run 启动时 resolve 出的实际评委身份，保证可复现+可对比评委，见 §2.9.4）|
 | created_by | BIGINT FK | |
 | started_at / finished_at / created_at | TIMESTAMPTZ | |
 
@@ -1097,8 +1108,9 @@ erDiagram
 | description | TEXT | 策略说明 |
 | test_case_selector | JSONB | 从超集选 test_case 子集的规则，如 `{"tags":["核心集"]}` 或 `{"ids":[1,2,3]}` 或 `{"all":true}`（default）|
 | dimension_weight_overrides | JSONB | 维度权重覆盖（dimension_id 为 key），覆盖 `eval_dimensions.default_weight`；空则用默认 |
-| rubric_selector | JSONB | 可选，rubric 场景变体选择（按 dimension 选 scenario 变体，见 §2.8.2；一期空，用 default 变体）|
+| rubric_selector | JSONB | 可选，rubric 场景变体选择：`{"<dimension_id>": "<scenario_tag>"}`（key 为 dimension_id 字符串，与 `dimension_weight_overrides` 一致），见 §2.8.2；一期空，用 default 变体 |
 | scoring_model_override | VARCHAR(128) | 可空，策略级评委模型覆盖（model_id，见 §2.9）；空则用版本快照的 `scoring_model_id` |
+| scoring_provider_override | VARCHAR(64) | 可空，策略级供应商覆盖（如 `yunwu`/`kimi`）；空则用版本快照的 `scoring_provider`。评委身份三件套 model+provider+adapter 在策略层均可覆盖（B-C3） |
 | scoring_adapter_override | VARCHAR(64) | 可空，策略级适配器覆盖（如 `yunwu`，见 §2.9）；空则用版本快照的 `scoring_adapter` |
 | business_type | VARCHAR(64) | 可空，业务类型挂载点（如 `skincare`/`diet`/`daily-live`/`weekly-live`）——一期不建业务模板表，仅预留；与 rubric `scenario_tag` 对应 |
 | kol_id | BIGINT FK → kols.id ON DELETE SET NULL | 可空，关联红人（per-KOL 策略预留）；一期 default 策略为空 |
@@ -1109,7 +1121,7 @@ erDiagram
 
 **唯一约束**：`UNIQUE (tool_code, name) WHERE deleted_at IS NULL`（部分唯一索引，防 dev 环境重复 seed 出多条 default；允许软删后重建）。
 
-**一期约定**：只 seed `default` 策略（`test_case_selector={"all":true}`、权重覆盖为空、`rubric_selector` 为空、scoring_model_override/scoring_adapter_override 为空、business_type/kol_id 为空）。`eval_runs.strategy_id` 一期恒指向它。前端一期不提供策略配置 UI（只读展示「默认策略」）。
+**一期约定**：只 seed `default` 策略（`test_case_selector={"all":true}`、权重覆盖为空、`rubric_selector` 为空、三个 scoring_*_override 为空、business_type/kol_id 为空）。`eval_runs.strategy_id` 一期恒指向它。前端一期不提供策略配置 UI（只读展示「默认策略」）。
 
 #### `eval_judge_models` — 评委模型候选池（v2 新增，一期预留）
 
@@ -1120,8 +1132,8 @@ erDiagram
 | id | BIGSERIAL PK | |
 | model_id | VARCHAR(128) | 评委模型 ID，**字符串自存、不 FK 引用 ai_models**（如 `glm-4.7`/`glm-5.2`/`kimi-k2`/`gemini-2.5`，版本化）|
 | provider | VARCHAR(64) | 供应商（如 `yunwu`/`kimi`/`gemini`）|
-| adapter | VARCHAR(64) | 走哪个适配器（一期仅 `yunwu`，见 §2.9.2）|
-| applicable_output_type | VARCHAR(64) | 适用内容/输出类型（如 `copy` 文案类 / `video` 视频类）|
+| adapter | VARCHAR(64) | 走哪个适配器（一期仅 `yunwu`，见 §2.9.3）|
+| applicable_output_type | VARCHAR(64) | 适用内容/输出类型，**白名单取值**：`copy`（文案类）/ `video`（视频类）/ `audio`（音频类）；service 层校验，防 typo（B-I4）|
 | note | TEXT | 备注（该模型作为评委的特长/局限）|
 | is_active | BOOLEAN | 是否启用 |
 | created_by | BIGINT FK | |
@@ -1138,6 +1150,7 @@ erDiagram
 |----|------|------|
 | eval_dimensions | `(tool_code, is_active, deleted_at)` | 按工具查询启用维度 |
 | eval_rubrics | `(dimension_id, level, scenario_tag)` | 按维度/等级/场景查询 |
+| eval_rubrics | `UNIQUE (dimension_id, scenario_tag, level) WHERE is_active = true NULLS NOT DISTINCT` | 防同维度同场景同 level 重复（B-I1）|
 | eval_test_cases | `(tool_code, is_active, deleted_at)` | 按工具查询可用样本 |
 | eval_test_cases | `USING GIN (tags)` | 按标签过滤 |
 | eval_versions | `(tool_code, is_active, deleted_at)` | 按工具查询可用版本 |
@@ -1169,15 +1182,15 @@ erDiagram
    ↓
 2. 根据 filter_tags 查询 active test_cases
    ↓
-3. 对每个 test_case：
+3. runner 先经 `adapter_registry.get(adapter)` 取适配器，**分别绑定两个 callable**：用被测 model_id 绑 `generate_fn`、用评委 model_id（resolve 自 strategy/version，见 §2.9.2）绑 `score_fn`，注入 generator/scorer（G/S 仍是纯函数，不持 db、不 import yunwu）；然后对每个 test_case：
    a. generator 读取 version.config_payload.system_prompt_template，结合 test_case.input_payload 渲染为完整 system_prompt
-   b. 调用 yunwu_adapter.chat() 生成被测输出
+   b. 经注入的 `chat_fn`（= adapter.chat，一期 YunwuAdapter）生成被测输出
    c. 写入 eval_case_results
    d. scorer 遍历所有 dimension，渲染评分 prompt
-   e. 调用 yunwu_adapter.chat() 进行 AI 评分
+   e. 经注入的 `chat_fn` 进行 AI 评分
    f. 解析评分结果，写入 eval_scores
    ↓
-4. 更新 run 状态为 completed / failed
+4. 更新 run 状态为 completed / failed；run 启动时已把 resolve 出的实际评委身份写入 `eval_runs.metadata.resolved_scoring`（见 §2.9.4）
 ```
 
 **generator 渲染器选型（重要）**：现有 `qianchuan_writer_prompt.render_system_prompt` 只处理 `{{name}}`/`{{soul}}`/`{{content_plan}}` 三个固定占位符，无法覆盖 test_case.input_payload 中的其他字段（如 `product_info`、`original_script`、`messages`）。因此 generator **不能简单复用**该函数，而是：
@@ -1268,7 +1281,7 @@ erDiagram
 
 `scorer.py` 必须实现以下解析逻辑：
 
-1. **优先使用服务商 JSON 模式**：调用 `yunwu_adapter.chat()` 时通过 `extra_body={"response_format": {"type": "json_object"}}` 透传（现有 `chat()` 签名无 `response_format` 形参，只能走 `extra_body`，服务商支持时生效）。
+1. **优先使用服务商 JSON 模式**：scorer 经注入的 `chat_fn`（= `adapter.chat`，一期 `YunwuAdapter`）调用时，通过 `extra_body={"response_format": {"type": "json_object"}}` 透传（现有 `chat()` 签名无 `response_format` 形参，只能走 `extra_body`，服务商支持时生效）。
 2. **后备解析**：若返回非纯 JSON，尝试提取代码块或第一个 `{...}` 对象。
 3. **字段校验**：校验 `score` 是否在 `[score_min, score_max]` 范围内；缺失字段使用默认值。
 4. **失败处理**：
@@ -1331,7 +1344,7 @@ _SESSION_LOCAL_PATCH_TARGETS = [
 
 1. **维度管理**：CRUD 维度，配置权重、分数范围、prompt_template。
 2. **Rubric 管理**：为每个维度定义各分数等级的标准，支持场景标签。
-3. **模型配置**：配置生成模型和评委模型（model_id 字符串 + provider + adapter，从 `eval_judge_models` 候选池选；**不读 ai_models**，见 §2.9）。
+3. **模型配置**：配置生成模型和评委模型（model_id 字符串 + provider + adapter，**不读 ai_models**，见 §2.9）。**一期 `eval_judge_models` 候选池为空，前端用自由文本输入 model_id**（兜底写 `config_payload.scoring_model_id`）；二期候选池填充后改为下拉从池选。
 4. **调度策略管理**：配置 cron 定时任务，写入前校验 cron 表达式。
 5. **版本管理**（版本快照不可编辑，只能创建/复制/软删）：
    - 列表：版本名、模型、创建时间
@@ -1404,7 +1417,7 @@ export const createTestCase = (data: any) => post('/operator/evaluation/test-cas
 | **版本快照关联维护（v2）** | 只读调 `resolve_prompt`/`kol_context` 抠配置固化 | 未来工具模块自带版本号时直接对接 |
 | **rubric 场景变体（v2）** | 一期用 `default` 变体，`scenario_tag`/`rubric_selector` 结构预留 | 按业务场景切 rubric 细则（护肤/减肥…，见 §2.8.2）|
 | **评委模型管理（v2）** | 一期用 `config_payload.scoring_model_id`；`eval_judge_models` 建表预留、候选池后填 | 按内容类型选评委（文案→glm/kimi，视频→gemini/qwen）、专项调研产出候选清单（见 §2.9）|
-| **LLM 适配器抽象（v2）** | 一期仅 `YunwuAdapter`；`LLMAdapter` 接口 + `adapter_registry` 预留 | 并行接入 Gemini/Kimi/直连 OpenAI 等适配器，generator/scorer 不改（见 §2.9.2）|
+| **LLM 适配器抽象（v2）** | 一期仅 `YunwuAdapter`；`LLMAdapter` 接口 + `adapter_registry` 预留 | 并行接入 Gemini/Kimi/直连 OpenAI 等适配器，generator/scorer 不改（见 §2.9.3）|
 
 ### 8.2 未来插件化路线图
 
@@ -1569,7 +1582,7 @@ Phase 4（可选）：拆分为独立服务 / 中台
 
 ### 13.2 假设
 
-1. 一期只读调用 `yunwu_adapter.chat()`，不调用现有 `qianchuan-writer` 的流式接口。
+1. 一期只读调用适配器（经 `adapter_registry`，一期 `YunwuAdapter`），不调用现有 `qianchuan-writer` 的流式接口。
 2. 测试平台用户为开发者/管理员/运营，不对外开放。
 3. 评分维度、权重、rubric 由开发者/管理员配置，运营可参与使用和校准。
 4. 一期不做实时通知，运营主动刷新或轮询查看运行状态。
