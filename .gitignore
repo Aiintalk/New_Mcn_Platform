@@ -19,6 +19,7 @@ node_modules/
 dist/
 build/
 .cache/
+coverage/
 
 # 日志
 *.log

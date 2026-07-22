@@ -343,7 +343,7 @@ export default function VersionsPage() {
             创建版本
           </Button>
         }
-        destroyOnClose
+        destroyOnHidden
       >
         <Form
           form={createForm}
@@ -439,7 +439,7 @@ export default function VersionsPage() {
             创建副本
           </Button>
         }
-        destroyOnClose
+        destroyOnHidden
       >
         {cloneTarget ? (
           <Form form={cloneForm} layout="vertical">

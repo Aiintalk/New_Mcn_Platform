@@ -456,7 +456,7 @@ export default function DimensionsPage() {
                   <InputNumber min={0} max={1} step={0.05} style={{ width: '100%' }} />
                 </Form.Item>
                 <Form.Item label="分数区间">
-                  <Input.Group compact>
+                  <div style={{ display: 'flex', alignItems: 'center' }}>
                     <Form.Item name="score_min" noStyle>
                       <InputNumber style={{ width: 'calc(50% - 8px)' }} min={0} />
                     </Form.Item>
@@ -464,7 +464,7 @@ export default function DimensionsPage() {
                     <Form.Item name="score_max" noStyle>
                       <InputNumber style={{ width: 'calc(50% - 8px)' }} min={1} />
                     </Form.Item>
-                  </Input.Group>
+                  </div>
                 </Form.Item>
                 <Form.Item name="description" label="说明" style={{ gridColumn: '1 / -1' }}>
                   <Input />
@@ -560,7 +560,7 @@ export default function DimensionsPage() {
         confirmLoading={savingDimension}
         okText="创建"
         cancelText="取消"
-        destroyOnClose
+        destroyOnHidden
       >
         <Form
           form={createForm}

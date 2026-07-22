@@ -79,16 +79,37 @@
 
 ---
 
-## 6. Coverage 工具未安装（项目级）
+## 6. ✅ 已解决 — Coverage 工具已安装 + 评测模块覆盖率达标（API 层 100%）
 
-**现象**：项目 `package.json` 有 `test:coverage` 脚本（`vitest run --coverage`），但 `@vitest/coverage-v8` 未安装。
+**处理结果（2026-07-22 PM 验证补完）**：
+- `npm install` 补齐了已声明但未落地的 `@playwright/test`（package.json 声明，node_modules 缺失）
+- 新增 `@vitest/coverage-v8@3.2.7`（对齐已安装的 `vitest@3.2.7`，避免 v4 peer 冲突）到 devDependencies
+- 新增 API 契约层单测 `src/__tests__/unit/api/evaluation.test.ts`（32 用例，覆盖 26 个 API 函数的 method/URL/params 契约 + `deriveDirection` 工具函数）
 
-**Phase 5 应对**：
-- 仅运行了不带 `--coverage` 的测试套件
-- 评测模块共 8 个页面 + 1 个 API 封装 + 1 个 primitives 组件 + 1 个 types 文件
-- 组件测试 9 个文件、25 个用例全通过；convention guard 通过
+**评测模块覆盖率（`src/evaluation/**`，10 测试文件 / 57 用例全通过）**：
 
-**建议修复**：项目级 `npm i -D @vitest/coverage-v8`，再补全部门禁覆盖率目标。
+| 区域 | Stmts | Branch | Funcs | Lines |
+|------|-------|--------|-------|-------|
+| **评测模块整体** | **79.0%** | **77.3%** | **57.0%** | **79.0%** |
+| `api/index.ts` | 100% | 97.4% | 100% | 100% |
+| `components/primitives.tsx` | 95.5% | 71.1% | 100% | 95.5% |
+| `pages/TestCases.tsx` | 98.7% | 77.8% | 64.3% | 98.7% |
+| `pages/Compare.tsx` | 93.8% | 71.4% | 75.0% | 93.8% |
+| `pages/Runs.tsx` | 86.3% | 75.0% | 55.0% | 86.3% |
+| `pages/Dimensions.tsx` | 79.2% | 83.7% | 33.3% | 79.2% |
+| `pages/Schedules.tsx` | 74.5% | 80.6% | 50.0% | 74.5% |
+| `pages/TestCaseEdit.tsx` | 68.1% | 72.2% | 10.0% | 68.1% |
+| `pages/Versions.tsx` | 66.9% | 66.7% | 42.9% | 66.9% |
+| `pages/RunDetail.tsx` | 64.9% | 76.9% | 41.2% | 64.9% |
+| `types/index.ts` | 0% | 0% | 0% | 0%（纯类型声明，无运行时，非真实缺口）|
+
+**判定**：API 契约层（类比后端 Services ≥80% 门禁）已达 100%，是最关键缺口（此前因页面测试整体 mock 掉 API 模块导致 0%）。页面层语句/分支覆盖属一期合理水平；**函数覆盖偏低集中在交互处理函数**，见下方 #8 作为独立迭代项。
+
+**复现命令**：
+```bash
+cd frontend
+npx vitest run src/__tests__/components/pages/evaluation/ src/__tests__/unit/api/conventionGuard.test.ts src/__tests__/unit/api/evaluation.test.ts --coverage --coverage.include='src/evaluation/**'
+```
 
 ---
 
@@ -103,3 +124,51 @@
 - 雷达图仅渲染单系列（当前运行），设计稿是双系列（baseline vs current overlay）— 需要后端在 `GET /runs/{id}` 响应中带 baseline run id 才能渲染对比
 - Dimensions Rubric 编辑表格的「场景变体 tag」用 input + scenario_tag 字段，未实现设计稿的彩色 pill 风格（用 AntD Tag 替代）
 - Versions 列表的「实验 / 最新」徽标只渲染「最新」（active），未保留设计稿的「实验」分支标记
+
+---
+
+## 8. 页面交互处理函数覆盖率偏低（独立迭代项）
+
+**现象（2026-07-22 PM 覆盖率核实）**：页面层语句/分支覆盖合理（64–99%），但**函数覆盖**集中在渲染/加载/错误路径，核心交互处理函数（表单提交、抽屉开关、批量替换、cron 校验）多为单测未触达。这些路径的正确性目前由 E2E smoke（#9）+ 人工 QA 兜底。
+
+**待补交互测试（按缺口大小排序）**：
+| 页面 | Funcs 覆盖 | 待覆盖核心交互 |
+|------|-----------|---------------|
+| `TestCaseEdit.tsx` | 10% | `handleSave`（新建/编辑提交 + JSON 校验）、`handleAddTag` |
+| `Dimensions.tsx` | 33% | RubricEditor 增/删/整批替换、`handleSaveDimension` |
+| `RunDetail.tsx` | 41% | `handleSaveCalibration`（人工校准提交，对应一期 C 能力）、`openCalibrate` |
+| `Versions.tsx` | 43% | 创建抽屉提交、clone、`handleToggleActive` |
+| `Schedules.tsx` | 50% | `handleSavePolicy`、croniter 客户端预校验分支 |
+
+**建议**：按上表逐页补 `userEvent` 交互测试（参考 `src/__tests__/unit/api/*.test.ts` 的 mock 模式）。优先 RunDetail（人工校准 = 一期 C 能力核心）与 TestCaseEdit（CRUD 主流程）。
+
+---
+
+## 9. E2E smoke 已编写 + 类型校验通过，本地未执行（环境约束）
+
+**已完成**：
+- `tests/e2e/evaluation-smoke.spec.ts` — 3 条用例：进入测试集页 / 打开运行触发抽屉 / 进入对比页
+- 全程 `page.route()` mock 评测接口（`/api/operator/evaluation/test-cases`、`/versions`），不依赖真实 PG 数据
+- `@playwright/test` 已随 `npm install` 落地，`npx tsc --noEmit` 对该 spec 0 错误
+- Chromium 浏览器二进制已就绪（chromium-1217 等）
+
+**未执行原因**：`loginAsAdmin` 走**真实 UI 登录**（`POST /api/auth/login` → `GET /api/me`），需后端 `uvicorn :8000` + PG + admin 种子用户在线。当前环境三者均未运行（:8000 / :5175 / PG 均 down）。此约束与项目既有 E2E（`smoke.spec.ts`、`seeding-writer.spec.ts`）完全一致——并非评测模块引入。
+
+**执行方式（用户本地或 CI）**：
+```bash
+# 1. 起后端
+cd backend && source .venv/bin/activate && uvicorn app.main:app --reload --port 8000
+# 2. 跑评测 smoke（webServer 会自动起前端 dev :5175）
+cd frontend && npx playwright test evaluation-smoke.spec.ts
+```
+
+**建议**：在 Phase 6 集成回归或 CI 中纳入评测 smoke，与既有 E2E 一同执行。
+
+---
+
+## 附：Deprecation 清理（2026-07-22 已完成）
+
+- `destroyOnClose` → `destroyOnHidden`（6 处，antd 5.29.3 支持）
+- `Input.Group compact` → flex `div`（Dimensions.tsx 分数区间，保留原行内布局）
+- 清理后 `tsc --noEmit` 0 错误，5 个受影响页面测试 15/15 通过，控制台 deprecation 警告清零
+

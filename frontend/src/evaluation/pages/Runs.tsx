@@ -305,7 +305,7 @@ export default function RunsPage() {
             开始运行
           </Button>
         }
-        destroyOnClose
+        destroyOnHidden
       >
         <Form
           form={form}

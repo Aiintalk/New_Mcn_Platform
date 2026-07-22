@@ -287,7 +287,7 @@ export default function SchedulesPage() {
         confirmLoading={saving}
         okText="保存"
         cancelText="取消"
-        destroyOnClose
+        destroyOnHidden
         width={520}
       >
         <Form form={form} layout="vertical" initialValues={{ is_active: true, cron: '0 2 * * *' }}>

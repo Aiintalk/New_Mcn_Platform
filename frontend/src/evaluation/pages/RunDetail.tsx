@@ -347,7 +347,7 @@ export default function RunDetailPage() {
             保存校准
           </Button>
         }
-        destroyOnClose
+        destroyOnHidden
       >
         {calibrating ? (
           <div>
