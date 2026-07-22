@@ -4,7 +4,7 @@
 >
 > **spec 来源**：`docs/superpowers/specs/2026-07-20-aigc-evaluation-system-design.md`（v2，0717 周会反馈后修订）  
 > **分支**：`feature/aigc-evaluation-v2`（v1 = `feature/aigc-evaluation`，PR #32 已合入 main）  
-> **v2 相对 v1 的变更**：① 新增策略层 + 超集（一期架构预留，seed default 策略）；② 版本快照一期「关联维护」（只读调 `resolve_prompt`/`kol_context` 抠配置固化）；③ 权重 TBD 安雅、独立配置；④ 表数 9→10（加 `eval_strategies`）；⑤ 候选工具补直播间脚本仿写/价值观仿写。
+> **v2 相对 v1 的变更**：① 策略层 + 超集（一期架构预留，seed default 策略）；② 分场景 rubric 变体（细则在池子里、策略选，非 tag）；③ 评委模型管理 + 多供应商适配器抽象（`eval_judge_models` 候选池 + `LLMAdapter`/`adapter_registry`，一期仅 yunwu）；④ 版本快照一期「关联维护」（只读调 `resolve_prompt`/`kol_context` 抠配置固化）；⑤ 权重 TBD 安雅、三级覆盖；⑥ 表数 9→11（加 `eval_strategies` + `eval_judge_models`）；⑦ 候选工具补直播间脚本仿写/价值观仿写。
 
 **Goal:** 为千川仿写等 AIGC 工具建一套可配置的回归测试评价体系，量化追踪提示词/流程版本效果。
 
@@ -18,13 +18,16 @@
 - **红线 #2**：所有写操作（POST/PUT/PATCH/DELETE）必须在 `db.commit()` 前 `session.add(OperationLog(...))`。
 - **红线 #3**：前端 JSON 调用必须走 `frontend/src/api/request.ts`（`import { get, post, put, del }`），禁止裸 `fetch`。例外：流式/FormData/Blob。**注意守卫盲点**：现有 `conventionGuard.test.ts` 只扫 `src/api/*.ts`（单层，不递归），evaluation 的 API 在 `src/evaluation/api/` 完全在窗外 → Phase 5 必须扩展守卫 glob（见 Phase 5 task）。
 - **红线 #7**：新增 router/service 若 `import AsyncSessionLocal`，必须注册到 `backend/tests/conftest.py` 的 `_SESSION_LOCAL_PATCH_TARGETS`（当前在 `tests/conftest.py:46`）。**最终清单见 Phase 3/4**（仅 runner/scheduler + 可能的 operator router BackgroundTask 点；generator/scorer 纯函数不 import，无需 patch；admin router 纯 `Depends(get_db)` 无需 patch）。
-- **软删规则（每表明确）**：主数据表 `test_cases` / `versions` / `dimensions` / `schedule_policies` / **`strategies`** 一律用 `deleted_at` 软删（DELETE 接口置此字段）；`is_active` 仅作业务启停开关（不影响 DELETE 语义，查询时 `deleted_at IS NULL AND is_active`）。`rubrics` 子表只有 `is_active`（随父维度 rubrics 接口整体替换，不做软删）。`runs` 是历史记录不软删（归档另议）。**注意**：`strategies` 表预留 `deleted_at` 字段，但**一期不暴露策略 CRUD/DELETE 接口**（default 策略不可删），仅 seed + run 内部引用；二期开放 per-KOL/业务套餐时再补接口。
+- **软删规则（每表明确）**：主数据表 `test_cases` / `versions` / `dimensions` / `schedule_policies` / **`strategies`** 一律用 `deleted_at` 软删（DELETE 接口置此字段）；`is_active` 仅作业务启停开关（不影响 DELETE 语义，查询时 `deleted_at IS NULL AND is_active`）。`rubrics` 子表只有 `is_active`（随父维度 rubrics 接口整体替换，不做软删）。`runs` 是历史记录不软删（归档另议）。**注意**：`strategies` 表预留 `deleted_at` 字段，但**一期不暴露策略 CRUD/DELETE 接口**（default 策略不可删），仅 seed + run 内部引用；二期开放 per-KOL/业务策略时再补接口。
 - **Prompt 占位符**：统一双花括号 `{{}}`，与 `render_system_prompt` 一致。
 - **评分 JSON 输出**：通过 `extra_body={"response_format": {"type": "json_object"}}` 透传（`yunwu.chat` 无 `response_format` 形参），后备正则提取 `{...}`。
 - **版本快照不可编辑**：无 `PUT versions/{id}`；改配置走 `clone` 新版本；`config_payload` 固化 resolved `model_id`+`provider`+`system_prompt_template`+维度权重（dimension_id 为 key）+评分模型。
 - **版本快照一期「关联维护」（v2）**：`config_payload` 内容只读抠现有配置固化，**不改被调服务**。注意签名：`await workspace_prompt.resolve_prompt(kol_id, tool_code, prompt_key, db)`（async，第 4 参 db；返回 per-KOL 覆盖或 **None**，**None 时必须自行读 `QianchuanWriterConfig.system_prompt` 兜底**）+ `await kol_context.get_kol_context(db, kol_id)`（async，第 1 参 db）。完整三步流程见 spec §4.4。可选 `source_kol_id`（`eval_versions` 字段）记录关联红人。
 - **策略层一期架构预留（v2）**：`eval_strategies` 建表 + seed 一条 `default` 策略（全超集 + 默认权重）；`eval_runs.strategy_id` 一期恒指 default；**一期不提供策略配置 UI**，`business_type`/`kol_id` 挂载点留空预留。
 - **评分权重 TBD 安雅（v2）**：3 维度权重 0.4/0.35/0.25 为占位值，独立配置（维度默认 < 版本快照 < 策略层三级覆盖），不硬编码，待安雅草拟确认后调 seed。
+- **分场景 rubric 变体（v2）**：同一维度按 `scenario_tag` 维护多套 level×criteria 细则（护肤/减肥/默认…）；一期 `rubric_selector`/`scenario_tag` 结构预留、匹配不启用（全用 default 变体），细则在池子里策略负责选（spec §2.8.2）。
+- **评委模型管理（v2）**：评委模型一等概念、**评测自管 model_id（不读 ai_models/credentials）**——新增 `eval_judge_models` 候选池表（model_id 当字符串自存、不 FK ai_models，建表预留，候选清单 = 专项调研 TODO）+ 版本快照 `config_payload.scoring_model_id`/`scoring_adapter`（可复现）+ 策略级 `scoring_model_override`/`scoring_adapter_override` 覆盖（spec §2.9）。
+- **LLM 适配器抽象（v2）**：generator/scorer 经 `adapter_registry.route(model_id, adapter)` 取适配器，**不直接 import yunwu**；一期仅 `YunwuAdapter`，`LLMAdapter` 接口 + registry 预留并行适配器（Gemini/Kimi/直连 OpenAI）。`config_payload`/`eval_judge_models` 都带 `adapter` 字段（一期取值仅 `"yunwu"`）。
 - **下一个 migration 编号 = `053`**（main 的 PR #28 已占用 049–052）。
 - **覆盖率门禁**：Models ≥ 90% / Services ≥ 80% / API ≥ 70% / 整体 ≥ 75%（`python scripts/run_coverage.py --gate`）。
 - **不推 main**：分支提交 → 发 PR → 人工合并。
@@ -35,8 +38,8 @@
 
 | Phase | 目标 | 产出可测软件 | 依赖 | 测试门禁 |
 |-------|------|------------|------|---------|
-| **1. 数据层** | 10 张表 + ORM + 常量 + seed（含 default 策略） | 模型 CRUD 单测通过 | 无 | models ≥ 90% |
-| **2. 核心服务层** | generator/scorer/rubric_resolver/comparator + 单测 | 纯函数可单测 | Phase 1 | services ≥ 80% |
+| **1. 数据层** | 11 张表 + ORM + 常量 + seed（含 default 策略 + 评委候选池表预留）+ adapter 抽象骨架 | 模型 CRUD 单测通过 | 无 | models ≥ 90% |
+| **2. 核心服务层** | generator/scorer/rubric_resolver/comparator + adapter_registry + 单测 | 纯函数可单测 | Phase 1 | services ≥ 80% |
 | **3. 运行编排层** | runner + scheduler + 异步执行 + case 级隔离 | 端到端跑通一次 run（mock AI） | Phase 2 | services ≥ 80% |
 | **4. 后端 API 层** | admin + operator routers + OperationLog + conftest patch | API 集成测试通过 | Phase 3 | API ≥ 70% |
 | **5. 前端** | api/types + 10 页面 + 测试 + 守卫扩展 | 页面可交互 + 组件测试通过 | Phase 4 | vitest 通过 |
@@ -48,26 +51,28 @@
 
 ## Phase 1: 数据层（DB + ORM + 常量）
 
-**Goal:** 建立 10 张 `eval_` 表的 schema 和 ORM（含 `eval_strategies`），seed default 策略，管理员可在测试库里建表/读写维度。
+**Goal:** 建立 11 张 `eval_` 表的 schema 和 ORM（含 `eval_strategies` + `eval_judge_models`），seed default 策略，搭好 adapter 抽象骨架，管理员可在测试库里建表/读写维度。
 
 **Files:**
-- Create: `backend/migrations/053_eval_core.sql`（10 表 + 索引 + seed 维度 + seed default 策略）
+- Create: `backend/migrations/053_eval_core.sql`（11 表 + 索引 + seed 维度 + seed default 策略）
 - Create: `backend/app/evaluation/__init__.py`
-- Create: `backend/app/evaluation/constants.py`（tool_code 常量、维度名常量、trigger_type/status 枚举）
-- Create: `backend/app/evaluation/models/__init__.py` + 10 个 model 文件：`dimension.py` / `rubric.py` / `test_case.py` / `version.py` / `run.py` / `case_result.py` / `score.py` / `human_label.py` / `schedule_policy.py` / `strategy.py`
+- Create: `backend/app/evaluation/constants.py`（tool_code 常量、维度名常量、trigger_type/status 枚举、`DEFAULT_STRATEGY_NAME`、`DEFAULT_ADAPTER="yunwu"`）
+- Create: `backend/app/evaluation/models/__init__.py` + 11 个 model 文件：`dimension.py` / `rubric.py` / `test_case.py` / `version.py` / `run.py` / `case_result.py` / `score.py` / `human_label.py` / `schedule_policy.py` / `strategy.py` / `judge_model.py`
+- Create: `backend/app/evaluation/adapters/`（`base.py` LLMAdapter 接口 + `registry.py` + `yunwu.py` 包现有 yunwu，一期仅此一个实现）
 - Modify: `backend/app/models/__init__.py`（注册 eval models）
 - Test: `backend/tests/unit/models/test_eval_models.py`
 
 **Interfaces:**
-- Produces: `EvalDimension` / `EvalRubric` / `EvalTestCase` / `EvalVersion` / `EvalRun` / `EvalCaseResult` / `EvalScore` / `EvalHumanLabel` / `EvalSchedulePolicy` / **`EvalStrategy`** ORM 类，字段与 spec §5.4 完全一致；`EvalToolCode`、`EvalTriggerType`、`EvalRunStatus` 常量。
+- Produces: 11 个 ORM 类（含 **`EvalStrategy`** + **`EvalJudgeModel`**），字段与 spec §5.4 完全一致；`EvalRun` 含 `strategy_id`；`LLMAdapter` 接口 + `adapter_registry.route(model_id, adapter)`（一期只返回 `YunwuAdapter`）。
 
 **Tasks:**
-1. 写 `test_eval_models.py`：建表（metadata.create_all）、各表插入/查询、软删 `deleted_at` 过滤、唯一约束（`eval_case_results(run_id, test_case_id)`、`eval_scores(case_result_id, dimension_id)`）、ON DELETE 级联（删 run 连带删 case_results→scores）、`eval_runs.strategy_id` 外键。
-2. 写 migration `053_eval_core.sql`：**10 张表** + spec §5.5 全部索引（含 `eval_strategies UNIQUE(tool_code,name) WHERE deleted_at IS NULL`）+ seed 3 个维度（copy_quality 0.4 / conversion_power 0.35 / persona_consistency 0.25，**权重 TBD 安雅、占位值**）+ seed rubric 等级占位 + **seed 一条 `eval_strategies` default 策略**（`tool_code='qianchuan-writer'`, `name='default'`, `test_case_selector={"all":true}`, 权重覆盖空, `rubric_selector` 空(NULL), business_type/kol_id 空, is_active=true）。
-3. 写 `constants.py`：`EVAL_TOOL_QIANCHUAN_WRITER = "qianchuan-writer"`、触发/状态枚举字符串、`DEFAULT_STRATEGY_NAME = "default"`。
-4. 写 10 个 ORM model（参照现有 `QianchuanWriterConfig` 风格，`Base` 来自 `app.core.database`；需补 `Numeric`/`SmallInteger`/`JSONB`/`ARRAY(String)` 导入）。`EvalRun` 加 `strategy_id` 列。
-5. `app/models/__init__.py` **跨包注册** eval models（关键：conftest 依赖 `import app.models` 触发 `Base.metadata.create_all` 覆盖所有表，否则测试库建不出 eval 表）。在 `__init__.py` 顶部与其他 model import 同段加 `from app.evaluation.models.dimension import EvalDimension` 等 10 行 import + 同步 `__all__`。
-6. 跑测试 → 通过 → commit。
+1. 写 `test_eval_models.py`：建表（metadata.create_all）、各表插入/查询、软删 `deleted_at` 过滤、唯一约束（`eval_case_results(run_id, test_case_id)`、`eval_scores(case_result_id, dimension_id)`、`eval_strategies(tool_code,name)`、`eval_judge_models(model_id,adapter)`）、ON DELETE 级联（删 run 连带删 case_results→scores）、`eval_runs.strategy_id` 外键。
+2. 写 migration `053_eval_core.sql`：**11 张表** + spec §5.5 全部索引（含两条部分唯一索引）+ seed 3 个维度（copy_quality 0.4 / conversion_power 0.35 / persona_consistency 0.25，**权重 TBD 安雅、占位值**）+ seed rubric 等级占位 + **seed 一条 `eval_strategies` default 策略**（`test_case_selector={"all":true}`、权重/rubric/scoring 覆盖空、business_type/kol_id 空、is_active=true）。`eval_judge_models` 建表，**一期 seed 极简或留空**（候选清单 = 专项调研 TODO）。
+3. 写 `constants.py`：`EVAL_TOOL_QIANCHUAN_WRITER`、触发/状态枚举、`DEFAULT_STRATEGY_NAME = "default"`、`DEFAULT_ADAPTER = "yunwu"`。
+4. 写 11 个 ORM model（参照现有 `QianchuanWriterConfig` 风格，`Base` 来自 `app.core.database`；补 `Numeric`/`SmallInteger`/`JSONB`/`ARRAY(String)` 导入）。`EvalRun` 加 `strategy_id`；`EvalStrategy` 含 `scoring_model_override`/`scoring_adapter_override`。
+5. 写 `adapters/`：`base.py`（`LLMAdapter` 抽象基类，`async chat`/`chat_stream`）+ `yunwu.py`（`YunwuAdapter` 委托现有 `app.adapters.yunwu`）+ `registry.py`（`route(model_id, adapter)` 一期恒返回 `YunwuAdapter`）。**generator/scorer 后续经 registry 取适配器，不直接 import yunwu**。
+6. `app/models/__init__.py` **跨包注册** 11 个 eval model（顶部与其他 import 同段加 11 行 + 同步 `__all__`，否则 conftest 的 `metadata.create_all` 建不出 eval 表）。
+7. 跑测试 → 通过 → commit。
 
 **Test gate:** `pytest tests/unit/models/test_eval_models.py -v` 全绿；`migration 053` 在测试库 `metadata.create_all` 后可建表。
 
@@ -88,7 +93,7 @@
 - Test: `backend/tests/unit/services/test_eval_rubric_resolver.py` / `test_eval_generator.py` / `test_eval_scorer.py` / `test_eval_comparator.py`
 
 **Interfaces:**
-- Consumes: Phase 1 的 ORM；AI 调用以可注入 callable 形式（`generate_fn`/`score_fn` 参数），测试用 mock。
+- Consumes: Phase 1 的 ORM + `adapter_registry`；AI 调用以可注入 callable 形式（`generate_fn`/`score_fn` 参数），测试用 mock。**生产路径** generator/scorer 经 `adapter_registry.route(model_id, adapter)` 取适配器调 AI（一期恒 yunwu），**不直接 import yunwu**——二期加新适配器不动这俩。评委模型从 `eval_versions.config_payload.scoring_model_id`/`scoring_adapter` 或 `eval_strategies.scoring_model_override`/`scoring_adapter_override` 取（策略级优先，见 spec §2.9）。
 - Produces:
   - `rubric_resolver.build_scoring_prompt(dimension, rubrics, context) -> str`
   - `generator.render_generation_prompt(template, input_payload) -> str`
@@ -240,7 +245,7 @@
 1. **周会结论可能微调**：6 个确认问题若改维度/权重 → 调 Phase 1 seed 数据，不改结构。
 2. **AI 评分稳定性**：Phase 2 scorer 的 JSON 解析三策略兜底；人工校准沉淀基准。
 3. **异步可靠性**：一期 BackgroundTask 不适合长任务（spec §6.2 已明确限制），Phase 3 用 DB 状态机保存进度，中断后手动重跑。
-4. **现有模块零改动**：所有 Phase 只读复用 yunwu/kol/ai_models，不改它们；conftest patch 是唯一对现有文件的修改（追加，不改逻辑）。
+4. **现有模块零改动**：所有 Phase 只读复用 yunwu 适配器 + `kol_context`/`resolve_prompt`/`QianchuanWriterConfig`（版本快照关联维护），不改它们；**不读 `ai_models`/`credentials`**（模型身份评测自管，见 §2.9）；conftest patch 是唯一对现有文件的修改（追加，不改逻辑）。
 
 ---
 

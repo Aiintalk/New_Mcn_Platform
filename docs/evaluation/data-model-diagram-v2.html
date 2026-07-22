@@ -24,7 +24,7 @@
 </head>
 <body>
   <h1>AIGC 评估体系 — 数据模型关系图</h1>
-  <div class="sub">New_Mcn_Platform · evaluation 模块 · 10 张表（v2 含 eval_strategies）· 双击此文件用浏览器打开</div>
+  <div class="sub">New_Mcn_Platform · evaluation 模块 · 11 张表（v2 含 eval_strategies + eval_judge_models）· 双击此文件用浏览器打开</div>
 
   <div class="card">
     <div id="diagram">
@@ -134,8 +134,20 @@ erDiagram
         jsonb test_case_selector
         jsonb dimension_weight_overrides
         jsonb rubric_selector
+        varchar scoring_model_override
+        varchar scoring_adapter_override
         varchar business_type
         bigint kol_id FK
+        boolean is_active
+        timestamp deleted_at
+    }
+    eval_judge_models {
+        bigint id PK
+        varchar model_id
+        varchar provider
+        varchar adapter
+        varchar applicable_output_type
+        text note
         boolean is_active
         timestamp deleted_at
     }

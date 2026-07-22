@@ -6,11 +6,14 @@
 > **设计目标**：为 New_Mcn_Platform 的 AIGC 工具迭代（先从千川仿写切入）建立可配置的回归测试评价体系，量化追踪提示词/流程版本的效果变化。
 >
 > **v2 相对 v1 的变更**（v1 = `2026-07-17-aigc-evaluation-system-design.md`，已合入 main，保留不动）：
-> 1. **新增策略层 + 超集（Super Set）概念**：对齐工作台「工具超集 → per-KOL 实例子集」的分层模式。评测超集 = test_cases 池 + dimensions/rubrics 池 + 默认权重；评测实例配置从超集组合。一期架构预留（默认策略 + 预留 `business_type`/`kol_id` 挂载点），不做配置 UI。
-> 2. **工作台分层现状核查**（§2.8）：确认现状是扁平 per-KOL 配置，**无业务模板中间层**——决定一期策略层只能做到 per-KOL/默认策略，业务套餐待工作台自身引入业务模板层后再挂。
-> 3. **版本快照一期「关联维护」**（§4.4/§5.4）：保留 `eval_versions` 实体，`config_payload` 来源改为只读调 `workspace_prompt.resolve_prompt` + `kol_context` 抠出最终配置关联固化，不动现有业务模块。
-> 4. **评分权重标注 TBD 安雅**，权重独立配置（版本快照 + 策略层均可覆盖），不硬编码。
-> 5. **一期后候选被测对象**补：直播间脚本仿写、价值观仿写。
+> 
+> 1. **新增策略层 + 超集（Super Set）概念**：对齐工作台「工具超集 → per-KOL 实例子集」的分层模式。评测超集 = test_cases 池 + dimensions 池 + **rubrics 池（分场景细则变体）** + 评委模型候选池 + 默认权重；评测实例配置从超集组合。一期架构预留（默认策略 + 预留 `business_type`/`kol_id` 挂载点），不做配置 UI。
+> 2. **分场景评分细则（rubric 变体）**（§2.8.2）：同一维度按业务场景维护多套 level×criteria 细则（如护肤看皮肤刺激/吸收、减肥看是否反弹/饮食），策略按维度挑变体——细则在池子里、策略负责选，不是加 tag。
+> 3. **评委模型管理 + 多供应商适配器**（§2.9）：评委模型作为一等概念、**评测自管 model_id（不依赖 ai_models 表）**——新增 `eval_judge_models` 候选池（版本/策略级选用）；引入 `LLMAdapter` 抽象（一期仅 yunwu，预留 Gemini/Kimi 等并行适配器）。
+> 4. **工作台分层现状核查**（§2.8.1）：确认现状是扁平 per-KOL 配置，**无业务模板中间层**——决定一期策略层只能做到 per-KOL/默认策略，业务评测策略待工作台自身引入业务模板层后再挂。
+> 5. **版本快照一期「关联维护」**（§4.4/§5.4）：保留 `eval_versions` 实体，`config_payload` 来源改为只读调 `workspace_prompt.resolve_prompt` + `kol_context` 抠出最终配置关联固化，不动现有业务模块。
+> 6. **评分权重标注 TBD 安雅**，权重独立配置（维度默认 < 版本快照 < 策略层三级覆盖），不硬编码。
+> 7. **一期后候选被测对象**补：直播间脚本仿写、价值观仿写。表数 9→11（加 `eval_strategies` + `eval_judge_models`）。
 
 ---
 
@@ -59,7 +62,7 @@ New_Mcn_Platform 中的 AIGC 工具（如千川仿写）目前依靠运营主观
 | 工具版本 | 版本快照实体保留，一期**关联维护**（只读抠现有 config 固化） | 完整不可编辑快照 + clone 体系、与 git commit / CI 集成 |
 | 评分方式 | AI 初评 + 人工校准 | 外部评分服务、模型微调 |
 | 评分维度 | 文案质量、种草力、人设一致性（**权重 TBD 安雅**，占位 0.4/0.35/0.25） | 卖点覆盖、合规安全、结构符合度、信息量等 |
-| **评测策略层** | **架构预留**（默认策略 + 预留 `business_type`/`kol_id` 挂载点，不做配置 UI） | per-KOL / 业务套餐配置（待工作台引入业务模板层） |
+| **评测策略层** | **架构预留**（默认策略 + 预留 `business_type`/`kol_id` 挂载点，不做配置 UI） | per-KOL / 业务策略配置（待工作台引入业务模板层） |
 | 调度触发 | 手动触发 + 版本创建/复制后自动触发 + 定时批量 | 与 CI/CD、部署流水线联动 |
 | 与现有工作流打通 | 不做打通（评测模块只读复用 `resolve_prompt`/`kol_context`，不改它们） | 轻量/深度打通 |
 | 用户 case 反馈 | 不做 | 二期从 AIGC 工具页面提交 |
@@ -90,7 +93,7 @@ New_Mcn_Platform 中的 AIGC 工具（如千川仿写）目前依靠运营主观
 | `app/models/kol_workspace_config.py` | 现状工作台配置表（`enabled_tabs`/`prompt_overrides`），策略层设计参照其分层 | ❌ 不改，只读参考 |
 | `app/adapters/yunwu.py` | 直接调用进行 AI 生成和 AI 评分 | ❌ 不改 |
 | `app/models/kol.py` | 读取达人信息用于测试集录入 | ❌ 不改 |
-| `app/models/ai_models.py` | 版本快照引用模型 ID | ❌ 不改 |
+| `app/models/ai_models.py` | **评测不依赖**——model_id 在评测自己的表里当字符串存（§2.9.1），不读 ai_models | ⊘ 不涉及 |
 | `app/models/output.py` | 未来打通时可能关联 | ❌ 一期不改 |
 | `app/models/log.py` | 所有写操作必须写 `OperationLog` | ❌ 不改，只写 |
 | `backend/tests/conftest.py` | 新模块使用 `AsyncSessionLocal` 需注册 patch | ⚠️ 需新增路径，但不改现有逻辑 |
@@ -293,7 +296,7 @@ AIGC 工具的最终用户（运营或自营网红）在使用过程中，如果
 | **上下文组装** | `await get_kol_context(db, kol_id)` → 该 KOL 完整人设档案 `KolContext` | 各 writer 用它填占位符 |
 | **业务模板/策略中间层** | **不存在** | 现状是**扁平 per-KOL 配置**。「跟着业务走」是业务概念，代码里无 `business_type`/模板实体——同业务的两个 KOL 配置各自独立，无共享模板 |
 
-**结论**：张翀说的「工作台上层逻辑与下层实例已经分层」属实（工具池 + per-KOL 实例配置）。但**没有业务模板中间层**。这决定评测策略层一期只能做到「默认策略 + per-KOL/业务挂载点预留」，业务套餐待工作台自身引入业务模板层后再挂。
+**结论**：张翀说的「工作台上层逻辑与下层实例已经分层」属实（工具池 + per-KOL 实例配置）。但**没有业务模板中间层**。这决定评测策略层一期只能做到「默认策略 + per-KOL/业务挂载点预留」，**业务评测策略**（绑 `business_type` 的 strategy 实例）待工作台自身引入业务模板层后再挂。
 
 #### 2.8.2 评测超集与实例配置（对齐工作台分层）
 
@@ -302,9 +305,11 @@ AIGC 工具的最终用户（运营或自营网红）在使用过程中，如果
 ```
 评测超集（Super Set）
   ├─ 全部 test_cases 池（按 tool_code + tags）
-  ├─ 全部 dimensions + rubrics 池
+  ├─ 全部 dimensions 池（文案质量/种草力/...）
+  ├─ rubrics 池：每个维度下按「业务场景」维护多套评分细则变体（见下）
+  ├─ 评委模型候选池（见 §2.9）
   └─ 默认权重（eval_dimensions.default_weight）
-        │  策略 = 从超集组合（选 test_case 子集 + 覆盖权重 + 选 rubric）
+        │  策略 = 从超集组合（选 test_case 子集 + 选 rubric 变体 + 覆盖权重 + 选评委模型）
         ▼
 评测策略（eval_strategies）  ← 对应工作台的 per-KOL/业务配置
         │  运行
@@ -312,17 +317,83 @@ AIGC 工具的最终用户（运营或自营网红）在使用过程中，如果
 eval_runs
 ```
 
-> **注**：上图把「默认权重」归为超集属性，但权重实际有**三级覆盖**（见 §2.4）：策略层 `dimension_weight_overrides` > 版本快照 `config_payload.dimension_weights` > 维度默认 `default_weight`。其中「版本快照权重」是独立于 super set 和策略层的第三层（绑在被测工具配置上），图中未单独画出，runner 取最 specific 的命中值。
+**分场景评分细则（rubric 变体）——核心机制**：
+
+同一维度，不同业务场景的**评分标准本身就是不同的细则**（不是加个 tag 标签，而是整套 level×criteria 文本不同）。在 `eval_rubrics` 里，每套场景变体 = 同一 `dimension_id` + 同一 `scenario_tag` 的一组 level×criteria 行；策略按维度挑哪一套变体（`rubric_selector`）。`eval_dimensions.prompt_template` 保持通用（含 `{{rubric_text}}` 占位符），场景特定的得分点全部落在 rubric 行里。
+
+举例（文案质量 `copy_quality` 维度，两套场景变体 + 一套默认）：
+
+| dimension | scenario_tag | level | criteria（得分点文本，因场景而异）|
+|-----------|--------------|-------|------|
+| copy_quality | `skincare` | 10 | 钩子强 + **皮肤刺激/面部吸收**等卖点清晰可信、有使用场景代入 |
+| copy_quality | `skincare` | 8 | 钩子较吸引、卖点基本清楚，吸收/刺激点提到但代入一般 |
+| copy_quality | `diet` | 10 | 钩子强 + **是否反弹/饮食注意**等风险与效果讲透、情绪到位 |
+| copy_quality | `diet` | 8 | 钩子较吸引、效果讲清，反弹/饮食提醒提到但不突出 |
+| copy_quality | `default`（NULL） | 10 | 通用文案质量满分标准 |
+| copy_quality | `default`（NULL） | 8 | 通用文案质量良好标准 |
+
+`rubric_selector` 示例：护肤业务策略选 `{copy_quality: "skincare", conversion_power: "default", ...}`，runner 渲染评分 prompt 时，`{{rubric_text}}` 填入 skincare 那套细则。**评分细则在池子里（超集），策略负责挑哪一套**——细则可跨策略复用，不内嵌进策略 JSONB。
+
+> **注①**：权重实际有**三级覆盖**（见 §2.4）：策略层 `dimension_weight_overrides` > 版本快照 `config_payload.dimension_weights` > 维度默认 `default_weight`。「版本快照权重」是独立于 super set 和策略层的第三层（绑在被测工具配置上），图中未单独画出，runner 取最 specific 的命中值。
+>
+> **注②**：rubric 变体的「场景」与策略的 `business_type` 对应（如 `skincare`/`diet`）。一期 `scenario_tag`/`rubric_selector` 结构预留、不启用匹配（见 §2.4 阶段边界），所有维度先用 `default` 变体。
 
 #### 2.8.3 一期策略层 = 架构预留（后向兼容）
 
-一期**不做策略配置 UI**，但数据模型与概念**预留**，确保二期加 per-KOL/业务套餐时不返工：
+一期**不做策略配置 UI**，但数据模型与概念**预留**，确保二期加 per-KOL/业务评测策略时不返工：
 
-1. **新增 `eval_strategies` 实体**（见 §5.4）：一个策略 = `tool_code` + `test_case` 子集选择（标签或 ID 列表）+ `dimension_weight_overrides` + 可选 rubric 选择 + 可选 `business_type`/`kol_id` 挂载点。
+1. **新增 `eval_strategies` 实体**（见 §5.4）：一个策略 = `tool_code` + `test_case` 子集选择（标签或 ID 列表）+ `dimension_weight_overrides` + `rubric_selector`（按维度选 rubric 场景变体，见 §2.8.2）+ `scoring_model_override`（评委模型覆盖，见 §2.9）+ 可选 `business_type`/`kol_id` 挂载点。
 2. **一期默认策略**：seed 一条 `name='default'` 策略 = 全超集（全部 active test_cases + 维度默认权重），一期所有 run 绑定它。
 3. **`eval_runs` 增加 `strategy_id`**（一期恒等于 default 策略），让 run 自带策略上下文，二期切换策略无需改 run 结构。
 4. **预留挂载点**：`eval_strategies.business_type` / `kol_id` 可空，一期不建「业务模板」表；将来工作台引入业务模板层，评测策略直接挂上去。
 5. **一期 UI 不暴露策略配置**：前端只读展示「当前用默认策略」，配置入口留到二期。
+
+### 2.9 评委模型与多供应商适配器（v2 新增）
+
+> 背景：同样的测试例 + 维度，**不同评委模型打分不同**（glm-4.7 与 glm-5.2、kimi、gemini 是不同模型）。且评委模型的接入**可能走 yunwu，也可能走其他供应商**（未来与 yunwu 并行的适配器）。因此评委模型需作为**一等概念**管理，接入层需抽象、可扩展。
+
+#### 2.9.1 设计原则：评测模块自管模型身份，不依赖 ai_models
+
+评测模块要**独立于现有业务表**（便于将来拆分）。因此：
+
+- **不读 `ai_models`、不读 `credentials`**——模型身份（`model_id`/`provider`/`adapter`）在评测自己的表里当**字符串**存，自包含。
+- **实际调 AI 经适配器**（yunwu 等）：评测把 `model_id` 字符串传给适配器，由适配器内部解决凭证/模型路由——这是适配器的职责（共用 AI 网关），**不是评测读 ai_models/credentials**。
+- 现有业务模块对 `ai_models`/`credentials` 的用法**完全不受影响**（评测不碰这两张表）。
+
+#### 2.9.2 两层落地
+
+| 层 | 内容 | 落点 |
+|----|------|------|
+| **① 评委模型登记**（评测自管，新表） | 哪些模型可当评委、版本化（`glm-4.7`/`glm-5.2`/`kimi-k2`/`gemini-2.5` 各算不同 model_id）、适用哪种**内容/输出类型**（文案类→glm/kimi；视频类→gemini/qwen）、走哪个**适配器** | 新增 `eval_judge_models` 表（见 §5.4），`model_id` 当字符串自存、**不 FK 引用 ai_models**；**具体候选清单 = 专项调研 TODO**，一期建表预留、内容后填 |
+| **② 选用记录**（版本/策略级） | 某次评测实际用哪个评委（可复现 + 可对比评委差异）| `eval_versions.config_payload.scoring_model_id`+`scoring_provider`+`scoring_adapter`（版本快照固化）+ `eval_strategies.scoring_model_override`/`scoring_adapter_override`（策略级覆盖，策略优先）|
+
+> `model_id` 只是一个字符串标识（适配器认得即可），评测不校验它是否在 `ai_models` 里存在——评委是否可用由适配器调用时决定。
+
+#### 2.9.3 多供应商适配器抽象（一期简单实现 + 设计预留）
+
+现状：generator/scorer 直连 `yunwu_adapter`（yunwu 内部可切 `provider`，但只覆盖 yunwu 代理的模型）。若某评委模型**不走 yunwu**（直连 Gemini / 直联 Kimi / 直连 OpenAI），现有架构接不进来。
+
+设计预留：引入 **LLM 适配器抽象**，一期实现仅 yunwu，结构支持并行适配器：
+
+```
+LLMAdapter 接口（chat / chat_stream）
+  ├── YunwuAdapter        （一期实现，包现有 yunwu_adapter）
+  ├── GeminiAdapter       （未来，直连 Gemini）
+  ├── KimiAdapter         （未来，直联 Kimi/OpenAI）
+  └── ...                 （按需扩展）
+        ↑
+  adapter_registry.route(model_id, adapter_name) → 选适配器
+```
+
+- `config_payload` / `eval_judge_models` 在 `model_id`+`provider` 之外，**都带 `adapter` 字段**（走哪个适配器，一期取值仅 `"yunwu"`）。
+- generator/scorer 通过 `adapter_registry` 取适配器再调，**不直接 `import yunwu`**——这样二期加新适配器不动 generator/scorer。
+- 一期：registry 只注册 yunwu，行为与现状一致；**抽象层是预留，不增加一期复杂度**。
+
+#### 2.9.4 一期落地（简单）
+
+- 评委模型：用 `config_payload.scoring_model_id` + `scoring_provider` + `scoring_adapter="yunwu"`（版本快照固化，保证可复现）。
+- `eval_judge_models` 表：**建表（结构预留），一期 seed 极简或不 seed**，候选池二期填、专项调研产出候选清单。
+- `adapter_registry`：一期只有 yunwu 一个实现，接口定义好。
 
 ---
 
@@ -343,13 +414,18 @@ backend/app/evaluation/
 │   ├── score.py                 # eval_scores：单次 case×维度 的评分
 │   ├── human_label.py           # eval_human_labels：人工校准记录
 │   ├── schedule_policy.py       # eval_schedule_policies：调度策略
-│   └── strategy.py              # eval_strategies：评测策略（v2，一期架构预留）
+│   ├── strategy.py              # eval_strategies：评测策略（v2，一期架构预留）
+│   └── judge_model.py           # eval_judge_models：评委模型候选池（v2，预留）
+├── adapters/                    # LLM 适配器抽象（v2，一期仅 yunwu，预留并行适配器）
+│   ├── base.py                  # LLMAdapter 接口（chat/chat_stream）
+│   ├── registry.py              # adapter_registry.route(model_id, adapter) → 选适配器
+│   └── yunwu.py                 # YunwuAdapter（包现有 app.adapters.yunwu，一期实现）
 ├── services/
 │   ├── runner.py                # 编排一次完整运行
-│   ├── generator.py             # 调用 AI 生成被测输出
-│   ├── scorer.py                # 按维度调用 AI 评分
+│   ├── generator.py             # 经 adapter_registry 调 AI 生成被测输出
+│   ├── scorer.py                # 经 adapter_registry 调评委模型评分
 │   ├── comparator.py            # 版本间对比计算
-│   ├── rubric_resolver.py       # 把 rubric 渲染为评分 prompt
+│   ├── rubric_resolver.py       # 把 rubric（含场景变体）渲染为评分 prompt
 │   └── scheduler.py             # 调度器：手动/自动/定时触发
 ├── routers/
 │   ├── admin_evaluation.py      # 开发者/管理员接口：维度/rubric/模型/调度配置
@@ -613,6 +689,7 @@ sequenceDiagram
   },
   "scoring_model_id": "claude-sonnet-4-6",
   "scoring_provider": "yunwu",
+  "scoring_adapter": "yunwu",
   "scoring_temperature": 0.3
 }
 ```
@@ -808,8 +885,22 @@ erDiagram
         jsonb test_case_selector
         jsonb dimension_weight_overrides
         jsonb rubric_selector
+        varchar scoring_model_override
+        varchar scoring_adapter_override
         varchar business_type
         bigint kol_id FK
+        boolean is_active
+        bigint created_by FK
+        timestamp deleted_at
+    }
+
+    eval_judge_models {
+        bigint id PK
+        varchar model_id
+        varchar provider
+        varchar adapter
+        varchar applicable_output_type
+        text note
         boolean is_active
         bigint created_by FK
         timestamp deleted_at
@@ -822,7 +913,7 @@ erDiagram
 
 📄 `docs/evaluation/data-model-diagram-v2.html`
 
-无需安装任何软件，浏览器打开即可看到 10 张表的关系图（mermaid.js 自动渲染；v2 含 `eval_strategies`）。
+无需安装任何软件，浏览器打开即可看到 11 张表的关系图（mermaid.js 自动渲染；v2 含 `eval_strategies` + `eval_judge_models`）。
 
 ### 5.4 表结构
 
@@ -905,6 +996,7 @@ erDiagram
   },
   "scoring_model_id": "claude-sonnet-4-6",
   "scoring_provider": "yunwu",
+  "scoring_adapter": "yunwu",
   "scoring_temperature": 0.3
 }
 ```
@@ -1005,8 +1097,10 @@ erDiagram
 | description | TEXT | 策略说明 |
 | test_case_selector | JSONB | 从超集选 test_case 子集的规则，如 `{"tags":["核心集"]}` 或 `{"ids":[1,2,3]}` 或 `{"all":true}`（default）|
 | dimension_weight_overrides | JSONB | 维度权重覆盖（dimension_id 为 key），覆盖 `eval_dimensions.default_weight`；空则用默认 |
-| rubric_selector | JSONB | 可选，rubric 选择规则（一期空，scenario_tag 一期不参与，见 §2.4）|
-| business_type | VARCHAR(64) | 可空，业务类型挂载点（如 `pure`/`sexy`/`daily-live`/`weekly-live`）——一期不建业务模板表，仅预留 |
+| rubric_selector | JSONB | 可选，rubric 场景变体选择（按 dimension 选 scenario 变体，见 §2.8.2；一期空，用 default 变体）|
+| scoring_model_override | VARCHAR(128) | 可空，策略级评委模型覆盖（model_id，见 §2.9）；空则用版本快照的 `scoring_model_id` |
+| scoring_adapter_override | VARCHAR(64) | 可空，策略级适配器覆盖（如 `yunwu`，见 §2.9）；空则用版本快照的 `scoring_adapter` |
+| business_type | VARCHAR(64) | 可空，业务类型挂载点（如 `skincare`/`diet`/`daily-live`/`weekly-live`）——一期不建业务模板表，仅预留；与 rubric `scenario_tag` 对应 |
 | kol_id | BIGINT FK → kols.id ON DELETE SET NULL | 可空，关联红人（per-KOL 策略预留）；一期 default 策略为空 |
 | is_active | BOOLEAN | 是否启用 |
 | created_by | BIGINT FK | |
@@ -1015,7 +1109,28 @@ erDiagram
 
 **唯一约束**：`UNIQUE (tool_code, name) WHERE deleted_at IS NULL`（部分唯一索引，防 dev 环境重复 seed 出多条 default；允许软删后重建）。
 
-**一期约定**：只 seed `default` 策略（`test_case_selector={"all":true}`、权重覆盖为空、`rubric_selector` 为空、business_type/kol_id 为空）。`eval_runs.strategy_id` 一期恒指向它。前端一期不提供策略配置 UI（只读展示「默认策略」）。
+**一期约定**：只 seed `default` 策略（`test_case_selector={"all":true}`、权重覆盖为空、`rubric_selector` 为空、scoring_model_override/scoring_adapter_override 为空、business_type/kol_id 为空）。`eval_runs.strategy_id` 一期恒指向它。前端一期不提供策略配置 UI（只读展示「默认策略」）。
+
+#### `eval_judge_models` — 评委模型候选池（v2 新增，一期预留）
+
+评委模型作为一等概念管理、**评测自管**（§2.9，不依赖 `ai_models` 表）。本表登记「哪些模型可当评委 + 版本化 model_id + 适用内容类型 + 走哪个适配器」，`model_id` 当字符串自存。**具体候选清单 = 专项调研 TODO**，一期建表、内容后填。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | BIGSERIAL PK | |
+| model_id | VARCHAR(128) | 评委模型 ID，**字符串自存、不 FK 引用 ai_models**（如 `glm-4.7`/`glm-5.2`/`kimi-k2`/`gemini-2.5`，版本化）|
+| provider | VARCHAR(64) | 供应商（如 `yunwu`/`kimi`/`gemini`）|
+| adapter | VARCHAR(64) | 走哪个适配器（一期仅 `yunwu`，见 §2.9.2）|
+| applicable_output_type | VARCHAR(64) | 适用内容/输出类型（如 `copy` 文案类 / `video` 视频类）|
+| note | TEXT | 备注（该模型作为评委的特长/局限）|
+| is_active | BOOLEAN | 是否启用 |
+| created_by | BIGINT FK | |
+| created_at / updated_at | TIMESTAMPTZ | |
+| deleted_at | TIMESTAMPTZ | 逻辑删除 |
+
+**唯一约束**：`UNIQUE (model_id, adapter) WHERE deleted_at IS NULL`（同模型同适配器不重复登记）。
+
+**一期约定**：建表，seed 极简（可只登一条当前默认评委，或留空由 `config_payload.scoring_model_id` 兜底）；候选池内容、按内容类型选模型的规则二期补。
 
 ### 5.5 索引建议
 
@@ -1028,7 +1143,7 @@ erDiagram
 | eval_versions | `(tool_code, is_active, deleted_at)` | 按工具查询可用版本 |
 | eval_runs | `(version_id, status)` | 按版本查询运行 |
 | eval_runs | `(status, created_at)` | 查询待处理/近期运行 |
-| eval_runs | `(strategy_id)` | 按策略查询 run（未来 per-KOL/业务套餐上线后高频） |
+| eval_runs | `(strategy_id)` | 按策略查询 run（未来 per-KOL/业务策略上线后高频） |
 | eval_case_results | `(run_id, test_case_id)` | 唯一约束兼查询 |
 | eval_scores | `(case_result_id, dimension_id)` | 唯一约束兼查询 |
 | eval_scores | `(dimension_id, ai_score)` | 按维度分析评分分布 |
@@ -1038,6 +1153,8 @@ erDiagram
 | eval_strategies | `UNIQUE (tool_code, name) WHERE deleted_at IS NULL` | 防重复 seed default（部分唯一索引） |
 | eval_strategies | `(kol_id)` | 按 kol 查 per-KOL 策略（未来） |
 | eval_strategies | `(business_type)` | 按业务类型查策略（未来） |
+| eval_judge_models | `(applicable_output_type, is_active, deleted_at)` | 按内容类型查候选评委 |
+| eval_judge_models | `UNIQUE (model_id, adapter) WHERE deleted_at IS NULL` | 防重复登记 |
 
 ---
 
@@ -1214,7 +1331,7 @@ _SESSION_LOCAL_PATCH_TARGETS = [
 
 1. **维度管理**：CRUD 维度，配置权重、分数范围、prompt_template。
 2. **Rubric 管理**：为每个维度定义各分数等级的标准，支持场景标签。
-3. **模型配置**：选择生成模型和评分模型（复用 `ai_models` 表）。
+3. **模型配置**：配置生成模型和评委模型（model_id 字符串 + provider + adapter，从 `eval_judge_models` 候选池选；**不读 ai_models**，见 §2.9）。
 4. **调度策略管理**：配置 cron 定时任务，写入前校验 cron 表达式。
 5. **版本管理**（版本快照不可编辑，只能创建/复制/软删）：
    - 列表：版本名、模型、创建时间
@@ -1283,8 +1400,11 @@ export const createTestCase = (data: any) => post('/operator/evaluation/test-cas
 | `generator.py` | 内部函数分派 | 未来可抽成 `ToolAdapter` 注册表 |
 | `scorer.py` | 通用维度评分 | 未来可支持工具专属 scorer |
 | 前端表单 | 为千川定制 | 未来可根据 schema 动态渲染 |
-| **`eval_strategies`（v2）** | **一期架构预留**：seed `default` 策略，run 绑定它，不暴露配置 UI | per-KOL / 业务套餐配置（待工作台引入业务模板层后挂载 `business_type`/`kol_id`）|
+| **`eval_strategies`（v2）** | **一期架构预留**：seed `default` 策略，run 绑定它，不暴露配置 UI | per-KOL / 业务评测策略配置（待工作台引入业务模板层后挂载 `business_type`/`kol_id`）|
 | **版本快照关联维护（v2）** | 只读调 `resolve_prompt`/`kol_context` 抠配置固化 | 未来工具模块自带版本号时直接对接 |
+| **rubric 场景变体（v2）** | 一期用 `default` 变体，`scenario_tag`/`rubric_selector` 结构预留 | 按业务场景切 rubric 细则（护肤/减肥…，见 §2.8.2）|
+| **评委模型管理（v2）** | 一期用 `config_payload.scoring_model_id`；`eval_judge_models` 建表预留、候选池后填 | 按内容类型选评委（文案→glm/kimi，视频→gemini/qwen）、专项调研产出候选清单（见 §2.9）|
+| **LLM 适配器抽象（v2）** | 一期仅 `YunwuAdapter`；`LLMAdapter` 接口 + `adapter_registry` 预留 | 并行接入 Gemini/Kimi/直连 OpenAI 等适配器，generator/scorer 不改（见 §2.9.2）|
 
 ### 8.2 未来插件化路线图
 
@@ -1404,7 +1524,7 @@ Phase 4（可选）：拆分为独立服务 / 中台
 |------|------|------|
 | 架构设计（v2） | `docs/superpowers/specs/2026-07-20-aigc-evaluation-system-design.md` | 本文件（v1 = `2026-07-17-...md` 保留） |
 | 实施计划（v2） | `docs/superpowers/plans/2026-07-20-aigc-evaluation.md` | 分阶段路线图 |
-| 数据模型关系图（v2） | `docs/evaluation/data-model-diagram-v2.html` | 浏览器直接打开查看 10 表关系图（v1 的 `data-model-diagram.html` 保留） |
+| 数据模型关系图（v2） | `docs/evaluation/data-model-diagram-v2.html` | 浏览器直接打开查看 11 表关系图（v1 的 `data-model-diagram.html` 保留） |
 | 接口契约 | `docs/evaluation/api-contract.md` | 新增接口定义 |
 | 数据库契约 | `docs/evaluation/database-schema.md` | 新增表结构 |
 | 架构与扩展路线 | `docs/evaluation/architecture.md` | 架构说明 + 插件化路线图 |
