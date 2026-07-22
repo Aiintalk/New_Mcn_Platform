@@ -81,6 +81,9 @@ _SESSION_LOCAL_PATCH_TARGETS = [
     "app.routers.operator_script_review.AsyncSessionLocal",
     "app.routers.operator_retrospective.AsyncSessionLocal",
     "app.routers.operator_qianchuan_preview.AsyncSessionLocal",
+    # AIGC 评测 Phase 3：runner 后台执行 run（持 session 写库）+ scheduler 自动/定时触发建 run
+    "app.evaluation.services.runner.AsyncSessionLocal",
+    "app.evaluation.services.scheduler.AsyncSessionLocal",
 ]
 
 
