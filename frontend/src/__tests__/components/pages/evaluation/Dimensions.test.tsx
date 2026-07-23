@@ -211,3 +211,115 @@ describe('DimensionsPage — 维度与 Rubric 交互', () => {
     });
   });
 });
+
+describe('DimensionsPage — 边界与错误路径', () => {
+  beforeEach(() => {
+    mockListDimensions.mockReset();
+    mockListRubrics.mockReset();
+    mockUpdateDimension.mockReset();
+    mockReplaceRubrics.mockReset();
+    mockCreateDimension.mockReset();
+    mockDeleteDimension.mockReset();
+  });
+
+  it('停用维度渲染 off 标签（覆盖 is_active=false 分支）', async () => {
+    mockListDimensions.mockResolvedValue([{ ...sampleDimensions[0], is_active: false }]);
+    mockListRubrics.mockResolvedValue(sampleRubrics);
+    renderWithProviders(<DimensionsPage />);
+    await waitFor(() => {
+      expect(screen.getByText('off')).toBeInTheDocument();
+    });
+  });
+
+  it('Rubric 无 default 场景时取第一个 scenario（覆盖分支 117）', async () => {
+    mockListDimensions.mockResolvedValue(sampleDimensions);
+    mockListRubrics.mockResolvedValue([
+      { id: 1, dimension_id: 1, level: 10, criteria: '护肤场景高分', scenario_tag: 'skincare', is_active: true, created_at: null, updated_at: null },
+    ]);
+    renderWithProviders(<DimensionsPage />);
+    await waitFor(() => {
+      expect(screen.getByText('护肤场景高分')).toBeInTheDocument();
+    });
+  });
+
+  it('Rubric 加载失败时提示错误', async () => {
+    mockListDimensions.mockResolvedValue(sampleDimensions);
+    mockListRubrics.mockRejectedValue(new Error('Rubric 拉取失败'));
+    renderWithProviders(<DimensionsPage />);
+    await waitFor(() => {
+      expect(screen.getByText(/Rubric 拉取失败/)).toBeInTheDocument();
+    });
+  });
+
+  it('保存全部修改失败时提示错误', async () => {
+    mockListDimensions.mockResolvedValue(sampleDimensions);
+    mockListRubrics.mockResolvedValue(sampleRubrics);
+    renderWithProviders(<DimensionsPage />);
+    await waitFor(() => expect(screen.getByText('文案质量')).toBeInTheDocument());
+    mockReplaceRubrics.mockRejectedValue(new Error('Rubric 保存失败'));
+    fireEvent.click(screen.getByText('保存全部修改'));
+    await waitFor(() => {
+      expect(screen.getByText(/Rubric 保存失败/)).toBeInTheDocument();
+    });
+  });
+
+  it('新建维度失败时提示错误', async () => {
+    mockListDimensions.mockResolvedValue(sampleDimensions);
+    mockListRubrics.mockResolvedValue(sampleRubrics);
+    renderWithProviders(<DimensionsPage />);
+    await waitFor(() => expect(screen.getByText('文案质量')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('新建维度'));
+    const nameInput = await screen.findByPlaceholderText('例：copy_quality');
+    fireEvent.change(nameInput, { target: { value: 'dup_name' } });
+    fireEvent.change(screen.getByPlaceholderText('例：文案质量'), { target: { value: '重名' } });
+    mockCreateDimension.mockRejectedValue(new Error('英文名已存在'));
+    fireEvent.click(screen.getByText(/创\s*建/));
+    await waitFor(() => {
+      expect(screen.getByText(/英文名已存在/)).toBeInTheDocument();
+    });
+  });
+
+  it('删除维度失败时提示错误', async () => {
+    mockListDimensions.mockResolvedValue(sampleDimensions);
+    mockListRubrics.mockResolvedValue(sampleRubrics);
+    renderWithProviders(<DimensionsPage />);
+    await waitFor(() => expect(screen.getByText('文案质量')).toBeInTheDocument());
+    mockDeleteDimension.mockRejectedValue(new Error('删除失败XYZ'));
+    const row = screen.getByText('文案质量').closest('tr')!;
+    fireEvent.click(within(row).getByText(/删\s*除/));
+    const confirmBtn = await screen.findByRole('button', { name: /软\s*删/ });
+    fireEvent.click(confirmBtn);
+    await waitFor(() => {
+      expect(screen.getByText(/删除失败XYZ/)).toBeInTheDocument();
+    });
+  });
+
+  it('编辑 rubric criteria 后保存（覆盖 handleUpdateDraft）', async () => {
+    mockListDimensions.mockResolvedValue(sampleDimensions);
+    mockListRubrics.mockResolvedValue(sampleRubrics);
+    mockReplaceRubrics.mockResolvedValue([]);
+    renderWithProviders(<DimensionsPage />);
+    await waitFor(() => expect(screen.getByText('文案质量')).toBeInTheDocument());
+    const criteriaInputs = screen.getAllByPlaceholderText(/开头 3 秒钩子极强/);
+    fireEvent.change(criteriaInputs[0], { target: { value: '改后的标准描述' } });
+    fireEvent.click(screen.getByText('保存全部修改'));
+    await waitFor(() => {
+      expect(mockReplaceRubrics.mock.calls[0][1].rubrics[0].criteria).toBe('改后的标准描述');
+    });
+  });
+
+  it('删除一条 rubric draft 后保存（覆盖 handleRemoveDraft）', async () => {
+    mockListDimensions.mockResolvedValue(sampleDimensions);
+    mockListRubrics.mockResolvedValue(sampleRubrics);
+    mockReplaceRubrics.mockResolvedValue([]);
+    renderWithProviders(<DimensionsPage />);
+    await waitFor(() => expect(screen.getByText('文案质量')).toBeInTheDocument());
+    const criteriaInputs = screen.getAllByPlaceholderText(/开头 3 秒钩子极强/);
+    const rubricRow = criteriaInputs[0].closest('tr')!;
+    fireEvent.click(within(rubricRow).getByText(/删\s*除/));
+    fireEvent.click(screen.getByText('保存全部修改'));
+    await waitFor(() => {
+      expect(mockReplaceRubrics.mock.calls[0][1].rubrics.length).toBe(2);
+    });
+  });
+});

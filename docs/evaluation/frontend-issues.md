@@ -127,29 +127,34 @@ npx vitest run src/__tests__/components/pages/evaluation/ src/__tests__/unit/api
 
 ---
 
-## 8. ✅ 已解决 — 页面交互处理函数覆盖率补齐（函数覆盖 57% → 77%）
+## 8. ✅ 已解决 — 页面交互覆盖率补齐到高位（语句 79% → 97.5%，函数 57% → 85%）
 
-**处理结果（2026-07-23 测试加固）**：为 5 个交互页面补齐 happy/error/boundary 交互测试（+26 用例），函数覆盖率显著提升。**测试中发现并修复 1 个 P0 缺陷**（见 #10）。
+**处理结果（2026-07-23 两轮测试加固）**：逐页补齐 happy / error / boundary 交互测试 + 共享原语单测，覆盖率达高位。**测试中发现并修复 1 个 P0 缺陷**（见 #10）。
 
-**评测模块覆盖率（`src/evaluation/**`，10 测试文件 / 83 用例全通过）**：
+**评测模块覆盖率（`src/evaluation/**`，11 测试文件 / 146 用例全通过）**：
 
 | 区域 | Stmts | Branch | Funcs | Lines |
 |------|-------|--------|-------|-------|
-| **评测模块整体** | **93.3%** | **76.9%** | **76.7%** | **93.3%** |
-| `api/index.ts` | 100% | 97.4% | 100% | 100% |
-| `components/primitives.tsx` | 95.5% | 71.1% | 100% | 95.5% |
-| `pages/TestCases.tsx` | 98.7% | 77.8% | 64.3% | 98.7% |
+| **评测模块整体** | **97.5%** | **85.6%** | **85.2%** | **97.5%** |
+| `api/index.ts` | 100% | 100% | 100% | 100% |
+| `components/primitives.tsx` | 100% | 96.2% | 100% | 100% |
+| `pages/Compare.tsx` | 99.0% | 78.3% | 91.7% | 99.0% |
+| `pages/Dimensions.tsx` | 100% | 90.1% | 76.5% | 100% |
+| `pages/Runs.tsx` | 98.7% | 85.5% | 80.0% | 98.7% |
 | `pages/Schedules.tsx` | 97.2% | 85.7% | 90.5% | 97.2% |
-| `pages/TestCaseEdit.tsx` | 96.6% | 75.0% | 60.0% | 96.6% |
-| `pages/Dimensions.tsx` | 96.0% | 79.5% | 64.7% | 96.0% |
-| `pages/Versions.tsx` | 93.6% | 60.3% | 81.8% | 93.6% |
-| `pages/Compare.tsx` | 93.8% | 71.4% | 75.0% | 93.8% |
-| `pages/Runs.tsx` | 86.3% | 75.0% | 55.0% | 86.3% |
-| `pages/RunDetail.tsx` | 84.5% | 80.5% | 70.6% | 84.5% |
+| `pages/TestCaseEdit.tsx` | 100% | 79.4% | 70.0% | 100% |
+| `pages/TestCases.tsx` | 100% | 88.4% | 85.7% | 100% |
+| `pages/Versions.tsx` | 100% | 74.3% | 86.4% | 100% |
+| `pages/RunDetail.tsx` | 86.4% | 86.8% | 70.6% | 86.4% |
 
-**交互覆盖提升（funcs）**：TestCaseEdit 10%→60% · Dimensions 33%→65% · RunDetail 41%→71% · Versions 43%→82% · Schedules 50%→90%。
+**全量回归**：`tsc --noEmit` 0 错误；前端全量 48 文件 / 455 用例全通过，0 回归。
 
-**剩余低优先级**：`Runs.tsx`（55% funcs，触发抽屉交互未补）可在下轮补；`Versions.tsx` 分支覆盖 60%（config_payload 覆盖 JSON 解析分支）。均不阻塞。
+**交互覆盖提升（funcs，两轮合计）**：Runs 55%→80% · TestCaseEdit 10%→70% · Dimensions 33%→76% · TestCases 64%→86% · Versions 43%→86% · Schedules 50%→90% · Compare 75%→92%。
+
+**剩余低优先级（不阻塞，边际收益低）**：
+- `RunDetail.tsx` funcs 70% — 未覆盖部分是 `RadarChart` SVG 绘制（459-521），测试价值低。
+- `Versions.tsx` branch 74% / `TestCaseEdit.tsx` branch 79% — 剩余为 `handleCreate`/`handleClone` 体内防御性 `?? null`/`?? false` 兜底分支（表单值恒存在，分支不可达）。
+- `Dimensions.tsx` funcs 76% — 剩余为内联箭头函数渲染回调。
 
 ---
 

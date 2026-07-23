@@ -7,6 +7,7 @@ import { App as AntApp } from 'antd';
 import { MemoryRouter } from 'react-router-dom';
 
 const mockListTestCases = vi.fn();
+const mockNavigate = vi.fn();
 
 vi.mock('../../../../evaluation/api', () => ({
   listTestCases: (...args: unknown[]) => mockListTestCases(...args),
@@ -17,7 +18,7 @@ vi.mock('../../../../evaluation/api', () => ({
 
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
-  return { ...actual, useNavigate: () => vi.fn() };
+  return { ...actual, useNavigate: () => mockNavigate };
 });
 
 import TestCasesPage from '../../../../evaluation/pages/TestCases';
@@ -102,5 +103,89 @@ describe('TestCasesPage', () => {
     fireEvent.change(searchInput, { target: { value: '焦虑型' } });
     expect(screen.getByText('焦虑型 · 美妆精华开屏')).toBeInTheDocument();
     expect(screen.queryByText('诱惑型 · 护肤套装促销量')).not.toBeInTheDocument();
+  });
+});
+
+describe('TestCasesPage — 交互与边界渲染', () => {
+  beforeEach(() => {
+    mockListTestCases.mockReset();
+    mockNavigate.mockReset();
+  });
+
+  // 含一个无描述 + 无标签的样本（覆盖 113 / 124 渲染分支）
+  const pageWithEmpty = {
+    items: [
+      ...samplePage.items,
+      {
+        id: 3,
+        tool_code: 'qianchuan-writer',
+        name: '裸样本无描述无标签',
+        description: null,
+        input_payload: {},
+        expected_output: null,
+        tags: [],
+        is_active: true,
+        created_by: 1,
+        updated_by: 1,
+        created_at: '2026-07-16T14:22:00Z',
+        updated_at: '2026-07-16T14:22:00Z',
+        deleted_at: null,
+      },
+    ],
+    pagination: { page: 1, page_size: 20, total: 3, total_pages: 1 },
+  };
+
+  it('无描述 / 无标签样本正常渲染（覆盖分支）', async () => {
+    mockListTestCases.mockResolvedValue(pageWithEmpty);
+    renderWithProviders(<TestCasesPage />);
+    await waitFor(() => {
+      expect(screen.getByText('裸样本无描述无标签')).toBeInTheDocument();
+    });
+  });
+
+  it('点击「新建样本」跳转新建页', async () => {
+    mockListTestCases.mockResolvedValue(samplePage);
+    renderWithProviders(<TestCasesPage />);
+    await waitFor(() => expect(screen.getByText('焦虑型 · 美妆精华开屏')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('新建样本'));
+    expect(mockNavigate).toHaveBeenCalledWith('/evaluation/test-cases/new');
+  });
+
+  it('点击「编辑」跳转编辑页', async () => {
+    mockListTestCases.mockResolvedValue(samplePage);
+    renderWithProviders(<TestCasesPage />);
+    await waitFor(() => expect(screen.getByText('焦虑型 · 美妆精华开屏')).toBeInTheDocument());
+    fireEvent.click(screen.getAllByText('编辑')[0]);
+    expect(mockNavigate).toHaveBeenCalledWith('/evaluation/test-cases/1/edit');
+  });
+
+  it('状态过滤：仅启用 / 仅停用', async () => {
+    mockListTestCases.mockResolvedValue(samplePage);
+    renderWithProviders(<TestCasesPage />);
+    await waitFor(() => expect(screen.getByText('焦虑型 · 美妆精华开屏')).toBeInTheDocument());
+    // 选「已停用」→ 只剩诱惑型（is_active=false）
+    const statusSelect = screen.getAllByText('全部状态')[0].closest('.ant-select-selector')!;
+    fireEvent.mouseDown(statusSelect);
+    fireEvent.click(await screen.findByText('已停用'));
+    await waitFor(() => {
+      expect(screen.queryByText('焦虑型 · 美妆精华开屏')).not.toBeInTheDocument();
+      expect(screen.getByText('诱惑型 · 护肤套装促销量')).toBeInTheDocument();
+    });
+  });
+
+  it('分页切换触发重新加载（覆盖 pagination onChange）', async () => {
+    mockListTestCases.mockResolvedValue({
+      items: samplePage.items,
+      pagination: { page: 1, page_size: 20, total: 25, total_pages: 2 },
+    });
+    const { container } = renderWithProviders(<TestCasesPage />);
+    await waitFor(() => expect(screen.getByText('焦虑型 · 美妆精华开屏')).toBeInTheDocument());
+    // 点下一页（AntD pagination next 按钮）
+    const nextBtn = container.querySelector('.ant-pagination-next') as HTMLElement;
+    expect(nextBtn).toBeTruthy();
+    fireEvent.click(nextBtn);
+    await waitFor(() => {
+      expect(mockListTestCases).toHaveBeenCalledWith(expect.objectContaining({ page: 2 }));
+    });
   });
 });

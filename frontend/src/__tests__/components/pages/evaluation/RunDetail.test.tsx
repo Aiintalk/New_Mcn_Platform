@@ -238,3 +238,38 @@ describe('RunDetailPage — 人工校准交互', () => {
     });
   });
 });
+
+describe('RunDetailPage — 边界渲染', () => {
+  beforeEach(() => {
+    mockGetRun.mockReset();
+    mockListRunScores.mockReset();
+    mockSubmitHumanLabel.mockReset();
+  });
+
+  it('无 AI 评分数据时维度概览显示空状态（覆盖 dimensionAgg 空）', async () => {
+    mockGetRun.mockResolvedValue(sampleRun);
+    mockListRunScores.mockResolvedValue([
+      { ...sampleScores[0], ai_score: null },
+    ]);
+    renderWithProviders(<RunDetailPage />);
+    await waitFor(() => {
+      expect(screen.getByText('暂无评分数据')).toBeInTheDocument();
+    });
+  });
+
+  it('校准抽屉展示 AI 优缺点（覆盖 strengths/weaknesses 渲染）', async () => {
+    mockGetRun.mockResolvedValue(sampleRun);
+    mockListRunScores.mockResolvedValue([
+      {
+        ...sampleScores[0],
+        ai_strengths: ['钩子强'],
+        ai_weaknesses: ['结尾弱'],
+      },
+    ]);
+    renderWithProviders(<RunDetailPage />);
+    await waitFor(() => expect(screen.getByText('核心集全量回归')).toBeInTheDocument());
+    fireEvent.click(screen.getAllByText(/校准 d1/)[0]);
+    expect(await screen.findByText(/优点：钩子强/)).toBeInTheDocument();
+    expect(screen.getByText(/缺点：结尾弱/)).toBeInTheDocument();
+  });
+});

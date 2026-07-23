@@ -248,3 +248,60 @@ describe('TestCaseEditPage — 表单提交与标签交互', () => {
     expect(screen.queryByText(/六/)).not.toBeInTheDocument();
   });
 });
+
+describe('TestCaseEditPage — 边界与错误路径', () => {
+  beforeEach(() => {
+    mockListTestCases.mockReset();
+    mockCreateTestCase.mockReset();
+    mockUpdateTestCase.mockReset();
+    mockUseParams.mockReset();
+    mockNavigate.mockReset();
+    mockUseParams.mockReturnValue({ id: 'new' });
+  });
+
+  it('编辑模式样本不存在时提示并跳转（覆盖 not-found 分支）', async () => {
+    mockUseParams.mockReturnValue({ id: '999' });
+    mockListTestCases.mockResolvedValue({
+      items: [
+        {
+          id: 5,
+          tool_code: 'qianchuan-writer',
+          name: '别的样本',
+          input_payload: {},
+          tags: ['x'],
+          is_active: true,
+          created_by: 1,
+          updated_by: 1,
+          created_at: 't',
+          updated_at: 't',
+          deleted_at: null,
+        },
+      ],
+      pagination: { page: 1, page_size: 50, total: 1, total_pages: 1 },
+    });
+    renderWithProviders(<TestCaseEditPage />, ['/evaluation/test-cases/999/edit']);
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith('/evaluation/test-cases');
+    });
+  });
+
+  it('未加标签提交时阻止并提示（覆盖 tags 空校验）', async () => {
+    renderWithProviders(<TestCaseEditPage />);
+    fireEvent.change(screen.getByPlaceholderText(/美妆精华开屏/), { target: { value: '无名样本' } });
+    fireEvent.click(screen.getAllByText(/保\s*存/)[0]);
+    await waitFor(() => {
+      expect(screen.getByText(/至少一个标签/)).toBeInTheDocument();
+    });
+    expect(mockCreateTestCase).not.toHaveBeenCalled();
+  });
+
+  it('删除已添加的标签（覆盖 Tag onClose）', () => {
+    const { container } = renderWithProviders(<TestCaseEditPage />);
+    const tagInput = screen.getByTestId('tag-input');
+    fireEvent.change(tagInput, { target: { value: '焦虑型' } });
+    fireEvent.keyDown(tagInput, { key: 'Enter' });
+    expect(screen.getByText(/焦虑型/)).toBeInTheDocument();
+    fireEvent.click(container.querySelector('.ant-tag-close-icon')!);
+    expect(screen.queryByText(/焦虑型/)).not.toBeInTheDocument();
+  });
+});

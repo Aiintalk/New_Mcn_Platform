@@ -91,3 +91,68 @@ describe('ComparePage', () => {
     });
   });
 });
+
+describe('ComparePage — 交互与边界', () => {
+  beforeEach(() => {
+    mockCompareRuns.mockReset();
+  });
+
+  function findCompareButton(container: HTMLElement): HTMLElement {
+    for (const b of Array.from(container.querySelectorAll('button'))) {
+      if ((b.textContent ?? '').replace(/\s+/g, '').trim() === '对比') return b as HTMLElement;
+    }
+    throw new Error('未找到「对比」按钮');
+  }
+
+  it('对比失败时提示错误', async () => {
+    mockCompareRuns.mockRejectedValue(new Error('对比接口失败'));
+    const { container } = renderWithProviders(<ComparePage />);
+    fireEvent.click(findCompareButton(container));
+    await waitFor(() => {
+      expect(screen.getByText(/对比接口失败/)).toBeInTheDocument();
+    });
+  });
+
+  it('交换 A/B 后再次对比用交换后的 id', async () => {
+    mockCompareRuns.mockResolvedValue(sampleReport);
+    const { container } = renderWithProviders(<ComparePage />);
+    fireEvent.click(findCompareButton(container));
+    await waitFor(() => expect(screen.getByText('维度差异')).toBeInTheDocument());
+    // 点「交换 A / B」
+    fireEvent.click(screen.getByText(/交换/));
+    fireEvent.click(findCompareButton(container));
+    await waitFor(() => {
+      expect(mockCompareRuns).toHaveBeenLastCalledWith(2, 1);
+    });
+  });
+
+  it('维度差异为空时显示空状态', async () => {
+    mockCompareRuns.mockResolvedValue({ ...sampleReport, dimension_deltas: [] });
+    const { container } = renderWithProviders(<ComparePage />);
+    fireEvent.click(findCompareButton(container));
+    await waitFor(() => {
+      expect(screen.getByText('暂无维度数据')).toBeInTheDocument();
+    });
+  });
+
+  it('总体下降（overall_delta < 0）渲染恶化色', async () => {
+    mockCompareRuns.mockResolvedValue({ ...sampleReport, overall_delta: -0.6 });
+    const { container } = renderWithProviders(<ComparePage />);
+    fireEvent.click(findCompareButton(container));
+    await waitFor(() => {
+      expect(screen.getByText(/-0\.60/)).toBeInTheDocument();
+    });
+  });
+
+  it('清空 run id 时阻止并提示（覆盖 null 分支）', async () => {
+    mockCompareRuns.mockResolvedValue(sampleReport);
+    const { container } = renderWithProviders(<ComparePage />);
+    // 清空 runA
+    const inputs = screen.getAllByRole('spinbutton');
+    fireEvent.change(inputs[0], { target: { value: '' } });
+    fireEvent.click(findCompareButton(container));
+    await waitFor(() => {
+      expect(mockCompareRuns).not.toHaveBeenCalled();
+    });
+  });
+});

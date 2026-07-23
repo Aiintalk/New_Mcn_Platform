@@ -109,6 +109,14 @@ describe('evaluation API — 版本 (admin/operator)', () => {
     expect(mockGet).toHaveBeenCalledWith('/api/operator/evaluation/versions', undefined);
   });
 
+  it('listVersionsOperator 传 toolCode 时带 query', async () => {
+    mockGet.mockResolvedValue([]);
+    await listVersionsOperator('qianchuan-writer');
+    expect(mockGet).toHaveBeenCalledWith('/api/operator/evaluation/versions', {
+      tool_code: 'qianchuan-writer',
+    });
+  });
+
   it('getVersion calls GET admin/versions/:id', async () => {
     mockGet.mockResolvedValue({ id: 3 });
     await getVersion(3);
