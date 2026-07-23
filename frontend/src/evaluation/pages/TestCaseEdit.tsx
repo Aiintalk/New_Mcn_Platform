@@ -27,7 +27,6 @@ interface FormValues {
   selling_points?: string;
   reference_script?: string;
   messages?: string; // JSON 字符串
-  tags: string[];
   expected_output?: string;
   is_active: boolean;
 }
@@ -51,6 +50,7 @@ export default function TestCaseEditPage() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [tagInput, setTagInput] = useState('');
+  const [tags, setTags] = useState<string[]>([]);
 
   // 加载已有样本（编辑模式）
   useEffect(() => {
@@ -77,10 +77,10 @@ export default function TestCaseEditPage() {
           selling_points: (ip.selling_points as string | undefined) ?? '',
           reference_script: (ip.reference_script as string | undefined) ?? '',
           messages: ip.messages ? JSON.stringify(ip.messages, null, 2) : DEFAULT_MESSAGES,
-          tags: found.tags ?? [],
           expected_output: found.expected_output ? JSON.stringify(found.expected_output, null, 2) : '',
           is_active: found.is_active,
         });
+        setTags(found.tags ?? []);
       } catch (err) {
         const msg = err instanceof Error ? err.message : '加载失败';
         message.error(msg);
@@ -96,20 +96,23 @@ export default function TestCaseEditPage() {
   const handleAddTag = () => {
     const v = tagInput.trim();
     if (!v) return;
-    const current = form.getFieldValue('tags') ?? [];
-    if (current.includes(v)) {
+    if (tags.includes(v)) {
       setTagInput('');
       return;
     }
-    if (current.length >= 5) {
+    if (tags.length >= 5) {
       message.warning('标签最多 5 个');
       return;
     }
-    form.setFieldValue('tags', [...current, v]);
+    setTags([...tags, v]);
     setTagInput('');
   };
 
   const handleSave = async (values: FormValues) => {
+    if (tags.length === 0) {
+      message.error('至少一个标签，便于按场景筛选');
+      return;
+    }
     // 校验 messages JSON
     let messagesJson: unknown = null;
     if (values.messages) {
@@ -147,7 +150,7 @@ export default function TestCaseEditPage() {
           description: values.description ?? null,
           input_payload,
           expected_output: expectedJson,
-          tags: values.tags,
+          tags,
           is_active: values.is_active,
         };
         await updateTestCase(testCaseId, body);
@@ -159,7 +162,7 @@ export default function TestCaseEditPage() {
           description: values.description ?? null,
           input_payload,
           expected_output: expectedJson,
-          tags: values.tags,
+          tags,
           is_active: values.is_active,
         };
         await createTestCase(body);
@@ -215,7 +218,6 @@ export default function TestCaseEditPage() {
           selling_points: '',
           reference_script: '',
           messages: DEFAULT_MESSAGES,
-          tags: [],
           expected_output: '',
           is_active: true,
         }}
@@ -278,55 +280,43 @@ export default function TestCaseEditPage() {
         </Card>
 
         <Card title="标签 & 期望输出" styles={{ body: { padding: 24 } }}>
-          <Form.Item
-            name="tags"
-            label="标签 tags"
-            rules={[{ required: true, message: '至少一个标签，便于按场景筛选' }]}
-          >
-            <Form.Item name="tags" noStyle>
-              <div className="tag-input" style={{ minHeight: 40 }}>
-                <Form.Item name="tags" noStyle shouldUpdate>
-                  {() => {
-                    const tags = form.getFieldValue('tags') ?? [];
-                    return tags.map((t: string) => (
-                      <Tag
-                        key={t}
-                        closable
-                        onClose={(e) => {
-                          e.preventDefault();
-                          const next = tags.filter((x: string) => x !== t);
-                          form.setFieldValue('tags', next);
-                        }}
-                        style={{ margin: 2 }}
-                      >
-                        {t}
-                      </Tag>
-                    ));
+          <Form.Item label="标签 tags" required>
+            <div className="tag-input" style={{ minHeight: 40 }}>
+              {tags.map((t: string) => (
+                <Tag
+                  key={t}
+                  closable
+                  onClose={(e) => {
+                    e.preventDefault();
+                    setTags(tags.filter((x: string) => x !== t));
                   }}
-                </Form.Item>
-                <input
-                  data-testid="tag-input"
-                  placeholder="+ 添加标签（回车确认）"
-                  value={tagInput}
-                  onChange={(e) => setTagInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      handleAddTag();
-                    }
-                  }}
-                  style={{
-                    border: 'none',
-                    outline: 'none',
-                    flex: 1,
-                    minWidth: 160,
-                    fontSize: 13,
-                    padding: 2,
-                    background: 'transparent',
-                  }}
-                />
-              </div>
-            </Form.Item>
+                  style={{ margin: 2 }}
+                >
+                  {t}
+                </Tag>
+              ))}
+              <input
+                data-testid="tag-input"
+                placeholder="+ 添加标签（回车确认）"
+                value={tagInput}
+                onChange={(e) => setTagInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleAddTag();
+                  }
+                }}
+                style={{
+                  border: 'none',
+                  outline: 'none',
+                  flex: 1,
+                  minWidth: 160,
+                  fontSize: 13,
+                  padding: 2,
+                  background: 'transparent',
+                }}
+              />
+            </div>
           </Form.Item>
           <div className="text-xs text-muted" style={{ marginTop: -8, marginBottom: 16 }}>
             最多 5 个标签。按回车添加。

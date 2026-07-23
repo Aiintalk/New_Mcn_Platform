@@ -127,20 +127,29 @@ npx vitest run src/__tests__/components/pages/evaluation/ src/__tests__/unit/api
 
 ---
 
-## 8. 页面交互处理函数覆盖率偏低（独立迭代项）
+## 8. ✅ 已解决 — 页面交互处理函数覆盖率补齐（函数覆盖 57% → 77%）
 
-**现象（2026-07-22 PM 覆盖率核实）**：页面层语句/分支覆盖合理（64–99%），但**函数覆盖**集中在渲染/加载/错误路径，核心交互处理函数（表单提交、抽屉开关、批量替换、cron 校验）多为单测未触达。这些路径的正确性目前由 E2E smoke（#9）+ 人工 QA 兜底。
+**处理结果（2026-07-23 测试加固）**：为 5 个交互页面补齐 happy/error/boundary 交互测试（+26 用例），函数覆盖率显著提升。**测试中发现并修复 1 个 P0 缺陷**（见 #10）。
 
-**待补交互测试（按缺口大小排序）**：
-| 页面 | Funcs 覆盖 | 待覆盖核心交互 |
-|------|-----------|---------------|
-| `TestCaseEdit.tsx` | 10% | `handleSave`（新建/编辑提交 + JSON 校验）、`handleAddTag` |
-| `Dimensions.tsx` | 33% | RubricEditor 增/删/整批替换、`handleSaveDimension` |
-| `RunDetail.tsx` | 41% | `handleSaveCalibration`（人工校准提交，对应一期 C 能力）、`openCalibrate` |
-| `Versions.tsx` | 43% | 创建抽屉提交、clone、`handleToggleActive` |
-| `Schedules.tsx` | 50% | `handleSavePolicy`、croniter 客户端预校验分支 |
+**评测模块覆盖率（`src/evaluation/**`，10 测试文件 / 83 用例全通过）**：
 
-**建议**：按上表逐页补 `userEvent` 交互测试（参考 `src/__tests__/unit/api/*.test.ts` 的 mock 模式）。优先 RunDetail（人工校准 = 一期 C 能力核心）与 TestCaseEdit（CRUD 主流程）。
+| 区域 | Stmts | Branch | Funcs | Lines |
+|------|-------|--------|-------|-------|
+| **评测模块整体** | **93.3%** | **76.9%** | **76.7%** | **93.3%** |
+| `api/index.ts` | 100% | 97.4% | 100% | 100% |
+| `components/primitives.tsx` | 95.5% | 71.1% | 100% | 95.5% |
+| `pages/TestCases.tsx` | 98.7% | 77.8% | 64.3% | 98.7% |
+| `pages/Schedules.tsx` | 97.2% | 85.7% | 90.5% | 97.2% |
+| `pages/TestCaseEdit.tsx` | 96.6% | 75.0% | 60.0% | 96.6% |
+| `pages/Dimensions.tsx` | 96.0% | 79.5% | 64.7% | 96.0% |
+| `pages/Versions.tsx` | 93.6% | 60.3% | 81.8% | 93.6% |
+| `pages/Compare.tsx` | 93.8% | 71.4% | 75.0% | 93.8% |
+| `pages/Runs.tsx` | 86.3% | 75.0% | 55.0% | 86.3% |
+| `pages/RunDetail.tsx` | 84.5% | 80.5% | 70.6% | 84.5% |
+
+**交互覆盖提升（funcs）**：TestCaseEdit 10%→60% · Dimensions 33%→65% · RunDetail 41%→71% · Versions 43%→82% · Schedules 50%→90%。
+
+**剩余低优先级**：`Runs.tsx`（55% funcs，触发抽屉交互未补）可在下轮补；`Versions.tsx` 分支覆盖 60%（config_payload 覆盖 JSON 解析分支）。均不阻塞。
 
 ---
 
@@ -171,4 +180,25 @@ cd frontend && npx playwright test evaluation-smoke.spec.ts
 - `destroyOnClose` → `destroyOnHidden`（6 处，antd 5.29.3 支持）
 - `Input.Group compact` → flex `div`（Dimensions.tsx 分数区间，保留原行内布局）
 - 清理后 `tsc --noEmit` 0 错误，5 个受影响页面测试 15/15 通过，控制台 deprecation 警告清零
+
+---
+
+## 10. 🔴 已修复 P0 — TestCaseEdit 标签提交发送字符串而非数组（2026-07-23 测试发现）
+
+**现象**：测试「填名称+标签后保存」时断言失败，`createTestCase` 收到 `tags: "焦虑型"`（**字符串**），期望 `tags: ["焦虑型"]`（数组）。
+
+**根因**：标签输入控件用了三层嵌套的同名 `Form.Item name="tags"`（外层校验 / 中层 / 内层 `shouldUpdate` 渲染）。AntD 把中层 Form.Item 的子节点——一个原生 `<input data-testid="tag-input">`——绑定成了 `tags` 字段控件：键入文本直接把表单 `tags` 置为字符串；`handleAddTag` 读 `getFieldValue('tags')` 得到字符串后 `.includes()` 短路，永远不追加成数组。
+
+**影响（生产）**：后端 `EvalTestCaseCreate.tags: list[str]`，前端若发字符串 → FastAPI 422，**测试样本创建/编辑接口会失败**。属 P0。
+
+**修复**（`frontend/src/evaluation/pages/TestCaseEdit.tsx`，最小改动）：
+- 标签改为独立 React state `tags: string[]`（脱离表单绑定）
+- `handleAddTag` / Tag 关闭 / 编辑回填 / `handleSave` body 全部改用 state
+- 渲染块改为单一无 `name` 的 `Form.Item`（仅 label，不绑字段）+ state 驱动
+- 移除 `FormValues.tags` 与 `initialValues.tags`（孤儿清理）
+- 新增空标签校验（`handleSave` 入口）
+
+**验证**：`TestCaseEdit.test.tsx` 11/11 通过；全量 390/391（唯一失败为既有 SeedingWriter flake，隔离重跑 23/23 通过，与本次无关）。`tsc --noEmit` 0 错误。
+
+**教训**：交互测试触达真实提交路径，才暴露了这个"渲染正常但提交数据结构错"的缺陷——单测只验渲染覆盖不到。这正是「测试质量 > 数量」要拦的案例。
 

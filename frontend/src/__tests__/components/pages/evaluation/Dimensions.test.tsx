@@ -2,7 +2,7 @@
  * Dimensions 页面测试（admin）
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { App as AntApp } from 'antd';
 import { MemoryRouter } from 'react-router-dom';
 
@@ -107,6 +107,107 @@ describe('DimensionsPage', () => {
     renderWithProviders(<DimensionsPage />);
     await waitFor(() => {
       expect(screen.getByText('暂无维度，点击右上角「新建维度」开始')).toBeInTheDocument();
+    });
+  });
+});
+
+describe('DimensionsPage — 维度与 Rubric 交互', () => {
+  beforeEach(() => {
+    mockListDimensions.mockReset();
+    mockListRubrics.mockReset();
+    mockUpdateDimension.mockReset();
+    mockReplaceRubrics.mockReset();
+    mockCreateDimension.mockReset();
+    mockDeleteDimension.mockReset();
+  });
+
+  async function renderLoaded() {
+    mockListDimensions.mockResolvedValue(sampleDimensions);
+    mockListRubrics.mockResolvedValue(sampleRubrics);
+    renderWithProviders(<DimensionsPage />);
+    await waitFor(() => expect(screen.getByText('文案质量')).toBeInTheDocument());
+  }
+
+  it('保存维度配置调用 updateDimension', async () => {
+    await renderLoaded();
+    mockUpdateDimension.mockResolvedValue({});
+    fireEvent.click(screen.getByText('保存配置'));
+    await waitFor(() => {
+      expect(mockUpdateDimension).toHaveBeenCalledWith(
+        1,
+        expect.objectContaining({ name: 'copy_quality', display_name: '文案质量' }),
+      );
+    });
+    await waitFor(() => {
+      expect(screen.getByText(/维度配置已保存/)).toBeInTheDocument();
+    });
+  });
+
+  it('保存全部修改调用 replaceRubrics（整批 3 条）', async () => {
+    await renderLoaded();
+    mockReplaceRubrics.mockResolvedValue([]);
+    fireEvent.click(screen.getByText('保存全部修改'));
+    await waitFor(() => {
+      expect(mockReplaceRubrics).toHaveBeenCalledWith(
+        1,
+        expect.objectContaining({ rubrics: expect.any(Array) }),
+      );
+      expect(mockReplaceRubrics.mock.calls[0][1].rubrics.length).toBe(3);
+    });
+    await waitFor(() => {
+      expect(screen.getByText(/Rubric 已保存/)).toBeInTheDocument();
+    });
+  });
+
+  it('添加等级后再保存，replaceRubrics 含 4 条', async () => {
+    await renderLoaded();
+    mockReplaceRubrics.mockResolvedValue([]);
+    fireEvent.click(screen.getByText('添加等级'));
+    fireEvent.click(screen.getByText('保存全部修改'));
+    await waitFor(() => {
+      expect(mockReplaceRubrics.mock.calls[0][1].rubrics.length).toBe(4);
+    });
+  });
+
+  it('保存维度配置失败时提示错误', async () => {
+    await renderLoaded();
+    mockUpdateDimension.mockRejectedValue(new Error('校验失败'));
+    fireEvent.click(screen.getByText('保存配置'));
+    await waitFor(() => {
+      expect(screen.getByText(/校验失败/)).toBeInTheDocument();
+    });
+  });
+
+  it('新建维度：填必填项后创建调用 createDimension', async () => {
+    await renderLoaded();
+    fireEvent.click(screen.getByText('新建维度'));
+    const nameInput = await screen.findByPlaceholderText('例：copy_quality');
+    fireEvent.change(nameInput, { target: { value: 'persona_fit' } });
+    fireEvent.change(screen.getByPlaceholderText('例：文案质量'), { target: { value: '人设一致性' } });
+    mockCreateDimension.mockResolvedValue({});
+    // Modal okText="创建"（2 字 → "创 建"）
+    fireEvent.click(screen.getByText(/创\s*建/));
+    await waitFor(() => {
+      expect(mockCreateDimension).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'persona_fit', display_name: '人设一致性', tool_code: 'qianchuan-writer' }),
+      );
+    });
+    await waitFor(() => {
+      expect(screen.getByText(/维度已创建/)).toBeInTheDocument();
+    });
+  });
+
+  it('删除维度：确认后调用 deleteDimension', async () => {
+    await renderLoaded();
+    mockDeleteDimension.mockResolvedValue({});
+    // 维度行与 rubric 行都有「删除」按钮，用 within 限定到维度行（display_name 文案质量）
+    const dimRow = screen.getByText('文案质量').closest('tr')!;
+    fireEvent.click(within(dimRow).getByText(/删\s*除/));
+    // 确认弹窗 okText="软删"（2 字 → "软 删"）；title 也含「软删」，用 role=button 精确命中按钮
+    const confirmBtn = await screen.findByRole('button', { name: /软\s*删/ });
+    fireEvent.click(confirmBtn);
+    await waitFor(() => {
+      expect(mockDeleteDimension).toHaveBeenCalledWith(1);
     });
   });
 });

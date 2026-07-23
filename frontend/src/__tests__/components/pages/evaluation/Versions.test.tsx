@@ -2,7 +2,7 @@
  * Versions 页面测试（admin）
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { App as AntApp } from 'antd';
 import { MemoryRouter } from 'react-router-dom';
 
@@ -98,6 +98,85 @@ describe('VersionsPage', () => {
     renderWithProviders(<VersionsPage />);
     await waitFor(() => {
       expect(screen.getByText('暂无版本快照')).toBeInTheDocument();
+    });
+  });
+});
+
+describe('VersionsPage — 创建 / 克隆 / 删除交互', () => {
+  beforeEach(() => {
+    mockListVersionsAdmin.mockReset();
+    mockListDimensions.mockReset();
+    mockDeleteVersion.mockReset();
+    mockCreateVersion.mockReset();
+    mockCloneVersion.mockReset();
+  });
+
+  async function renderLoaded() {
+    mockListVersionsAdmin.mockResolvedValue(sampleVersions);
+    mockListDimensions.mockResolvedValue([]);
+    renderWithProviders(<VersionsPage />);
+    await waitFor(() => expect(screen.getByText('v1.3-行动引导')).toBeInTheDocument());
+  }
+
+  it('新建版本：填版本名后创建调用 createVersion', async () => {
+    await renderLoaded();
+    fireEvent.click(screen.getByText('新建版本'));
+    const nameInput = await screen.findByPlaceholderText('例：v1.3-行动引导');
+    fireEvent.change(nameInput, { target: { value: 'v1.4-人设强化' } });
+    mockCreateVersion.mockResolvedValue({ id: 14, name: 'v1.4-人设强化' });
+    fireEvent.click(screen.getByText('创建版本'));
+    await waitFor(() => {
+      expect(mockCreateVersion).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'v1.4-人设强化', tool_code: 'qianchuan-writer' }),
+      );
+    });
+    await waitFor(() => {
+      expect(screen.getByText(/已创建/)).toBeInTheDocument();
+    });
+  });
+
+  it('复制为新版本：自动带出 -copy 名后调用 cloneVersion', async () => {
+    await renderLoaded();
+    mockCloneVersion.mockResolvedValue({ id: 14, name: 'v1.3-行动引导-copy' });
+    // 第一行（id=13）的「复制为新版本」按钮
+    fireEvent.click(screen.getAllByText('复制为新版本')[0]);
+    // 抽屉打开，cloneForm 自动填 name = `${原name}-copy`
+    const nameInput = await screen.findByDisplayValue('v1.3-行动引导-copy');
+    expect(nameInput).toBeInTheDocument();
+    fireEvent.click(screen.getByText('创建副本'));
+    await waitFor(() => {
+      expect(mockCloneVersion).toHaveBeenCalledWith(
+        13,
+        expect.objectContaining({ name: 'v1.3-行动引导-copy' }),
+      );
+    });
+    await waitFor(() => {
+      expect(screen.getByText(/已复制为新版本/)).toBeInTheDocument();
+    });
+  });
+
+  it('删除版本：确认后调用 deleteVersion', async () => {
+    await renderLoaded();
+    mockDeleteVersion.mockResolvedValue({});
+    // 用 within 限定到 id=13 版本行（「删除」按钮 2 字 → "删 除"）
+    const row = screen.getByText('v1.3-行动引导').closest('tr')!;
+    fireEvent.click(within(row).getByText(/删\s*除/));
+    const confirmBtn = await screen.findByRole('button', { name: /软\s*删/ });
+    fireEvent.click(confirmBtn);
+    await waitFor(() => {
+      expect(mockDeleteVersion).toHaveBeenCalledWith(13);
+    });
+  });
+
+  it('创建失败时提示错误', async () => {
+    await renderLoaded();
+    fireEvent.click(screen.getByText('新建版本'));
+    const nameInput = await screen.findByPlaceholderText('例：v1.3-行动引导');
+    fireEvent.change(nameInput, { target: { value: 'v1.4' } });
+    mockCreateVersion.mockRejectedValue(new Error('名字重复'));
+    fireEvent.click(screen.getByText('创建版本'));
+    await waitFor(() => {
+      expect(screen.getByText(/名字重复/)).toBeInTheDocument();
     });
   });
 });

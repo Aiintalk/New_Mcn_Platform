@@ -2,7 +2,7 @@
  * RunDetail 页面测试
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { App as AntApp } from 'antd';
 import { MemoryRouter } from 'react-router-dom';
 
@@ -146,5 +146,95 @@ describe('RunDetailPage', () => {
     await waitFor(() => {
       expect(screen.getByText('至少需要 3 个维度才能渲染雷达图')).toBeInTheDocument();
     }, { timeout: 2000 });
+  });
+});
+
+describe('RunDetailPage — 人工校准交互', () => {
+  beforeEach(() => {
+    mockGetRun.mockReset();
+    mockListRunScores.mockReset();
+    mockSubmitHumanLabel.mockReset();
+  });
+
+  async function renderLoaded() {
+    mockGetRun.mockResolvedValue(sampleRun);
+    mockListRunScores.mockResolvedValue(sampleScores);
+    renderWithProviders(<RunDetailPage />);
+    await waitFor(() => expect(screen.getByText('核心集全量回归')).toBeInTheDocument());
+  }
+
+  it('点击校准 → 抽屉打开 → 保存成功调用 submitHumanLabel 并提示', async () => {
+    await renderLoaded();
+    // score id=100：human_score=null、ai_score=8.4 → openCalibrate 初始化 humanScore=8.4
+    const updated = { ...sampleScores[0], human_score: 8.4, human_feedback: '钩子强，认可' };
+    mockSubmitHumanLabel.mockResolvedValue(updated);
+
+    // 点击第一个「校准 d1」（score 100，primary 按钮）
+    fireEvent.click(screen.getAllByText(/校准 d1/)[0]);
+
+    // 抽屉打开：反馈 textarea 可见，输入反馈
+    const feedback = await screen.findByPlaceholderText(/说明本次校准的理由/);
+    fireEvent.change(feedback, { target: { value: '钩子强，认可' } });
+
+    // 点击 Drawer extra 的「保存校准」
+    const saveBtn = await screen.findByRole('button', { name: '保存校准' });
+    fireEvent.click(saveBtn);
+
+    await waitFor(() => {
+      expect(mockSubmitHumanLabel).toHaveBeenCalledWith(100, {
+        human_score: 8.4,
+        human_feedback: '钩子强，认可',
+      });
+    });
+    // 成功提示
+    await waitFor(() => {
+      expect(screen.getByText(/人工校准已保存/)).toBeInTheDocument();
+    });
+  });
+
+  it('保存校准失败时显示错误提示且不关闭抽屉', async () => {
+    await renderLoaded();
+    mockSubmitHumanLabel.mockRejectedValue(new Error('网络错误'));
+
+    fireEvent.click(screen.getAllByText(/校准 d1/)[0]);
+    const saveBtn = await screen.findByRole('button', { name: '保存校准' });
+    fireEvent.click(saveBtn);
+
+    await waitFor(() => {
+      expect(mockSubmitHumanLabel).toHaveBeenCalledWith(
+        100,
+        expect.objectContaining({ human_score: expect.any(Number) }),
+      );
+    });
+    await waitFor(() => {
+      expect(screen.getByText(/网络错误/)).toBeInTheDocument();
+    });
+  });
+
+  it('打开已有校准时预填人工分数与反馈', async () => {
+    await renderLoaded();
+    // score id=101：human_score=8.0、human_feedback='人工校准到 8.0'，按钮「校准 d2」
+    fireEvent.click(screen.getByText(/校准 d2/));
+    const feedback = await screen.findByPlaceholderText(/说明本次校准的理由/);
+    expect(feedback).toHaveValue('人工校准到 8.0');
+  });
+
+  it('校准成功后本地 scores 更新（行变为已校准）', async () => {
+    await renderLoaded();
+    // 初始：case_result 1（含 score 101 human_score=8.0）已校准，case_result 2 未校准
+    expect(screen.getAllByText('已校准').length).toBe(1);
+    expect(screen.getByText('未校准')).toBeInTheDocument();
+    // score id=102（case_result 2，第二个「校准 d1」按钮）
+    const updated = { ...sampleScores[2], human_score: 9, human_feedback: '很好' };
+    mockSubmitHumanLabel.mockResolvedValue(updated);
+
+    fireEvent.click(screen.getAllByText(/校准 d1/)[1]);
+    const saveBtn = await screen.findByRole('button', { name: '保存校准' });
+    fireEvent.click(saveBtn);
+
+    // 保存后 case_result 2 的 score 102 写入 human_score → 该行变为「已校准」
+    await waitFor(() => {
+      expect(screen.getAllByText('已校准').length).toBe(2);
+    });
   });
 });
