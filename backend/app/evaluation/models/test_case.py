@@ -28,7 +28,6 @@ class EvalTestCase(Base):
     name           = Column(String(255), nullable=False)
     description    = Column(Text, nullable=True)
     input_payload  = Column(JSONB, nullable=False)
-    expected_output = Column(Text, nullable=True)
     tags           = Column(ARRAY(Text), nullable=False, default=list)
     is_active      = Column(Boolean, nullable=False, default=True)
     created_by     = Column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)

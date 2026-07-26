@@ -57,7 +57,7 @@ describe('TestCaseEditPage (新建模式)', () => {
     expect(screen.getByText('产品卖点卡')).toBeInTheDocument();
     expect(screen.getByText('参考脚本 / 原版')).toBeInTheDocument();
     expect(screen.getByText('对话上下文 messages')).toBeInTheDocument();
-    expect(screen.getByText('标签 & 期望输出')).toBeInTheDocument();
+    expect(screen.getByText('标签')).toBeInTheDocument();
     // 新建模式不调用 list
     expect(mockListTestCases).not.toHaveBeenCalled();
   });
@@ -154,17 +154,6 @@ describe('TestCaseEditPage — 表单提交与标签交互', () => {
     clickSave();
     await waitFor(() => {
       expect(screen.getByText(/messages 不是合法 JSON/)).toBeInTheDocument();
-    });
-    expect(mockCreateTestCase).not.toHaveBeenCalled();
-  });
-
-  it('expected_output 非法 JSON 时阻止提交并提示', async () => {
-    renderWithProviders(<TestCaseEditPage />);
-    fillRequired();
-    fireEvent.change(screen.getByLabelText('期望输出（可选，JSON）'), { target: { value: '{bad' } });
-    clickSave();
-    await waitFor(() => {
-      expect(screen.getByText(/期望输出不是合法 JSON/)).toBeInTheDocument();
     });
     expect(mockCreateTestCase).not.toHaveBeenCalled();
   });

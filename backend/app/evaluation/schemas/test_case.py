@@ -17,7 +17,6 @@ class TestCaseCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     description: str | None = None
     input_payload: dict[str, Any] = Field(..., description="工具特定输入 JSON")
-    expected_output: str | None = None
     tags: list[str] = Field(default_factory=list)
     tool_code: str = Field(EVAL_TOOL_QIANCHUAN_WRITER, max_length=64)
     is_active: bool = True
@@ -29,7 +28,6 @@ class TestCaseUpdate(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=255)
     description: str | None = None
     input_payload: dict[str, Any] | None = None
-    expected_output: str | None = None
     tags: list[str] | None = None
     is_active: bool | None = None
 
@@ -44,7 +42,6 @@ class TestCaseResponse(BaseModel):
     name: str
     description: str | None
     input_payload: dict[str, Any]
-    expected_output: str | None
     tags: list[str]
     is_active: bool
     created_by: int | None

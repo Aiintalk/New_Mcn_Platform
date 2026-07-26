@@ -5,7 +5,7 @@
  *   /evaluation/test-cases/new         → 创建
  *   /evaluation/test-cases/:id/edit    → 更新
  *
- * 表单字段：基础信息 / 卖点卡(JSON 文本) / 参考脚本 / 对话上下文(JSON) / 标签 & 期望输出
+ * 表单字段：基础信息 / 卖点卡(JSON 文本) / 参考脚本 / 对话上下文(JSON) / 标签
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -27,7 +27,6 @@ interface FormValues {
   selling_points?: string;
   reference_script?: string;
   messages?: string; // JSON 字符串
-  expected_output?: string;
   is_active: boolean;
 }
 
@@ -77,7 +76,6 @@ export default function TestCaseEditPage() {
           selling_points: (ip.selling_points as string | undefined) ?? '',
           reference_script: (ip.reference_script as string | undefined) ?? '',
           messages: ip.messages ? JSON.stringify(ip.messages, null, 2) : DEFAULT_MESSAGES,
-          expected_output: found.expected_output ? JSON.stringify(found.expected_output, null, 2) : '',
           is_active: found.is_active,
         });
         setTags(found.tags ?? []);
@@ -124,16 +122,6 @@ export default function TestCaseEditPage() {
       }
     }
 
-    let expectedJson: Record<string, unknown> | null = null;
-    if (values.expected_output) {
-      try {
-        expectedJson = JSON.parse(values.expected_output);
-      } catch {
-        message.error('期望输出不是合法 JSON');
-        return;
-      }
-    }
-
     const input_payload: Record<string, unknown> = {
       kol_id: values.kol_id ?? null,
       kol_name: values.kol_name ?? '',
@@ -149,7 +137,6 @@ export default function TestCaseEditPage() {
           name: values.name,
           description: values.description ?? null,
           input_payload,
-          expected_output: expectedJson,
           tags,
           is_active: values.is_active,
         };
@@ -161,7 +148,6 @@ export default function TestCaseEditPage() {
           name: values.name,
           description: values.description ?? null,
           input_payload,
-          expected_output: expectedJson,
           tags,
           is_active: values.is_active,
         };
@@ -218,7 +204,6 @@ export default function TestCaseEditPage() {
           selling_points: '',
           reference_script: '',
           messages: DEFAULT_MESSAGES,
-          expected_output: '',
           is_active: true,
         }}
         onFinish={handleSave}
@@ -279,7 +264,7 @@ export default function TestCaseEditPage() {
           </Form.Item>
         </Card>
 
-        <Card title="标签 & 期望输出" styles={{ body: { padding: 24 } }}>
+        <Card title="标签" styles={{ body: { padding: 24 } }}>
           <Form.Item label="标签 tags" required>
             <div className="tag-input" style={{ minHeight: 40 }}>
               {tags.map((t: string) => (
@@ -321,15 +306,6 @@ export default function TestCaseEditPage() {
           <div className="text-xs text-muted" style={{ marginTop: -8, marginBottom: 16 }}>
             最多 5 个标签。按回车添加。
           </div>
-
-          <Form.Item name="expected_output" label="期望输出（可选，JSON）" tooltip="人工参考答案，用于回归对照">
-            <TextArea
-              className="code-area"
-              autoSize={{ minRows: 4, maxRows: 12 }}
-              style={{ fontFamily: 'var(--font-mono)', fontSize: 12.5 }}
-              placeholder='{ "copy": "..." }'
-            />
-          </Form.Item>
 
           <Form.Item name="is_active" label="启用状态" valuePropName="checked">
             <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>

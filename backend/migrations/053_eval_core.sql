@@ -68,7 +68,6 @@ CREATE TABLE IF NOT EXISTS eval_test_cases (
     name            VARCHAR(255) NOT NULL,
     description     TEXT,
     input_payload   JSONB        NOT NULL,
-    expected_output TEXT,
     tags            TEXT[]       NOT NULL DEFAULT '{}',
     is_active       BOOLEAN      NOT NULL DEFAULT TRUE,
     created_by      BIGINT REFERENCES users(id) ON DELETE SET NULL,
@@ -275,41 +274,59 @@ CREATE TRIGGER trg_eval_judge_models_updated
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- ============================================================================
--- Seed: 3 个维度（权重为占位值，TBD 安雅草拟确认后调）
--- ============================================================================
+-- Seed: 4 个维度（安雅初稿 2026-07-26；权重起步值，跑几轮后按打分分布校准）
+-- 安雅把原"文案质量"改为更可衡量的"开头钩子力"（对应前 10 秒完播），新增"仿写贴合度"。
+-- 占位符对齐渲染管线：persona→{{persona}}、selling_points→{{product_info}}、reference_script→{{original_script}}。
 INSERT INTO eval_dimensions (tool_code, name, display_name, description, default_weight, score_min, score_max, prompt_template, is_active)
 VALUES
-    ('qianchuan-writer', 'copy_quality',       '文案质量',
-     '钩子吸引力、叙事流畅度、信息密度', 0.4000, 1, 10,
-     '你是千川脚本文案评审专家。请对以下脚本在【文案质量】维度打分。\n\n评分标准：\n{{rubric_text}}\n\n输出格式（严格 JSON）：\n{"score": 整数, "reasoning": "...", "strengths": [...], "weaknesses": [...]}\n\n被评脚本：\n{{generated_output}}\n\n达人档案：\n{{persona}}\n\n产品信息：\n{{product_info}}',
+    ('qianchuan-writer', 'hook_strength', '开头钩子力',
+     '前 10 秒（开头几句）钩子够不够强、抓不抓得住人——预判"前 10 秒留人"能力', 0.3500, 1, 10,
+     '你是千川脚本文案评审专家。请对以下脚本在【开头钩子力】维度打分（1-10）。\n本维度只看开头（约前 10 秒、开头 1-3 句）把人留住的能力——预判"前 10 秒完播"，只评开头不评整条。\n\n评分标准：\n{{rubric_text}}\n\n输出格式（严格 JSON，不要任何多余文字）：\n{"score": 整数1-10, "reasoning": "...", "strengths": [...], "weaknesses": [...]}\n\n被评脚本：\n{{generated_output}}\n\n达人档案：\n{{persona}}',
      TRUE),
-    ('qianchuan-writer', 'conversion_power',   '种草力',
-     '卖点展示、转化驱动、行动引导', 0.3500, 1, 10,
-     '你是千川脚本文案评审专家。请对以下脚本在【种草力】维度打分。\n\n评分标准：\n{{rubric_text}}\n\n输出格式（严格 JSON）：\n{"score": 整数, "reasoning": "...", "strengths": [...], "weaknesses": [...]}\n\n被评脚本：\n{{generated_output}}\n\n达人档案：\n{{persona}}\n\n产品信息：\n{{product_info}}',
+    ('qianchuan-writer', 'conversion_power', '种草力',
+     '看完整条后是否产生明确的下单/购买冲动，冲动有多强', 0.3000, 1, 10,
+     '你是千川脚本文案评审专家。请对以下脚本在【种草力】维度打分（1-10）。\n本维度评的是看完整条后产生的下单/购买冲动强度——不是"讲没讲卖点"，而是"想不想买"。\n\n评分标准：\n{{rubric_text}}\n\n输出格式（严格 JSON，不要任何多余文字）：\n{"score": 整数1-10, "reasoning": "...", "strengths": [...], "weaknesses": [...]}\n\n被评脚本：\n{{generated_output}}\n\n达人档案：\n{{persona}}\n\n产品信息：\n{{product_info}}',
+     TRUE),
+    ('qianchuan-writer', 'structure_fidelity', '仿写贴合度',
+     '是否贴合原爆款骨架/节奏、实体替换是否自然、不为"降重"毁掉原结构', 0.2000, 1, 10,
+     '你是千川脚本文案评审专家。请对以下脚本在【仿写贴合度】维度打分（1-10）。\n核心原则：贴原爆款的骨架与节奏、把实体（产品名/价格/卖点/场景）换成当前商品，而非为降重改烂。相似不是问题，跑偏才是。\n\n评分标准：\n{{rubric_text}}\n\n输出格式（严格 JSON，不要任何多余文字）：\n{"score": 整数1-10, "reasoning": "...", "strengths": [...], "weaknesses": [...]}\n\n被评脚本（仿写稿）：\n{{generated_output}}\n\n参考原版脚本：\n{{original_script}}',
      TRUE),
     ('qianchuan-writer', 'persona_consistency', '人设一致性',
-     '是否符合达人 persona / 语言风格', 0.2500, 1, 10,
-     '你是千川脚本文案评审专家。请对以下脚本在【人设一致性】维度打分。\n\n评分标准：\n{{rubric_text}}\n\n输出格式（严格 JSON）：\n{"score": 整数, "reasoning": "...", "strengths": [...], "weaknesses": [...]}\n\n被评脚本：\n{{generated_output}}\n\n达人档案：\n{{persona}}\n\n产品信息：\n{{product_info}}',
+     '是否符合达人 persona/语气/价值观/人设边界', 0.1500, 1, 10,
+     '你是千川脚本文案评审专家。请对以下脚本在【人设一致性】维度打分（1-10）。\n本维度评是否贴合该达人 persona——语气、口头禅、用词习惯、价值观、人设边界。\n\n评分标准：\n{{rubric_text}}\n\n输出格式（严格 JSON，不要任何多余文字）：\n{"score": 整数1-10, "reasoning": "...", "strengths": [...], "weaknesses": [...]}\n\n被评脚本：\n{{generated_output}}\n\n达人档案：\n{{persona}}',
      TRUE)
 ON CONFLICT DO NOTHING;
 
 -- ============================================================================
--- Seed: rubric 等级占位（每个维度 default 变体 10/8/6/4/2 各一条）
--- 说明：scenario_tag NULL 表示 default 变体；二期按业务场景补 skincare/diet 等变体。
+-- Seed: rubric 等级（安雅初稿 2026-07-26）—— 4 维 × default 通用版 × 5 档（10/8/6/4/2）
+-- scenario_tag NULL = default 通用版；品类变体（skincare/diet）一期结构预留但不启用匹配，故不 seed。
 -- ============================================================================
 INSERT INTO eval_rubrics (dimension_id, level, criteria, scenario_tag, is_active)
 SELECT d.id, v.level, v.criteria, NULL::varchar, TRUE
 FROM eval_dimensions d
-CROSS JOIN (VALUES
-    (10, '满分：钩子强、叙事流畅、卖点清晰、有使用场景代入'),
-    (8,  '良好：钩子较吸引、叙事基本流畅、卖点清楚'),
-    (6,  '中等：钩子一般、叙事有断点、卖点模糊'),
-    (4,  '及格：钩子弱、叙事不连贯、卖点不清晰'),
-    (2,  '差：无钩子、叙事混乱、无卖点')
-) AS v(level, criteria)
-WHERE d.tool_code = 'qianchuan-writer'
-  AND d.name IN ('copy_quality', 'conversion_power', 'persona_consistency')
-  AND d.deleted_at IS NULL
+JOIN (VALUES
+  ('hook_strength'::varchar, 10::smallint, '第一句就是强钩子（痛点直击/反常识/悬念/身份认同/利益前置任一），精准戳中目标人群，看完开头几乎必然想继续看下去'::text),
+  ('hook_strength', 8, '钩子较强、抓人，开头指向明确的人群或痛点，多数人会愿意看下去'),
+  ('hook_strength', 6, '有钩子但力度一般（偏铺垫、进入正题慢），能留住一部分人，不够"炸"'),
+  ('hook_strength', 4, '开头平淡、像正常介绍开场，没有明显留人设计，容易被划走'),
+  ('hook_strength', 2, '开头没有任何钩子（自我介绍/寒暄/背景铺陈起手），前 10 秒基本留不住人'),
+  ('conversion_power', 10, '看完有强烈下单冲动，几乎被说服——痛点—产品—效果链路完整可信，卖点翻译成"对我的好处"，且有自然有力的行动引导（限时/专属福利/评论区钩子等），种草不硬广'),
+  ('conversion_power', 8, '看完有明确购买冲动，卖点清楚、利益点到位，有行动引导，就差临门一脚'),
+  ('conversion_power', 6, '看完有一点心动但不强，卖点停留在功能罗列、没翻译成利益，行动引导偏弱或套路化'),
+  ('conversion_power', 4, '看完基本无购买冲动，卖点模糊或与产品关联弱，几乎无行动引导'),
+  ('conversion_power', 2, '看完毫无购买欲，没讲清楚卖什么/为什么买，像自说自话'),
+  ('structure_fidelity', 10, '完整贴合原爆款的骨架与叙事节奏（钩子位置、卖点顺序、情绪曲线、结尾引导一一对应），实体替换自然贴合新商品，读起来是"同一套打法换了个品"而非另起炉灶'),
+  ('structure_fidelity', 8, '骨架与节奏基本保留，实体替换到位，个别段落顺序或过渡有微调但不伤原结构'),
+  ('structure_fidelity', 6, '保留了部分骨架，但有明显自行发挥/结构改动，或实体替换略生硬（新品信息硬塞进旧句式）'),
+  ('structure_fidelity', 4, '大幅偏离原骨架（像重写而非仿写），或为规避重复刻意打乱结构导致节奏变差'),
+  ('structure_fidelity', 2, '基本没参照原爆款结构，完全另写；或实体替换错乱（残留原品信息、张冠李戴）'),
+  ('persona_consistency', 10, '完全贴合该达人 persona——语气、口头禅、用词习惯、价值观、人设边界都对，像她本人会说的话'),
+  ('persona_consistency', 8, '整体符合人设，语气与用词基本对路，个别地方略通用但不违和'),
+  ('persona_consistency', 6, '大致像该达人，但有明显通用 AI 腔或与其风格不符的表达'),
+  ('persona_consistency', 4, '人设感弱，换成别的达人也成立，或偶有明显违背人设的说法'),
+  ('persona_consistency', 2, '完全不像该达人，语气/价值观跑偏，甚至说了人设不该说的话')
+) AS v(dim_name, level, criteria) ON v.dim_name = d.name
+WHERE d.tool_code = 'qianchuan-writer' AND d.deleted_at IS NULL
 ON CONFLICT DO NOTHING;
 
 -- ============================================================================

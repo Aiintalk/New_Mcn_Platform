@@ -39,8 +39,6 @@ export interface EvalTestCase {
   description: string | null;
   /** 输入负载 JSONB：达人 / 卖点卡 / 参考脚本 / 对话上下文 */
   input_payload: Record<string, unknown>;
-  /** 期望输出（可选，用于回归对照） */
-  expected_output: Record<string, unknown> | null;
   tags: string[];
   is_active: boolean;
   created_by: number | null;
@@ -62,7 +60,6 @@ export interface EvalTestCaseCreate {
   name: string;
   description?: string | null;
   input_payload: Record<string, unknown>;
-  expected_output?: Record<string, unknown> | null;
   tags?: string[];
   is_active?: boolean;
 }
@@ -72,7 +69,6 @@ export interface EvalTestCaseUpdate {
   name?: string;
   description?: string | null;
   input_payload?: Record<string, unknown>;
-  expected_output?: Record<string, unknown> | null;
   tags?: string[];
   is_active?: boolean;
 }

@@ -102,7 +102,6 @@ async def _seed_test_case(test_session, name="case1", tags=None):
             "content_plan": "计划A",
             "product_info": "产品A",
         },
-        expected_output=None,
         tags=list(tags or []),
         is_active=True,
     )
