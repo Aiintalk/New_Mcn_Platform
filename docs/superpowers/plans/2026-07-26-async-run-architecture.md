@@ -37,7 +37,7 @@
 - **测试**：rubric_resolver 渲染、dimension/rubric seed 断言、generator 用新模板渲染。
 - **退出标准**：4 维 + 20 条 default rubric 落库；旧维度无残留引用；单测全绿。
 
-### Phase 1 — Redis + arq 基建【infra】
+### Phase 1 — Redis + arq 基建【infra】✅ 已完成（2026-07-26）
 - **依赖**：`arq`、`redis` 入 requirements。
 - **dev**：docker-compose 加 redis 服务（或复用现有 hermes 之外的实例）；`.env` 加 `REDIS_URL`。
 - **prod**：单机起 redis（PM2 或 systemd 守护 + AOF 持久化 + 备份）。
