@@ -1,7 +1,16 @@
+import { Suspense } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { logout } from '../api/auth';
-import { message } from 'antd';
+import { message, Spin } from 'antd';
+
+function ContentFallback() {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 'calc(100vh - 110px)' }}>
+      <Spin />
+      </div>
+  );
+}
 
 type NavLink  = { path: string; label: string };
 type NavGroup = { title: string; items: NavLink[] };
@@ -16,6 +25,14 @@ const GROUPS: NavGroup[] = [
       { path: '/admin/workspace', label: '工具配置' },
       { path: '/admin/tasks',     label: '任务记录' },
       { path: '/admin/outputs',   label: '产出记录' },
+    ],
+  },
+  {
+    title: '评测配置',
+    items: [
+      { path: '/admin/evaluation/dimensions', label: '维度与评分标准' },
+      { path: '/admin/evaluation/versions',   label: '版本快照' },
+      { path: '/admin/evaluation/schedules',  label: '定时策略' },
     ],
   },
   {
@@ -94,7 +111,9 @@ export default function AdminLayout() {
           </div>
         </div>
         <div className="main-body">
-          <Outlet />
+          <Suspense fallback={<ContentFallback />}>
+            <Outlet />
+          </Suspense>
         </div>
       </div>
     </div>
