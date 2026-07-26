@@ -151,7 +151,7 @@ class TestGenerate:
 
         assert result == "生成的文案"
         assert len(captured_messages) == 1
-        assert captured_messages[0]["role"] == "system"
+        assert captured_messages[0]["role"] == "user"
         assert "孙知羽" in captured_messages[0]["content"]
         assert "{{name}}" not in captured_messages[0]["content"]
 
@@ -206,7 +206,7 @@ class TestGenerate:
         # 验证调用参数
         call_kwargs = mock_fn.call_args.kwargs
         assert "messages" in call_kwargs
-        assert call_kwargs["messages"][0]["role"] == "system"
+        assert call_kwargs["messages"][0]["role"] == "user"
 
     async def test_generate_empty_config_payload(self):
         """config_payload 为空 → 模板空串，不崩溃。"""

@@ -260,45 +260,52 @@ async def execute_run(
 
     for tc in test_cases:
         try:
-            # savepoint：case 内任一步骤失败 → 回滚该 case 的所有写入，不影响其他 case
-            async with db.begin_nested():
-                # 1. 被测生成
-                generated_output = await generate(generate_fn, version, tc)
-
-                # 2. 写 case_result（含输入快照 + 输出 payload）
-                case_result = EvalCaseResult(
-                    run_id=run.id,
-                    test_case_id=tc.id,
-                    generated_output=generated_output,
-                    input_snapshot=tc.input_payload,
-                    output_payload={"text": generated_output},
+            # 1. 被测生成 + 每维度评分：经 adapter 调 yunwu.chat，其内部会 db.commit()
+            #    （让 active_requests+1 对其他协程可见）。必须在任何 savepoint/事务块
+            #    之外调用，否则其 commit 会破坏外层事务上下文（InvalidRequestError）。
+            generated_output = await generate(generate_fn, version, tc)
+            input_context = dict(tc.input_payload or {})
+            scored: list[tuple] = []
+            for dim in dimensions:
+                rubrics = await _get_default_rubrics(db, dim.id)
+                weight = _resolve_weight(strategy, config, dim)
+                parsed = await score(
+                    score_fn, dim, rubrics, generated_output, input_context
                 )
-                db.add(case_result)
-                await db.flush()  # 拿 case_result.id
+                scored.append((dim, weight, parsed))
 
-                # 3. 每维度评分
-                input_context = dict(tc.input_payload or {})
-                for dim in dimensions:
-                    rubrics = await _get_default_rubrics(db, dim.id)
-                    weight = _resolve_weight(strategy, config, dim)
-                    parsed = await score(
-                        score_fn, dim, rubrics, generated_output, input_context
+            # 2. 结果写入（runner 自管事务；此处不再调 yunwu.chat，事务上下文安全）
+            case_result = EvalCaseResult(
+                run_id=run.id,
+                test_case_id=tc.id,
+                generated_output=generated_output,
+                input_snapshot=tc.input_payload,
+                output_payload={"text": generated_output},
+            )
+            db.add(case_result)
+            await db.flush()  # 拿 case_result.id
+            for dim, weight, parsed in scored:
+                db.add(
+                    EvalScore(
+                        case_result_id=case_result.id,
+                        dimension_id=dim.id,
+                        ai_score=parsed.score,
+                        ai_reasoning=parsed.reasoning,
+                        ai_strengths=parsed.strengths,
+                        ai_weaknesses=parsed.weaknesses,
+                        weight_used=weight,
                     )
-                    db.add(
-                        EvalScore(
-                            case_result_id=case_result.id,
-                            dimension_id=dim.id,
-                            ai_score=parsed.score,
-                            ai_reasoning=parsed.reasoning,
-                            ai_strengths=parsed.strengths,
-                            ai_weaknesses=parsed.weaknesses,
-                            weight_used=weight,
-                        )
-                    )
-            # savepoint 正常退出 → case 成功
+                )
+            # 每 case 落盘：保证 case 级隔离（失败已 rollback，成功即持久化）
             run.completed_cases += 1
+            await db.commit()
         except Exception as exc:  # noqa: BLE001 —— case 级隔离需捕获所有异常
-            # savepoint 已自动回滚该 case 的所有写入
+            # 先回滚本 case 的部分写入（不回滚已提交的 run 计数），再累加失败计数，
+            # 否则 rollback 会把未提交的 failed_cases +=1 一起回滚掉
+            try:
+                await db.rollback()
+            except Exception:
+                pass
             run.failed_cases += 1
             tc_name = getattr(tc, "name", "?")
             errors.append(

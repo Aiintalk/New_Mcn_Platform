@@ -83,4 +83,6 @@ async def generate(
 
     rendered_prompt = render_generation_prompt(template, input_payload)
 
-    return await generate_fn(messages=[{"role": "system", "content": rendered_prompt}])
+    # 用 user 角色：GLM coding-plan endpoint 拒绝纯 system 消息（code 1214），
+    # 且与 scorer 的 user 角色一致；yunwu/glm 均接受。完整 prompt 作为 user 任务下发。
+    return await generate_fn(messages=[{"role": "user", "content": rendered_prompt}])
