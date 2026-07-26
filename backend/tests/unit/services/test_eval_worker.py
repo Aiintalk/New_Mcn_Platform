@@ -41,3 +41,216 @@ def test_worker_settings_basics():
     assert WorkerSettings.max_jobs == 2      # 一期并发上限（已确认）
     assert WorkerSettings.max_tries == 3
     assert WorkerSettings.job_timeout == 600
+
+
+# ---------------------------------------------------------------------------
+# run 聚合 + case-job stub 执行（DB 逻辑，用 test_session）
+# ---------------------------------------------------------------------------
+import uuid  # noqa: E402
+
+import pytest_asyncio  # noqa: E402
+from sqlalchemy import delete, select  # noqa: E402
+from sqlalchemy.ext.asyncio import AsyncSession  # noqa: E402
+
+from app.evaluation.constants import (  # noqa: E402
+    EVAL_TOOL_QIANCHUAN_WRITER,
+    JOB_STATUS_DONE,
+    JOB_STATUS_FAILED,
+    JOB_STATUS_PENDING,
+    JOB_STATUS_RUNNING,
+    RUN_STATUS_COMPLETED,
+    RUN_STATUS_FAILED,
+    RUN_STATUS_PENDING,
+)
+from app.evaluation.models import (  # noqa: E402
+    EvalCaseJob,
+    EvalCaseResult,
+    EvalDimension,
+    EvalHumanLabel,
+    EvalJudgeModel,
+    EvalRubric,
+    EvalRun,
+    EvalSchedulePolicy,
+    EvalScore,
+    EvalStrategy,
+    EvalTestCase,
+    EvalVersion,
+)
+from app.evaluation.worker import aggregate_run_progress, recover_pending_jobs, run_case_job_logic  # noqa: E402
+
+
+@pytest_asyncio.fixture
+async def _isolate(test_session: AsyncSession):
+    """清理 eval_* 表（含 case_jobs）。"""
+    for m in (
+        EvalHumanLabel, EvalScore, EvalCaseResult, EvalCaseJob, EvalRun,
+        EvalRubric, EvalDimension, EvalTestCase, EvalStrategy, EvalVersion,
+        EvalSchedulePolicy, EvalJudgeModel,
+    ):
+        await test_session.execute(delete(m))
+    await test_session.commit()
+    yield
+
+
+async def _make_run(test_session, total_cases: int) -> EvalRun:
+    """建一条 pending run（+ strategy + version 满足 FK）。"""
+    v = EvalVersion(tool_code=EVAL_TOOL_QIANCHUAN_WRITER, name=f"v{uuid.uuid4().hex[:6]}",
+                    config_payload={}, is_active=True)
+    s = EvalStrategy(tool_code=EVAL_TOOL_QIANCHUAN_WRITER, name=f"s{uuid.uuid4().hex[:6]}",
+                     test_case_selector={}, dimension_weight_overrides={}, rubric_selector={},
+                     is_active=True)
+    test_session.add_all([v, s])
+    await test_session.flush()
+    run = EvalRun(version_id=v.id, strategy_id=s.id, name="t", trigger_type="manual",
+                  status=RUN_STATUS_PENDING, filter_tags=[], total_cases=total_cases,
+                  completed_cases=0, failed_cases=0, metadata_={})
+    test_session.add(run)
+    await test_session.commit()
+    await test_session.refresh(run)
+    return run
+
+
+async def _make_job(test_session, run_id: int) -> EvalCaseJob:
+    tc = EvalTestCase(tool_code=EVAL_TOOL_QIANCHUAN_WRITER, name=f"tc{uuid.uuid4().hex[:6]}",
+                      input_payload={}, tags=[], is_active=True)
+    test_session.add(tc)
+    await test_session.flush()
+    job = EvalCaseJob(run_id=run_id, test_case_id=tc.id, status=JOB_STATUS_PENDING)
+    test_session.add(job)
+    await test_session.commit()
+    await test_session.refresh(job)
+    return job
+
+
+async def _reload(test_session, model_cls, oid):
+    """重读：aggregate 用裸 SQL UPDATE 绕过 ORM，conftest expire_on_commit=False，
+    用 populate_existing=True 强制覆盖缓存实例，async 安全（避免属性同步 lazy-load 触发 MissingGreenlet）。"""
+    stmt = select(model_cls).where(model_cls.id == oid).execution_options(populate_existing=True)
+    return (await test_session.execute(stmt)).scalars().one()
+
+
+class TestAggregateRunProgress:
+    async def test_success_increments_completed(self, test_session, _isolate):
+        run = await _make_run(test_session, 2)
+        await aggregate_run_progress(test_session, run.id, success=True)
+        run = await _reload(test_session, EvalRun, run.id)
+        assert run.completed_cases == 1
+        assert run.failed_cases == 0
+        assert run.status == RUN_STATUS_PENDING  # 未全部终态，仍 pending
+
+    async def test_failure_increments_failed(self, test_session, _isolate):
+        run = await _make_run(test_session, 2)
+        await aggregate_run_progress(test_session, run.id, success=False)
+        run = await _reload(test_session, EvalRun, run.id)
+        assert run.failed_cases == 1
+        assert run.completed_cases == 0
+
+    async def test_finalizes_completed_when_all_terminal(self, test_session, _isolate):
+        run = await _make_run(test_session, 2)
+        await aggregate_run_progress(test_session, run.id, success=True)
+        await aggregate_run_progress(test_session, run.id, success=True)
+        run = await _reload(test_session, EvalRun, run.id)
+        assert run.completed_cases == 2
+        assert run.status == RUN_STATUS_COMPLETED
+        assert run.finished_at is not None
+
+    async def test_finalizes_failed_when_all_failed(self, test_session, _isolate):
+        run = await _make_run(test_session, 2)
+        await aggregate_run_progress(test_session, run.id, success=False)
+        await aggregate_run_progress(test_session, run.id, success=False)
+        run = await _reload(test_session, EvalRun, run.id)
+        assert run.failed_cases == 2
+        assert run.status == RUN_STATUS_FAILED
+
+
+class TestRunCaseJobLogic:
+    async def test_stub_marks_done_and_aggregates(self, test_session, _isolate):
+        run = await _make_run(test_session, 1)
+        job = await _make_job(test_session, run.id)
+
+        result = await run_case_job_logic(test_session, job.id)
+        assert "done" in result
+
+        job = await _reload(test_session, EvalCaseJob, job.id)
+        assert job.status == JOB_STATUS_DONE
+        assert job.attempts == 1
+        assert job.started_at is not None
+        assert job.finished_at is not None
+        run = await _reload(test_session, EvalRun, run.id)
+        assert run.completed_cases == 1
+        assert run.status == RUN_STATUS_COMPLETED  # 全部 case 终态 → completed
+
+    async def test_idempotent_skips_terminal_job(self, test_session, _isolate):
+        """job 已终态 → 再次 run_case_job_logic 跳过，不重复聚合（防 over-counting）。"""
+        run = await _make_run(test_session, 1)
+        job = await _make_job(test_session, run.id)
+        await run_case_job_logic(test_session, job.id)             # 第一次：done + completed=1
+        result = await run_case_job_logic(test_session, job.id)    # 第二次：应跳过
+        assert "already terminal" in result
+        run = await _reload(test_session, EvalRun, run.id)
+        assert run.completed_cases == 1                            # 没有重复 +1
+
+    async def test_failure_marks_failed_and_aggregates(self, test_session, _isolate):
+        """execute 抛错 → job failed + run failed_cases+1 + re-raise（保证 run 收尾）。"""
+        run = await _make_run(test_session, 1)
+        job = await _make_job(test_session, run.id)
+
+        async def _boom(db, jid):
+            raise RuntimeError("generate failed")
+
+        with pytest.raises(RuntimeError, match="generate failed"):
+            await run_case_job_logic(test_session, job.id, execute=_boom)
+
+        job = await _reload(test_session, EvalCaseJob, job.id)
+        assert job.status == JOB_STATUS_FAILED
+        assert job.last_error is not None
+        run = await _reload(test_session, EvalRun, run.id)
+        assert run.failed_cases == 1
+        assert run.status == RUN_STATUS_FAILED   # 全部 failed → run failed
+
+
+class TestRecoverPendingJobs:
+    async def test_resets_stale_running_and_reenqueues_pending(self, test_session, _isolate):
+        """卡死 running（超时）→ 重置 pending；所有 pending 重新入队（mock enqueue）。"""
+        from datetime import datetime, timedelta, timezone
+        from unittest.mock import patch
+
+        run = await _make_run(test_session, 2)
+        j1 = await _make_job(test_session, run.id)   # pending
+        j2 = await _make_job(test_session, run.id)   # 设成卡死 running
+        j2.status = "running"
+        j2.started_at = datetime.now(timezone.utc) - timedelta(days=1)
+        await test_session.commit()
+
+        enqueued: list[int] = []
+
+        async def _enq(jid):
+            enqueued.append(jid)
+
+        with patch("app.evaluation.worker.enqueue_case_job", new=_enq):
+            n = await recover_pending_jobs(test_session)
+        assert n == 2  # j1(pending) + j2(被重置成 pending)
+        j2r = await _reload(test_session, EvalCaseJob, j2.id)
+        assert j2r.status == "pending"           # 卡死 running 被重置
+        assert set(enqueued) == {j1.id, j2.id}   # 都重投
+
+    async def test_skips_fresh_running(self, test_session, _isolate):
+        """刚起的 running（未超阈值）不被重置，避免误重投还在跑的 job。"""
+        from datetime import datetime, timezone
+        from unittest.mock import patch
+
+        run = await _make_run(test_session, 1)
+        j = await _make_job(test_session, run.id)
+        j.status = "running"
+        j.started_at = datetime.now(timezone.utc)   # 刚起，未超时
+        await test_session.commit()
+
+        async def _enq(jid):
+            raise AssertionError("不应重投 fresh running")
+
+        with patch("app.evaluation.worker.enqueue_case_job", new=_enq):
+            n = await recover_pending_jobs(test_session)
+        assert n == 0                               # 无 pending 可重投
+        jr = await _reload(test_session, EvalCaseJob, j.id)
+        assert jr.status == "running"               # 未被重置
+

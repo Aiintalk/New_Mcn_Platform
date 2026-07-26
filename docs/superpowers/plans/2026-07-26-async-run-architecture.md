@@ -45,7 +45,7 @@
 - **冒烟**：起 worker + enqueue 一个 echo job 跑通。
 - **退出标准**：`arq` worker 能连 Redis 取到并执行一个测试任务；dev compose 一键起 redis。
 
-### Phase 2 — Job 模型 + 触发改异步【core】
+### Phase 2 — Job 模型 + 触发改异步【core】✅ 已完成（2026-07-27，3 轮独立 review 通过）
 - **DDL（新表）** `eval_case_jobs`：
   ```
   id BIGSERIAL PK

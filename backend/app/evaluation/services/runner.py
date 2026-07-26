@@ -50,7 +50,7 @@ from app.evaluation.models import (
 from app.evaluation.services.generator import generate
 from app.evaluation.services.scorer import score
 
-__all__ = ["execute_run"]
+__all__ = ["execute_run", "resolve_test_cases"]
 
 
 # ---------------------------------------------------------------------------
@@ -90,7 +90,7 @@ def _resolve_weight(
     return float(dimension.default_weight)
 
 
-async def _resolve_test_cases(
+async def resolve_test_cases(
     db: AsyncSession,
     tool_code: str,
     selector: dict[str, Any] | None,
@@ -242,7 +242,7 @@ async def execute_run(
             )
 
     # --- 选 test_cases + 维度（在循环前一次性查好）---
-    test_cases = await _resolve_test_cases(
+    test_cases = await resolve_test_cases(
         db, version.tool_code, strategy.test_case_selector
     )
     dimensions = await _get_active_dimensions(db, version.tool_code)

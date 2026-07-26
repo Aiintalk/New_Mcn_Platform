@@ -1,15 +1,16 @@
 """
-Unit tests for scheduler.trigger_run (Phase 3 运行编排层).
+Unit tests for scheduler.trigger_run（异步版，方案 C：arq+Redis，Phase 2）。
 
-Validates（spec §3.4 + plan Phase 3）:
-- 手动触发：建 run 记录（pending → runner 执行）+ strategy_id 绑定 default 策略
-- trigger_type / filter_tags 正确写入
-- 调 runner.execute_run（mock runner 绕过 AI）
+Validates：
+- 触发即返回 run_id（不阻塞、不执行）；run 为 pending
+- 建 run(total_cases=N) + N 条 eval_case_jobs(pending)
+- 逐条 enqueue（用注入的 mock enqueue，不依赖 redis）
+- strategy 解析（一期恒 default）、trigger_type/filter_tags 写入
+- version 不存在 → ValueError
 
-使用 test_session fixture（metadata.create_all + real PostgreSQL test DB）。
+使用 test_session fixture（real PostgreSQL test DB）。
 """
 import uuid
-from unittest.mock import AsyncMock, patch
 
 import pytest
 import pytest_asyncio
@@ -19,11 +20,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.evaluation.constants import (
     DEFAULT_STRATEGY_NAME,
     EVAL_TOOL_QIANCHUAN_WRITER,
+    JOB_STATUS_PENDING,
     RUN_STATUS_PENDING,
     TRIGGER_TYPE_AUTO_ON_VERSION_CREATE,
     TRIGGER_TYPE_MANUAL,
 )
 from app.evaluation.models import (
+    EvalCaseJob,
     EvalCaseResult,
     EvalDimension,
     EvalHumanLabel,
@@ -43,17 +46,13 @@ def _uid(prefix: str = "") -> str:
     return f"{prefix}{uuid.uuid4().hex[:8]}"
 
 
-# ---------------------------------------------------------------------------
-# 跨测试数据隔离
-# ---------------------------------------------------------------------------
-
-
 @pytest_asyncio.fixture(autouse=True)
 async def _isolate_eval_tables(test_session: AsyncSession):
-    """每个测试前清理 eval_* 数据，避免跨测试累积干扰 default 策略查询。"""
+    """每个测试前清理 eval_* 数据（含 eval_case_jobs），避免跨测试累积。"""
     await test_session.execute(delete(EvalHumanLabel))
     await test_session.execute(delete(EvalScore))
     await test_session.execute(delete(EvalCaseResult))
+    await test_session.execute(delete(EvalCaseJob))
     await test_session.execute(delete(EvalRun))
     await test_session.execute(delete(EvalRubric))
     await test_session.execute(delete(EvalDimension))
@@ -70,14 +69,7 @@ async def _make_version(test_session):
     v = EvalVersion(
         tool_code=EVAL_TOOL_QIANCHUAN_WRITER,
         name=_uid("v"),
-        config_payload={
-            "model_id": "gen-model",
-            "provider": "yunwu",
-            "system_prompt_template": "tpl",
-            "scoring_model_id": "judge",
-            "scoring_provider": "yunwu",
-            "scoring_adapter": "yunwu",
-        },
+        config_payload={"model_id": "gen-model", "provider": "yunwu"},
         is_active=True,
     )
     test_session.add(v)
@@ -87,7 +79,6 @@ async def _make_version(test_session):
 
 
 async def _make_default_strategy(test_session):
-    """一期所有 run 绑定的 default 策略。"""
     s = EvalStrategy(
         tool_code=EVAL_TOOL_QIANCHUAN_WRITER,
         name=DEFAULT_STRATEGY_NAME,
@@ -102,118 +93,156 @@ async def _make_default_strategy(test_session):
     return s
 
 
-class TestTriggerRunManual:
-    """手动触发：建 run + 调 runner + 绑定 default 策略。"""
+async def _make_test_cases(test_session, n: int):
+    cases = []
+    for _ in range(n):
+        tc = EvalTestCase(
+            tool_code=EVAL_TOOL_QIANCHUAN_WRITER,
+            name=_uid("tc"),
+            input_payload={"messages": []},
+            tags=[],
+            is_active=True,
+        )
+        test_session.add(tc)
+        cases.append(tc)
+    await test_session.commit()
+    for tc in cases:
+        await test_session.refresh(tc)
+    return cases
 
-    async def test_creates_run_with_default_strategy(
-        self, test_session: AsyncSession
-    ):
+
+def _recording_enqueue():
+    """返回 (mock enqueue, 已入队 job_id 列表)。"""
+    enqueued: list[int] = []
+
+    async def _enq(job_id: int) -> None:
+        enqueued.append(job_id)
+
+    return _enq, enqueued
+
+
+class TestTriggerRunAsync:
+    """异步触发：建 run(pending) + N job + 入队 + 立即返回。"""
+
+    async def test_creates_pending_run_with_jobs_and_enqueues(self, test_session):
         version = await _make_version(test_session)
-        strategy = await _make_default_strategy(test_session)
+        await _make_default_strategy(test_session)
+        await _make_test_cases(test_session, 3)
 
-        # mock runner.execute_run，避免真实 AI 调用
-        with patch.object(
-            scheduler_mod, "runner", create=True
-        ) if False else patch(
-            "app.evaluation.services.scheduler.runner.execute_run",
-            new_callable=AsyncMock,
-        ) as mock_exec:
-            run_id = await scheduler_mod.trigger_run(
-                version_id=version.id,
-                filter_tags=["skincare"],
-                trigger_type=TRIGGER_TYPE_MANUAL,
-                user_id=None,
-                db=test_session,
-            )
+        enq, enqueued = _recording_enqueue()
+        run_id = await scheduler_mod.trigger_run(
+            version_id=version.id,
+            filter_tags=["skincare"],
+            trigger_type=TRIGGER_TYPE_MANUAL,
+            user_id=None,
+            db=test_session,
+            enqueue=enq,
+        )
 
         assert run_id > 0
-
-        run = (
-            (
-                await test_session.execute(
-                    select(EvalRun).where(EvalRun.id == run_id)
-                )
-            )
-            .scalars()
-            .one()
-        )
-        assert run.version_id == version.id
-        assert run.strategy_id == strategy.id  # 绑定 default 策略
-        assert run.trigger_type == TRIGGER_TYPE_MANUAL
+        run = (await test_session.execute(select(EvalRun).where(EvalRun.id == run_id))).scalars().one()
+        assert run.status == RUN_STATUS_PENDING        # 未执行，仍 pending
+        assert run.total_cases == 3
+        assert run.completed_cases == 0
         assert run.filter_tags == ["skincare"]
-        # execute_run 被调用一次，run_id 匹配
-        mock_exec.assert_awaited_once()
-        args, _ = mock_exec.call_args
-        assert args[0] == run_id
 
-    async def test_auto_trigger_on_version_create(
-        self, test_session: AsyncSession
-    ):
+        jobs = (await test_session.execute(select(EvalCaseJob).where(EvalCaseJob.run_id == run_id).order_by(EvalCaseJob.id))).scalars().all()
+        assert len(jobs) == 3
+        assert all(j.status == JOB_STATUS_PENDING for j in jobs)   # 全 pending
+        assert len({j.test_case_id for j in jobs}) == 3            # 各指向不同 case
+        assert enqueued == [j.id for j in jobs]                    # 每条 job 入队一次
+
+    async def test_trigger_returns_fast_without_executing(self, test_session):
+        """触发不调 runner.execute_run（异步：执行由 worker）；且 enqueue 被调用。"""
         version = await _make_version(test_session)
         await _make_default_strategy(test_session)
+        await _make_test_cases(test_session, 1)
 
-        with patch(
-            "app.evaluation.services.scheduler.runner.execute_run",
-            new_callable=AsyncMock,
-        ) as mock_exec:
-            run_id = await scheduler_mod.trigger_run(
+        enq, enqueued = _recording_enqueue()
+        from unittest.mock import patch, AsyncMock
+        with patch("app.evaluation.services.scheduler.runner.execute_run", new_callable=AsyncMock) as mock_exec:
+            await scheduler_mod.trigger_run(
                 version_id=version.id,
                 filter_tags=[],
-                trigger_type=TRIGGER_TYPE_AUTO_ON_VERSION_CREATE,
-                user_id=None,
-                db=test_session,
-            )
-
-        run = (
-            (
-                await test_session.execute(
-                    select(EvalRun).where(EvalRun.id == run_id)
-                )
-            )
-            .scalars()
-            .one()
-        )
-        assert run.trigger_type == TRIGGER_TYPE_AUTO_ON_VERSION_CREATE
-        mock_exec.assert_awaited_once()
-
-    async def test_filter_tags_default_empty(self, test_session: AsyncSession):
-        version = await _make_version(test_session)
-        await _make_default_strategy(test_session)
-
-        with patch(
-            "app.evaluation.services.scheduler.runner.execute_run",
-            new_callable=AsyncMock,
-        ):
-            run_id = await scheduler_mod.trigger_run(
-                version_id=version.id,
-                filter_tags=None,
                 trigger_type=TRIGGER_TYPE_MANUAL,
                 user_id=None,
                 db=test_session,
+                enqueue=enq,
             )
+        mock_exec.assert_not_awaited()   # 异步触发不执行 run
+        assert len(enqueued) == 1        # 且 enqueue 被调用（非恒真）
 
-        run = (
-            (
-                await test_session.execute(
-                    select(EvalRun).where(EvalRun.id == run_id)
-                )
-            )
-            .scalars()
-            .one()
+    async def test_empty_test_cases_finalizes_run_failed(self, test_session):
+        """无 test_case 匹配 → run 直接 failed（不建 job、不入队），不卡 pending。"""
+        version = await _make_version(test_session)
+        await _make_default_strategy(test_session)
+        # 不 seed 任何 test_case → selector {"all":True} 命中 0 条
+        enq, enqueued = _recording_enqueue()
+        run_id = await scheduler_mod.trigger_run(
+            version_id=version.id,
+            filter_tags=[],
+            trigger_type=TRIGGER_TYPE_MANUAL,
+            user_id=None,
+            db=test_session,
+            enqueue=enq,
         )
+        run = (await test_session.execute(select(EvalRun).where(EvalRun.id == run_id))).scalars().one()
+        assert run.status == "failed"
+        assert run.total_cases == 0
+        assert enqueued == []                                  # 没入队
+        from app.evaluation.models import EvalCaseJob
+        jobs = (await test_session.execute(select(EvalCaseJob).where(EvalCaseJob.run_id == run_id))).scalars().all()
+        assert len(jobs) == 0                                  # 没建 job
+
+    async def test_auto_trigger_on_version_create(self, test_session):
+        version = await _make_version(test_session)
+        await _make_default_strategy(test_session)
+        await _make_test_cases(test_session, 2)
+
+        run_id = await scheduler_mod.trigger_run(
+            version_id=version.id,
+            filter_tags=[],
+            trigger_type=TRIGGER_TYPE_AUTO_ON_VERSION_CREATE,
+            user_id=None,
+            db=test_session,
+            enqueue=_recording_enqueue()[0],
+        )
+        run = (await test_session.execute(select(EvalRun).where(EvalRun.id == run_id))).scalars().one()
+        assert run.trigger_type == TRIGGER_TYPE_AUTO_ON_VERSION_CREATE
+        assert run.total_cases == 2
+
+    async def test_filter_tags_default_empty(self, test_session):
+        version = await _make_version(test_session)
+        await _make_default_strategy(test_session)
+        await _make_test_cases(test_session, 1)
+
+        run_id = await scheduler_mod.trigger_run(
+            version_id=version.id,
+            filter_tags=None,
+            trigger_type=TRIGGER_TYPE_MANUAL,
+            user_id=None,
+            db=test_session,
+            enqueue=_recording_enqueue()[0],
+        )
+        run = (await test_session.execute(select(EvalRun).where(EvalRun.id == run_id))).scalars().one()
         assert run.filter_tags == []
+
+    async def test_version_not_found_raises(self, test_session):
+        await _make_default_strategy(test_session)
+        with pytest.raises(ValueError):
+            await scheduler_mod.trigger_run(
+                version_id=999999,
+                filter_tags=[],
+                trigger_type=TRIGGER_TYPE_MANUAL,
+                user_id=None,
+                db=test_session,
+                enqueue=_recording_enqueue()[0],
+            )
 
 
 class TestTriggerRunStrategyResolution:
-    """trigger_run 解析 default 策略 id（一期恒 default）。"""
-
-    async def test_resolves_default_strategy_by_name(
-        self, test_session: AsyncSession
-    ):
-        """库里有多条策略（其他业务策略），trigger_run 仍选 name='default' 那条。"""
+    async def test_resolves_default_strategy_by_name(self, test_session):
         version = await _make_version(test_session)
-
-        # 另一条非 default 业务策略（二期场景）
         other = EvalStrategy(
             tool_code=EVAL_TOOL_QIANCHUAN_WRITER,
             name="skincare-biz",
@@ -224,29 +253,15 @@ class TestTriggerRunStrategyResolution:
         )
         test_session.add(other)
         await test_session.commit()
-        await test_session.refresh(other)
-
         default_s = await _make_default_strategy(test_session)
 
-        with patch(
-            "app.evaluation.services.scheduler.runner.execute_run",
-            new_callable=AsyncMock,
-        ):
-            run_id = await scheduler_mod.trigger_run(
-                version_id=version.id,
-                filter_tags=[],
-                trigger_type=TRIGGER_TYPE_MANUAL,
-                user_id=None,
-                db=test_session,
-            )
-
-        run = (
-            (
-                await test_session.execute(
-                    select(EvalRun).where(EvalRun.id == run_id)
-                )
-            )
-            .scalars()
-            .one()
+        run_id = await scheduler_mod.trigger_run(
+            version_id=version.id,
+            filter_tags=[],
+            trigger_type=TRIGGER_TYPE_MANUAL,
+            user_id=None,
+            db=test_session,
+            enqueue=_recording_enqueue()[0],
         )
+        run = (await test_session.execute(select(EvalRun).where(EvalRun.id == run_id))).scalars().one()
         assert run.strategy_id == default_s.id  # 不是 other.id

@@ -18,6 +18,15 @@ RUN_STATUS_PENDING = "pending"
 RUN_STATUS_RUNNING = "running"
 RUN_STATUS_COMPLETED = "completed"
 RUN_STATUS_FAILED = "failed"
+RUN_STATUS_CANCELLING = "cancelling"  # cancel 进行中（Phase 4）
+
+# eval_case_jobs.status 取值（异步运行，按 case 拆 job）
+JOB_STATUS_PENDING = "pending"
+JOB_STATUS_RUNNING = "running"
+JOB_STATUS_DONE = "done"
+JOB_STATUS_FAILED = "failed"
+JOB_STATUS_CANCELLED = "cancelled"
+JOB_STATUS_TERMINAL = {JOB_STATUS_DONE, JOB_STATUS_FAILED, JOB_STATUS_CANCELLED}
 
 # 一期所有 run 绑定的默认策略
 DEFAULT_STRATEGY_NAME = "default"

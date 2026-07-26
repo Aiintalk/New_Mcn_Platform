@@ -318,30 +318,32 @@ class TestVersionsReadOnly:
 
 
 class TestRuns:
+    @pytest.fixture(autouse=True)
+    def _mock_enqueue(self):
+        """trigger 现异步 enqueue 到 redis；mock 掉避免依赖/污染 redis（worker 不在测试内跑）。"""
+        with patch("app.evaluation.services.scheduler.enqueue_case_job", new_callable=AsyncMock):
+            yield
+
     @pytest.mark.asyncio
     async def test_trigger_run_mocked(self, test_client, operator_headers, test_session):
-        """End-to-end run trigger with mocked adapter.chat (no real AI call)."""
-        # Seed dimension + rubric + test_case + version
+        """异步触发：建 run(pending) + jobs，立即返回（不执行）。"""
         dim_id = await _seed_dimension(test_session, name="run-dim")
         await _seed_rubric(test_session, dim_id, level=10)
         await _seed_test_case(test_session, name="run-case")
         version_id = await _seed_version(test_session, name="run-version")
 
-        with patch(
-            "app.evaluation.adapters.yunwu.YunwuAdapter.chat",
-            new=_mock_adapter_chat(gen_output="生成输出", score_json='{"score": 7, "reasoning": "ok"}'),
-        ):
-            resp = await test_client.post(
-                "/api/operator/evaluation/runs",
-                json={"version_id": int(version_id), "filter_tags": []},
-                headers=operator_headers,
-            )
+        resp = await test_client.post(
+            "/api/operator/evaluation/runs",
+            json={"version_id": int(version_id), "filter_tags": []},
+            headers=operator_headers,
+        )
         body = resp.json()
         assert resp.status_code == 200, body
         assert body["success"] is True
         run_data = body["data"]
-        assert run_data["status"] in ("completed", "failed")
+        assert run_data["status"] == "pending"   # 异步：未执行，仍 pending
         assert run_data["version_id"] == version_id
+        assert run_data["total_cases"] >= 1      # 解析到 test_case（跨测试库可能有累积，不强断精确值）
 
     @pytest.mark.asyncio
     async def test_trigger_run_no_version_id_400(self, test_client, operator_headers):
@@ -377,21 +379,32 @@ class TestRuns:
 
     @pytest.mark.asyncio
     async def test_get_run_and_scores(self, test_client, operator_headers, test_session):
+        """GET run 详情 + scores（直接 seed 一个 completed run + 评分，解耦于触发执行）。"""
         dim_id = await _seed_dimension(test_session, name="get-run-dim")
-        await _seed_rubric(test_session, dim_id, level=10)
-        await _seed_test_case(test_session, name="get-run-case")
+        tc_id = await _seed_test_case(test_session, name="get-run-case")
         version_id = await _seed_version(test_session, name="get-run-version")
+        strategy_id = await _seed_default_strategy(test_session)
 
-        with patch(
-            "app.evaluation.adapters.yunwu.YunwuAdapter.chat",
-            new=_mock_adapter_chat(score_json='{"score": 9, "reasoning": "good"}'),
-        ):
-            resp = await test_client.post(
-                "/api/operator/evaluation/runs",
-                json={"version_id": int(version_id)},
-                headers=operator_headers,
-            )
-        run_id = resp.json()["data"]["id"]
+        run = EvalRun(
+            version_id=version_id, strategy_id=strategy_id, name="get-run",
+            trigger_type="manual", status="completed", filter_tags=[],
+            total_cases=1, completed_cases=1, failed_cases=0, metadata_={},
+        )
+        test_session.add(run)
+        await test_session.flush()
+        cr = EvalCaseResult(
+            run_id=run.id, test_case_id=tc_id, generated_output="out",
+            output_payload={}, input_snapshot={},
+        )
+        test_session.add(cr)
+        await test_session.flush()
+        score = EvalScore(
+            case_result_id=cr.id, dimension_id=dim_id, ai_score=Decimal("9.0"),
+            ai_reasoning="good", weight_used=Decimal("0.5"),
+        )
+        test_session.add(score)
+        await test_session.commit()
+        run_id = run.id
 
         # GET run status
         resp = await test_client.get(
@@ -401,6 +414,7 @@ class TestRuns:
         body = resp.json()
         assert body["success"] is True
         assert body["data"]["id"] == run_id
+        assert body["data"]["status"] == "completed"
 
         # GET scores
         resp = await test_client.get(
@@ -411,7 +425,6 @@ class TestRuns:
         assert body["success"] is True
         scores = body["data"]
         assert len(scores) >= 1
-        # mocked score is 9
         assert float(scores[0]["ai_score"]) == 9.0
 
     @pytest.mark.asyncio

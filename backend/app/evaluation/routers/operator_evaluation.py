@@ -364,7 +364,8 @@ async def trigger_run(
     """触发评测运行（一期自动绑定 default 策略，不传 strategy_id）。
 
     body 含 version_id / filter_tags / name / trigger_type。
-    调 scheduler.trigger_run（一期同步 await，二期改 BackgroundTask）。
+    调 scheduler.trigger_run（异步：建 run(pending)+N case-job+入队，立即返回 run_id；
+    实际执行由独立 worker 进程异步消费 case-job）。
     """
     version_id = body.get("version_id")
     if not version_id:
@@ -393,7 +394,7 @@ async def trigger_run(
     ))
     await db.commit()
 
-    # 调 scheduler.trigger_run（建 run + 调 runner.execute_run）
+    # 调 scheduler.trigger_run（异步：建 run(pending)+N case-job+入队，立即返回）
     run_id = await scheduler.trigger_run(
         version_id=int(version_id),
         filter_tags=filter_tags,
@@ -401,7 +402,7 @@ async def trigger_run(
         user_id=current_user.id,
         db=db,
     )
-    # 刷新 run 实体（trigger_run 内部已 commit + execute_run 写完）
+    # run 现为 pending；执行由 worker 异步推进（不在此 await）
     run = await db.get(EvalRun, run_id)
     return success_response(data=_run_to_dict(run) if run else {"id": run_id})
 

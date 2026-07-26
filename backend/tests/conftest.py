@@ -84,6 +84,8 @@ _SESSION_LOCAL_PATCH_TARGETS = [
     # AIGC 评测 Phase 3：runner 后台执行 run（持 session 写库）+ scheduler 自动/定时触发建 run
     "app.evaluation.services.runner.AsyncSessionLocal",
     "app.evaluation.services.scheduler.AsyncSessionLocal",
+    # Phase 2 异步运行：worker 的 eval_case_job 开独立 session 执行 case-job（防连生产库）
+    "app.evaluation.worker.AsyncSessionLocal",
 ]
 
 
