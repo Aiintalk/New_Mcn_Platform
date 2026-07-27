@@ -127,7 +127,9 @@ async def trigger_run(
         total_cases=len(test_cases),
         completed_cases=0,
         failed_cases=0,
-        metadata_={},
+        metadata_={"resolved_scoring": runner.compute_resolved_scoring(
+            strategy, dict(version.config_payload or {})
+        )},
         created_by=user_id,
     )
     db.add(run)

@@ -65,7 +65,9 @@
 - **run 聚合**：每个 case-job 完成时 `completed_cases += 1`（或 failed_cases），全部完成 → run status=completed/failed。
 - **测试**：触发后立即返回 pending + N 条 job；不阻塞；run 聚合正确。
 
-### Phase 3 — Worker 执行 + 并发受控 + 重启恢复【core，最重】
+### Phase 3 — Worker 执行 + 并发受控 + 重启恢复【core，最重】✅ 已完成（2026-07-27，2 轮独立 review 通过）
+
+> Phase 3 本次落地：`runner.execute_case`（单 case generate→多维 score→写 case_result+scores，替换 worker stub）+ `compute_resolved_scoring`（trigger_run 写入 run.metadata 冻结快照，execute_case 优先读冻结值保 B-C2）+ `run_case_job_logic` 统一 mark-done。删旧同步 `execute_run`。并发受控（max_jobs=2）+ 重启恢复（recover_pending_jobs，Phase 2 已落地）+ FIFO（arq 入队顺序）均就位。详细 spec：`docs/superpowers/specs/2026-07-27-async-run-phase3-worker-execution.md`。198 eval 测试全绿；runner 93% / scheduler 97% / worker 87% 覆盖率。剩余：Phase 4 web run 管理、Phase 5 可观测、Phase 6 上线；手动冒烟（起 redis+worker 触发 run 验真落库）作为本 Phase 收尾验收。
 - **arq task `eval_case_job(job_id)`**：
   1. 取 job → status=running, started_at, attempts+=1。
   2. 复用**已修好的 runner case 逻辑**：generate（LLM）→ score 每维（LLM）→ 写 case_result + scores（每 case commit，失败 rollback）。

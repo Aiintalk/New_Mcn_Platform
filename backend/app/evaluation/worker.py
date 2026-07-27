@@ -35,6 +35,7 @@ from app.evaluation.constants import (
     RUN_STATUS_COMPLETED,
     RUN_STATUS_FAILED,
 )
+from app.evaluation.services.runner import execute_case
 
 
 def eval_redis_settings() -> RedisSettings:
@@ -166,9 +167,10 @@ async def run_case_job_logic(
     - 幂等：job 已终态（done/failed/cancelled）则跳过，防 arq 重试导致 run 计数 over-counting。
     - 失败必收尾：执行抛错 → job→failed + aggregate(success=False) + re-raise（让 arq 重试/记录），
       保证 run 的 failed_cases 累加、run 最终能收尾（不卡 pending）。
+    - 成功必收尾：execute 成功（或 stub 无 execute）→ job→done。
 
-    Phase 2（本实现）：stub —— 仅推进状态 + 聚合，不做真实 generate/score。
-    Phase 3：在「STUB」处插入真实执行（generate → 多维 score → 写 case_result+scores）。
+    execute 注入：Phase 3 生产路径传 execute_case（generate → 多维 score → 写 case_result+scores）；
+    None 时为 stub（仅推进状态 + 聚合，老 Phase 2 单测沿用）。
     """
     # 幂等守卫：已终态则跳过（防重试 over-counting）
     cur_status = (
@@ -196,16 +198,15 @@ async def run_case_job_logic(
     success = True
     err: Exception | None = None
     try:
-        if execute is None:
-            # ── STUB（Phase 2）：仅标记 done。Phase 3 传 execute 做真实 generate+score。 ──
-            await db.execute(
-                text("UPDATE eval_case_jobs SET status = :s, finished_at = NOW() WHERE id = :id"),
-                {"s": JOB_STATUS_DONE, "id": job_id},
-            )
-            await db.commit()
-        else:
-            # 注入执行（测试失败路径 / Phase 3 真实执行）
+        if execute is not None:
+            # Phase 3 真实执行（generate → 多维 score → 写 case_result+scores，execute_case 自管 commit）
             await execute(db, job_id)
+        # 成功 → job→done（stub 无 execute 直接标记；真实路径 execute 成功后标记）
+        await db.execute(
+            text("UPDATE eval_case_jobs SET status = :s, finished_at = NOW() WHERE id = :id"),
+            {"s": JOB_STATUS_DONE, "id": job_id},
+        )
+        await db.commit()
     except Exception as exc:  # noqa: BLE001 —— case 级失败需捕获以保证 run 收尾
         success = False
         err = exc
@@ -225,13 +226,16 @@ async def run_case_job_logic(
     if not success:
         assert err is not None
         raise err  # 让 arq 记录失败（重试时幂等守卫会跳过，不再 over-count）
-    return f"job {job_id} done (stub)"
+    return f"job {job_id} done"
 
 
 async def eval_case_job(ctx, job_id: int) -> str:
-    """arq 任务入口：开独立 session 调 run_case_job_logic（worker 进程消费）。"""
+    """arq 任务入口：开独立 session 调 run_case_job_logic（worker 进程消费）。
+
+    传 execute=execute_case —— Phase 3 真实执行（generate → 多维 score → 写 case_result+scores）。
+    """
     async with AsyncSessionLocal() as db:
-        return await run_case_job_logic(db, job_id)
+        return await run_case_job_logic(db, job_id, execute=execute_case)
 
 
 class WorkerSettings:

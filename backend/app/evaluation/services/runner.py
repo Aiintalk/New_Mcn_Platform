@@ -1,43 +1,39 @@
 """
 app/evaluation/services/runner.py
 
-评测运行编排器（spec §6.1/§6.2/§6.5 + plan Phase 3）。
+评测 case 执行器（spec §6.1/§6.5 + plan Phase 3 异步架构）。
 
-职责：
-- 串起一次完整 run：生成→写 case_result→评分→写 score→更新 run 状态
-- run 启动时 resolve 评委身份（strategy 三件套 override > version.config_payload）
-  并写入 `eval_runs.metadata['resolved_scoring']`（B-C2，可复现）
-- 经 `adapter_registry.get_adapter` 取适配器，分别用被测 model_id 绑 generate_fn、
-  评委 model_id 绑 score_fn，注入 generator/scorer（方案 B，spec §2.9.3）
-- case 级错误隔离：单 case 异常不中断其他 case（spec §6.5）
-- 权重三级 resolve：strategy > version > dimension.default（spec §2.4）
+【异步模型】一个 run 拆成 N 个 case-job（worker.eval_case_job 消费）；
+本模块提供**单 case** 执行：
 
-异步执行一期用 BackgroundTask + DB 状态机；runner 持 session 写库，
+- execute_case(db, job_id)：generate（LLM）→ 多维 score（LLM）→ 写 case_result+scores。
+  由 worker.run_case_job_logic 经 execute= 注入；异常不捕获，由其收尾（job→failed +
+  aggregate 原子累加 run 计数）。三条硬约束：generate/score 在事务外（yunwu.chat 内部
+  commit）、每 case 一次 commit、run 计数走 aggregate。
+- compute_resolved_scoring(strategy, config)：resolve 评委身份（strategy override >
+  version.config_payload），trigger_run 写入 run.metadata['resolved_scoring']（B-C2 可复现）
+  + execute_case 据此绑 score_fn adapter。
+- resolve_test_cases：strategy.test_case_selector → test_cases 列表（trigger_run 用）。
+
+权重三级 resolve：strategy > version > dimension.default（spec §2.4）。
 generator/scorer 是纯函数不持 db（spec §6.1 服务职责分层）。
-
 测试注入 mock generate_fn/score_fn 绕过 adapter/credentials（B-I1）。
 """
 from __future__ import annotations
 
 import functools
-from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-# AsyncSessionLocal 在模块顶部 import（满足 conftest patch 注册，spec §6.7）。
-# execute_run 接受外部 db 参数（测试注入 test_session / 生产路径由 scheduler 传入），
-# AsyncSessionLocal 留作未来 BackgroundTask 自开 session 路径扩展使用。
+# AsyncSessionLocal 在模块顶部 import（满足 conftest patch 注册，红线 #7）。
+# execute_case 接受外部 db 参数（测试注入 test_session / 生产路径由 worker 自开 session 传入）。
 from app.core.database import AsyncSessionLocal  # noqa: F401
 from app.evaluation.adapters.registry import get_adapter
-from app.evaluation.constants import (
-    DEFAULT_ADAPTER,
-    RUN_STATUS_COMPLETED,
-    RUN_STATUS_FAILED,
-    RUN_STATUS_RUNNING,
-)
+from app.evaluation.constants import DEFAULT_ADAPTER
 from app.evaluation.models import (
+    EvalCaseJob,
     EvalCaseResult,
     EvalDimension,
     EvalRubric,
@@ -50,7 +46,7 @@ from app.evaluation.models import (
 from app.evaluation.services.generator import generate
 from app.evaluation.services.scorer import score
 
-__all__ = ["execute_run", "resolve_test_cases"]
+__all__ = ["execute_case", "resolve_test_cases", "compute_resolved_scoring"]
 
 
 # ---------------------------------------------------------------------------
@@ -88,6 +84,34 @@ def _resolve_weight(
     if dim_key in version_weights:
         return float(version_weights[dim_key])
     return float(dimension.default_weight)
+
+
+def compute_resolved_scoring(
+    strategy: EvalStrategy, config: dict[str, Any]
+) -> dict[str, Any]:
+    """resolve 评委身份（spec §2.9.2/§2.9.4 B-C2）：strategy override > version.config_payload。
+
+    返回 {model_id, provider, adapter}：
+    - trigger_run 写入 run.metadata['resolved_scoring']（run 创建即固化，可复现）
+    - execute_case 据此绑定 score_fn adapter
+
+    两者共用同一来源，避免分散 resolve 逻辑漂移。
+    """
+    return {
+        "model_id": _resolve_with_strategy_override(
+            getattr(strategy, "scoring_model_override", None),
+            config.get("scoring_model_id"),
+        ),
+        "provider": _resolve_with_strategy_override(
+            getattr(strategy, "scoring_provider_override", None),
+            config.get("scoring_provider"),
+        ),
+        "adapter": _resolve_with_strategy_override(
+            getattr(strategy, "scoring_adapter_override", None),
+            config.get("scoring_adapter"),
+            fallback=DEFAULT_ADAPTER,
+        ),
+    }
 
 
 async def resolve_test_cases(
@@ -160,70 +184,68 @@ async def _get_active_dimensions(
 
 
 # ---------------------------------------------------------------------------
-# 主入口
+# 单 case 执行（Phase 3：worker.run_case_job_logic 经 execute= 注入）
 # ---------------------------------------------------------------------------
 
 
-async def execute_run(
-    run_id: int,
+async def execute_case(
     db: AsyncSession,
+    job_id: int,
     *,
     generate_fn: Callable[..., Awaitable[str]] | None = None,
     score_fn: Callable[..., Awaitable[str]] | None = None,
 ) -> None:
-    """编排一次评测 run（spec §6.1）。
+    """单个 case-job 的真实执行（Phase 3：generate → 多维 score → 写 case_result+scores）。
+
+    异常**不捕获**，向上抛给 worker.run_case_job_logic（它负责 job→failed 收尾 +
+    aggregate_run_progress 原子累加 run 计数）。
+
+    三条硬约束（沿用已验证的原同步 case body 行为）：
+    - generate/score 经 yunwu.chat，其内部 commit（写 AiCallLog）→ **必须在事务/savepoint
+      之外**调，否则 commit 破坏外层事务（InvalidRequestError）。
+    - 结果写入单次 commit（case 级隔离：失败不落半成品）。
+    - run 计数不走这里，由 run_case_job_logic + aggregate_run_progress（原子 UPDATE）负责。
 
     Args:
-        run_id: eval_runs.id
-        db: AsyncSession（测试传 test_session；生产路径由 scheduler 传入）
-        generate_fn: 被测生成 callable（None 时 runner 经 adapter_registry 绑定）
-        score_fn: 评委评分 callable（None 时 runner 经 adapter_registry 绑定）
-
-    副作用：
-        - 写 eval_case_results / eval_scores
-        - 更新 eval_runs.status / completed_cases / failed_cases / metadata
-        - run.metadata['resolved_scoring']（B-C2）+ metadata['errors']（失败 case 汇总）
+        db: AsyncSession（worker 自开 session；测试注入 test_session）
+        job_id: eval_case_jobs.id（绑唯一 test_case，无循环）
+        generate_fn: 被测生成 callable（None 时经 adapter_registry 绑定）
+        score_fn: 评委评分 callable（None 时经 adapter_registry 绑定）
     """
-    run = await db.get(EvalRun, run_id)
+    job = await db.get(EvalCaseJob, job_id)
+    if job is None:
+        raise ValueError(f"EvalCaseJob not found: id={job_id}")
+
+    run = await db.get(EvalRun, job.run_id)
     if run is None:
-        raise ValueError(f"EvalRun not found: id={run_id}")
+        raise ValueError(f"EvalRun not found: id={job.run_id} (job={job_id})")
 
     version = await db.get(EvalVersion, run.version_id)
     if version is None:
         raise ValueError(
-            f"EvalVersion not found: id={run.version_id} (run={run_id})"
+            f"EvalVersion not found: id={run.version_id} (run={run.id}, job={job_id})"
         )
 
     strategy = await db.get(EvalStrategy, run.strategy_id)
     if strategy is None:
         raise ValueError(
-            f"EvalStrategy not found: id={run.strategy_id} (run={run_id})"
+            f"EvalStrategy not found: id={run.strategy_id} (run={run.id}, job={job_id})"
+        )
+
+    tc = await db.get(EvalTestCase, job.test_case_id)
+    if tc is None:
+        raise ValueError(
+            f"EvalTestCase not found: id={job.test_case_id} (job={job_id})"
         )
 
     config = dict(version.config_payload or {})
 
-    # --- run 启动阶段：resolve 评委身份（spec §2.9.2/§2.9.4 B-C2）---
-    resolved_scoring = {
-        "model_id": _resolve_with_strategy_override(
-            strategy.scoring_model_override,
-            config.get("scoring_model_id"),
-        ),
-        "provider": _resolve_with_strategy_override(
-            strategy.scoring_provider_override,
-            config.get("scoring_provider"),
-        ),
-        "adapter": _resolve_with_strategy_override(
-            strategy.scoring_adapter_override,
-            config.get("scoring_adapter"),
-            fallback=DEFAULT_ADAPTER,
-        ),
-    }
-
-    run_meta = dict(run.metadata_ or {})
-    run_meta["resolved_scoring"] = resolved_scoring
-
-    # --- 绑定 callable（方案 B，spec §2.9.3）---
-    # 测试路径直接用注入的 mock；生产路径（None）经 adapter_registry 绑定。
+    # --- resolve 评委身份：优先用 run.metadata 里 trigger_run 冻结的快照（B-C2 可复现：
+    # 保证「冻结值 = 实际使用」，不受 run 进行中改 version/strategy 配置影响；也保证同 run
+    # 各 job 用同一评委身份）。缺失（测试直建 run / 迁移期旧 run 无此字段）则回退现算。 ---
+    resolved_scoring = (run.metadata_ or {}).get("resolved_scoring") or compute_resolved_scoring(
+        strategy, config
+    )
     if generate_fn is None or score_fn is None:
         adapter = get_adapter(resolved_scoring["adapter"])
         if generate_fn is None:
@@ -241,88 +263,39 @@ async def execute_run(
                 provider=resolved_scoring["provider"],
             )
 
-    # --- 选 test_cases + 维度（在循环前一次性查好）---
-    test_cases = await resolve_test_cases(
-        db, version.tool_code, strategy.test_case_selector
-    )
     dimensions = await _get_active_dimensions(db, version.tool_code)
 
-    run.metadata_ = run_meta
-    run.status = RUN_STATUS_RUNNING
-    run.total_cases = len(test_cases)
-    run.completed_cases = 0
-    run.failed_cases = 0
-    run.started_at = datetime.now(timezone.utc)
+    # --- generate + 每维 score（事务外 LLM：yunwu.chat 内部 commit）---
+    generated_output = await generate(generate_fn, version, tc)
+    input_context = dict(tc.input_payload or {})
+    scored: list[tuple] = []
+    for dim in dimensions:
+        rubrics = await _get_default_rubrics(db, dim.id)
+        weight = _resolve_weight(strategy, config, dim)
+        parsed = await score(score_fn, dim, rubrics, generated_output, input_context)
+        scored.append((dim, weight, parsed))
+
+    # --- 结果写入（单 case 一次 commit；失败由调用方 rollback，不落半成品）---
+    case_result = EvalCaseResult(
+        run_id=run.id,
+        test_case_id=tc.id,
+        generated_output=generated_output,
+        input_snapshot=tc.input_payload,
+        output_payload={"text": generated_output},
+    )
+    db.add(case_result)
+    await db.flush()  # 拿 case_result.id
+    for dim, weight, parsed in scored:
+        db.add(
+            EvalScore(
+                case_result_id=case_result.id,
+                dimension_id=dim.id,
+                ai_score=parsed.score,
+                ai_reasoning=parsed.reasoning,
+                ai_strengths=parsed.strengths,
+                ai_weaknesses=parsed.weaknesses,
+                weight_used=weight,
+            )
+        )
     await db.commit()
 
-    # --- case 循环（spec §6.5 case 级错误隔离）---
-    errors: list[str] = list(run_meta.get("errors", []))
-
-    for tc in test_cases:
-        try:
-            # 1. 被测生成 + 每维度评分：经 adapter 调 yunwu.chat，其内部会 db.commit()
-            #    （让 active_requests+1 对其他协程可见）。必须在任何 savepoint/事务块
-            #    之外调用，否则其 commit 会破坏外层事务上下文（InvalidRequestError）。
-            generated_output = await generate(generate_fn, version, tc)
-            input_context = dict(tc.input_payload or {})
-            scored: list[tuple] = []
-            for dim in dimensions:
-                rubrics = await _get_default_rubrics(db, dim.id)
-                weight = _resolve_weight(strategy, config, dim)
-                parsed = await score(
-                    score_fn, dim, rubrics, generated_output, input_context
-                )
-                scored.append((dim, weight, parsed))
-
-            # 2. 结果写入（runner 自管事务；此处不再调 yunwu.chat，事务上下文安全）
-            case_result = EvalCaseResult(
-                run_id=run.id,
-                test_case_id=tc.id,
-                generated_output=generated_output,
-                input_snapshot=tc.input_payload,
-                output_payload={"text": generated_output},
-            )
-            db.add(case_result)
-            await db.flush()  # 拿 case_result.id
-            for dim, weight, parsed in scored:
-                db.add(
-                    EvalScore(
-                        case_result_id=case_result.id,
-                        dimension_id=dim.id,
-                        ai_score=parsed.score,
-                        ai_reasoning=parsed.reasoning,
-                        ai_strengths=parsed.strengths,
-                        ai_weaknesses=parsed.weaknesses,
-                        weight_used=weight,
-                    )
-                )
-            # 每 case 落盘：保证 case 级隔离（失败已 rollback，成功即持久化）
-            run.completed_cases += 1
-            await db.commit()
-        except Exception as exc:  # noqa: BLE001 —— case 级隔离需捕获所有异常
-            # 先回滚本 case 的部分写入（不回滚已提交的 run 计数），再累加失败计数，
-            # 否则 rollback 会把未提交的 failed_cases +=1 一起回滚掉
-            try:
-                await db.rollback()
-            except Exception:
-                pass
-            run.failed_cases += 1
-            tc_name = getattr(tc, "name", "?")
-            errors.append(
-                f"case {tc.id} ({tc_name}): {type(exc).__name__}: {exc}"
-            )
-
-    # --- 收尾 ---
-    final_meta = dict(run.metadata_ or {})
-    final_meta["resolved_scoring"] = resolved_scoring
-    final_meta["errors"] = errors
-    run.metadata_ = final_meta
-    run.finished_at = datetime.now(timezone.utc)
-
-    # 全部 case 失败 → run failed；否则 completed（部分失败仍 completed，spec §6.5）
-    if run.total_cases > 0 and run.completed_cases == 0:
-        run.status = RUN_STATUS_FAILED
-    else:
-        run.status = RUN_STATUS_COMPLETED
-
-    await db.commit()

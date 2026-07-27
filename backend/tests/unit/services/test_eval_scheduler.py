@@ -65,11 +65,18 @@ async def _isolate_eval_tables(test_session: AsyncSession):
     yield
 
 
-async def _make_version(test_session):
+async def _make_version(test_session, *, scoring_model_id=None, scoring_provider=None, scoring_adapter=None):
+    config_payload = {"model_id": "gen-model", "provider": "yunwu"}
+    if scoring_model_id is not None:
+        config_payload["scoring_model_id"] = scoring_model_id
+    if scoring_provider is not None:
+        config_payload["scoring_provider"] = scoring_provider
+    if scoring_adapter is not None:
+        config_payload["scoring_adapter"] = scoring_adapter
     v = EvalVersion(
         tool_code=EVAL_TOOL_QIANCHUAN_WRITER,
         name=_uid("v"),
-        config_payload={"model_id": "gen-model", "provider": "yunwu"},
+        config_payload=config_payload,
         is_active=True,
     )
     test_session.add(v)
@@ -78,13 +85,22 @@ async def _make_version(test_session):
     return v
 
 
-async def _make_default_strategy(test_session):
+async def _make_default_strategy(
+    test_session,
+    *,
+    scoring_model_override=None,
+    scoring_provider_override=None,
+    scoring_adapter_override=None,
+):
     s = EvalStrategy(
         tool_code=EVAL_TOOL_QIANCHUAN_WRITER,
         name=DEFAULT_STRATEGY_NAME,
         test_case_selector={"all": True},
         dimension_weight_overrides={},
         rubric_selector={},
+        scoring_model_override=scoring_model_override,
+        scoring_provider_override=scoring_provider_override,
+        scoring_adapter_override=scoring_adapter_override,
         is_active=True,
     )
     test_session.add(s)
@@ -153,14 +169,14 @@ class TestTriggerRunAsync:
         assert enqueued == [j.id for j in jobs]                    # 每条 job 入队一次
 
     async def test_trigger_returns_fast_without_executing(self, test_session):
-        """触发不调 runner.execute_run（异步：执行由 worker）；且 enqueue 被调用。"""
+        """触发不调 runner.execute_case（异步：执行由 worker）；且 enqueue 被调用。"""
         version = await _make_version(test_session)
         await _make_default_strategy(test_session)
         await _make_test_cases(test_session, 1)
 
         enq, enqueued = _recording_enqueue()
         from unittest.mock import patch, AsyncMock
-        with patch("app.evaluation.services.scheduler.runner.execute_run", new_callable=AsyncMock) as mock_exec:
+        with patch("app.evaluation.services.scheduler.runner.execute_case", new_callable=AsyncMock) as mock_exec:
             await scheduler_mod.trigger_run(
                 version_id=version.id,
                 filter_tags=[],
@@ -169,7 +185,7 @@ class TestTriggerRunAsync:
                 db=test_session,
                 enqueue=enq,
             )
-        mock_exec.assert_not_awaited()   # 异步触发不执行 run
+        mock_exec.assert_not_awaited()   # 异步触发不执行 case
         assert len(enqueued) == 1        # 且 enqueue 被调用（非恒真）
 
     async def test_empty_test_cases_finalizes_run_failed(self, test_session):
@@ -265,3 +281,82 @@ class TestTriggerRunStrategyResolution:
         )
         run = (await test_session.execute(select(EvalRun).where(EvalRun.id == run_id))).scalars().one()
         assert run.strategy_id == default_s.id  # 不是 other.id
+
+
+class TestResolvedScoringMetadata:
+    """run.metadata['resolved_scoring'] 在建 run 时固化（B-C2 可复现；Phase 3 从 execute_run 迁来）。"""
+
+    async def test_metadata_contains_three_keys(self, test_session):
+        version = await _make_version(
+            test_session,
+            scoring_model_id="glm-5.2",
+            scoring_provider="yunwu",
+            scoring_adapter="yunwu",
+        )
+        await _make_default_strategy(test_session)
+        await _make_test_cases(test_session, 1)
+
+        run_id = await scheduler_mod.trigger_run(
+            version_id=version.id,
+            filter_tags=[],
+            trigger_type=TRIGGER_TYPE_MANUAL,
+            user_id=None,
+            db=test_session,
+            enqueue=_recording_enqueue()[0],
+        )
+        run = (await test_session.execute(select(EvalRun).where(EvalRun.id == run_id))).scalars().one()
+        meta = run.metadata_ or {}
+        assert "resolved_scoring" in meta
+        rs = meta["resolved_scoring"]
+        assert set(rs.keys()) >= {"model_id", "provider", "adapter"}
+        assert rs["model_id"] == "glm-5.2"
+        assert rs["provider"] == "yunwu"
+        assert rs["adapter"] == "yunwu"
+
+    async def test_strategy_override_takes_priority(self, test_session):
+        """strategy.scoring_*_override 覆盖 version.config_payload.scoring_*。"""
+        version = await _make_version(
+            test_session,
+            scoring_model_id="version-judge",
+            scoring_provider="yunwu",
+            scoring_adapter="yunwu",
+        )
+        await _make_default_strategy(
+            test_session,
+            scoring_model_override="strategy-judge",
+            scoring_provider_override="strategy-provider",
+        )
+        await _make_test_cases(test_session, 1)
+
+        run_id = await scheduler_mod.trigger_run(
+            version_id=version.id,
+            filter_tags=[],
+            trigger_type=TRIGGER_TYPE_MANUAL,
+            user_id=None,
+            db=test_session,
+            enqueue=_recording_enqueue()[0],
+        )
+        run = (await test_session.execute(select(EvalRun).where(EvalRun.id == run_id))).scalars().one()
+        rs = run.metadata_["resolved_scoring"]
+        assert rs["model_id"] == "strategy-judge"
+        assert rs["provider"] == "strategy-provider"
+        assert rs["adapter"] == "yunwu"  # 无 override → fallback DEFAULT_ADAPTER
+
+    async def test_adapter_falls_back_to_default(self, test_session):
+        """version/strategy 都没给 scoring_adapter → fallback DEFAULT_ADAPTER(yunwu)。"""
+        version = await _make_version(test_session)  # 无 scoring 配置
+        await _make_default_strategy(test_session)
+        await _make_test_cases(test_session, 1)
+
+        run_id = await scheduler_mod.trigger_run(
+            version_id=version.id,
+            filter_tags=[],
+            trigger_type=TRIGGER_TYPE_MANUAL,
+            user_id=None,
+            db=test_session,
+            enqueue=_recording_enqueue()[0],
+        )
+        run = (await test_session.execute(select(EvalRun).where(EvalRun.id == run_id))).scalars().one()
+        rs = run.metadata_["resolved_scoring"]
+        assert rs["adapter"] == "yunwu"  # DEFAULT_ADAPTER
+        assert rs["model_id"] is None    # 无来源 → None

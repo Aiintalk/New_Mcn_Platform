@@ -1,22 +1,28 @@
 """
-Unit tests for runner.execute_run (Phase 3 运行编排层).
+Unit tests for runner.execute_case（Phase 3 单 case 执行）+ resolve_test_cases。
 
-Validates（spec §6.1/§6.5/§2.9.4 + plan Phase 3）:
-- Happy path: N case × M 维度 → 全部 case_results/scores 落库 + run.status=completed
-- run.metadata['resolved_scoring'] 含 model_id/provider/adapter 三键（B-C2）
-- run.strategy_id 指向传入的策略（一期 default）
-- case 级错误隔离：单 case 异常 → run 仍 completed, failed_cases+=1, error 落入 metadata['errors']
-- 权重三级覆盖：strategy.dimension_weight_overrides > version.config_payload.dimension_weights > dimension.default_weight
+execute_case 是 worker.run_case_job_logic 经 execute= 注入的真实执行：
+generate（LLM）→ 多维 score（LLM）→ 写 case_result + scores（单次 commit）。
+异常不捕获，由 run_case_job_logic 收尾（job→failed + aggregate）。因此本文件**只验
+case 级产物**（case_result/scores），run 计数收尾在 test_eval_worker.py 的 aggregate 测。
 
-AI 全 mock：测试注入 mock generate_fn/score_fn 绕过 adapter/credentials（B-I1）。
-使用 test_session fixture（metadata.create_all + real PostgreSQL test DB）。
+Validates（spec §6.1/§6.5/§2.9 + plan Phase 3）：
+- Happy: 1 job × M 维 → 1 case_result + M scores，字段正确 + 输入快照固化
+- 权重三级覆盖：strategy.dimension_weight_overrides > version.config_payload > dimension.default
+- case 级失败隔离：generate/score 抛错 → execute_case 抛错，**不落任何半成品**
+- adapter 绑定：generate_fn/score_fn=None → 走 get_adapter
+- job 绑定正确 test_case（不串 case）
+- default rubric 变体选择（scenario_tag IS NULL）
+- resolve_test_cases：{"all"}/{"tags"}/{"ids"} 三种 selector
+
+AI 全 mock：注入 mock generate_fn/score_fn 绕过 adapter/credentials（B-I1）。
+使用 test_session fixture（real PostgreSQL test DB）。
 """
 import json
 import uuid
 from unittest.mock import AsyncMock
 
 import pytest
-import pytest_asyncio
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,10 +30,10 @@ from app.evaluation.constants import (
     DEFAULT_ADAPTER,
     DEFAULT_STRATEGY_NAME,
     EVAL_TOOL_QIANCHUAN_WRITER,
-    RUN_STATUS_COMPLETED,
     TRIGGER_TYPE_MANUAL,
 )
 from app.evaluation.models import (
+    EvalCaseJob,
     EvalCaseResult,
     EvalDimension,
     EvalHumanLabel,
@@ -40,7 +46,7 @@ from app.evaluation.models import (
     EvalTestCase,
     EvalVersion,
 )
-from app.evaluation.services.runner import execute_run
+from app.evaluation.services.runner import execute_case, resolve_test_cases
 
 
 def _uid(prefix: str = "") -> str:
@@ -48,18 +54,13 @@ def _uid(prefix: str = "") -> str:
     return f"{prefix}{uuid.uuid4().hex[:8]}"
 
 
-# ---------------------------------------------------------------------------
-# 跨测试数据隔离：test_session fixture 不 rollback，每个测试前清理 eval_* 表
-# ---------------------------------------------------------------------------
-
-
-@pytest_asyncio.fixture(autouse=True)
+@pytest.fixture(autouse=True)
 async def _isolate_eval_tables(test_session: AsyncSession):
-    """每个测试前清理 eval_* 数据，避免跨测试累积干扰 _get_active_dimensions 等聚合查询。"""
-    # 按依赖顺序删除（子表先于父表）
+    """每个测试前清理 eval_* 数据，避免跨测试累积干扰聚合查询。"""
     await test_session.execute(delete(EvalHumanLabel))
     await test_session.execute(delete(EvalScore))
     await test_session.execute(delete(EvalCaseResult))
+    await test_session.execute(delete(EvalCaseJob))
     await test_session.execute(delete(EvalRun))
     await test_session.execute(delete(EvalRubric))
     await test_session.execute(delete(EvalDimension))
@@ -205,6 +206,15 @@ async def _make_run(test_session, version, strategy, filter_tags=None):
     return r
 
 
+async def _make_job(test_session, run, test_case, status="pending"):
+    """建一条 case-job（绑 run + 唯一 test_case）。"""
+    j = EvalCaseJob(run_id=run.id, test_case_id=test_case.id, status=status)
+    test_session.add(j)
+    await test_session.commit()
+    await test_session.refresh(j)
+    return j
+
+
 def _ok_score_json(score=8):
     return json.dumps(
         {
@@ -217,49 +227,39 @@ def _ok_score_json(score=8):
 
 
 # ---------------------------------------------------------------------------
-# Tests
+# Happy path
 # ---------------------------------------------------------------------------
 
 
-class TestExecuteRunHappyPath:
-    """Happy path：N case × M 维度 → 全部落库 + run completed。"""
+class TestExecuteCaseHappyPath:
+    """1 job × M 维 → 1 case_result + M scores，字段正确 + 输入快照固化。"""
 
-    async def test_3_cases_2_dims_all_persisted(self, test_session: AsyncSession):
-        dim1 = await _make_dimension(test_session, "copy_quality", 0.4)
-        dim2 = await _make_dimension(test_session, "conversion_power", 0.35)
+    async def test_one_case_two_dims_persisted(self, test_session: AsyncSession):
+        dim1 = await _make_dimension(test_session, "hook_strength", 0.35)
+        dim2 = await _make_dimension(test_session, "conversion_power", 0.30)
         await _make_rubrics(test_session, dim1.id)
         await _make_rubrics(test_session, dim2.id)
 
         version = await _make_version(test_session)
         strategy = await _make_strategy(test_session)
-        tc1 = await _make_test_case(test_session, "case1")
-        tc2 = await _make_test_case(test_session, "case2")
-        tc3 = await _make_test_case(test_session, "case3")
-
+        tc = await _make_test_case(test_session, "case1")
         run = await _make_run(test_session, version, strategy)
+        job = await _make_job(test_session, run, tc)
 
         gen_calls = []
         score_calls = []
 
         async def mock_generate(*, messages):
             gen_calls.append(messages)
-            return f"output-{len(gen_calls)}"
+            return "generated-output-1"
 
         async def mock_score(*, messages):
             score_calls.append(messages)
             return _ok_score_json(7)
 
-        await execute_run(
-            run.id,
-            test_session,
-            generate_fn=mock_generate,
-            score_fn=mock_score,
+        await execute_case(
+            test_session, job.id, generate_fn=mock_generate, score_fn=mock_score
         )
-
-        await test_session.refresh(run)
-        assert run.status == RUN_STATUS_COMPLETED
-        assert run.completed_cases == 3
-        assert run.failed_cases == 0
 
         case_results = (
             (
@@ -270,180 +270,43 @@ class TestExecuteRunHappyPath:
             .scalars()
             .all()
         )
-        assert len(case_results) == 3
-        for cr in case_results:
-            assert cr.generated_output  # 非空
-            assert cr.input_snapshot is not None  # 输入快照已固化
+        assert len(case_results) == 1
+        cr = case_results[0]
+        assert cr.generated_output == "generated-output-1"
+        assert cr.output_payload == {"text": "generated-output-1"}
+        assert cr.test_case_id == tc.id
+        # 输入快照固化（被测输入留痕）
+        assert cr.input_snapshot == tc.input_payload
+        assert cr.input_snapshot["product_info"] == "粉底液"
 
-        case_result_ids = [cr.id for cr in case_results]
         scores = (
             (
                 await test_session.execute(
-                    select(EvalScore).where(
-                        EvalScore.case_result_id.in_(case_result_ids)
-                    )
+                    select(EvalScore).where(EvalScore.case_result_id == cr.id)
                 )
             )
             .scalars()
             .all()
         )
-        assert len(scores) == 6  # 3 case × 2 dim
+        assert len(scores) == 2  # 1 case × 2 dim
         for s in scores:
-            assert s.ai_score == 7.0
+            assert float(s.ai_score) == 7.0
             assert s.ai_reasoning == "score=7"
+            assert s.ai_strengths == ["a"]
+            assert s.ai_weaknesses == ["b"]
             assert s.weight_used is not None
 
-        assert len(gen_calls) == 3
-        assert len(score_calls) == 6  # 3 case × 2 dim
+        assert len(gen_calls) == 1    # 1 case → 1 次生成
+        assert len(score_calls) == 2  # 1 case × 2 dim
 
 
-class TestResolvedScoringMetadata:
-    """run.metadata['resolved_scoring'] 含 model_id/provider/adapter 三键（B-C2）。"""
-
-    async def test_metadata_contains_three_keys(self, test_session: AsyncSession):
-        version = await _make_version(
-            test_session,
-            scoring_model_id="glm-5.2",
-            scoring_provider="yunwu",
-            scoring_adapter="yunwu",
-        )
-        strategy = await _make_strategy(test_session)
-        run = await _make_run(test_session, version, strategy)
-
-        async def noop_gen(*, messages):
-            return "x"
-
-        async def noop_score(*, messages):
-            return _ok_score_json()
-
-        await execute_run(
-            run.id, test_session, generate_fn=noop_gen, score_fn=noop_score
-        )
-
-        await test_session.refresh(run)
-        meta = run.metadata_ or {}
-        assert "resolved_scoring" in meta
-        rs = meta["resolved_scoring"]
-        assert set(rs.keys()) >= {"model_id", "provider", "adapter"}
-        assert rs["model_id"] == "glm-5.2"
-        assert rs["provider"] == "yunwu"
-        assert rs["adapter"] == "yunwu"
-
-    async def test_strategy_override_takes_priority(self, test_session: AsyncSession):
-        """strategy.scoring_*_override 覆盖 version.config_payload.scoring_*。"""
-        version = await _make_version(
-            test_session,
-            scoring_model_id="version-judge",
-            scoring_provider="yunwu",
-            scoring_adapter="yunwu",
-        )
-        strategy = await _make_strategy(
-            test_session,
-            scoring_model_override="strategy-judge",
-            scoring_provider_override="strategy-provider",
-            scoring_adapter_override="yunwu",
-        )
-        run = await _make_run(test_session, version, strategy)
-
-        async def noop_gen(*, messages):
-            return "x"
-
-        async def noop_score(*, messages):
-            return _ok_score_json()
-
-        await execute_run(
-            run.id, test_session, generate_fn=noop_gen, score_fn=noop_score
-        )
-
-        await test_session.refresh(run)
-        rs = run.metadata_["resolved_scoring"]
-        assert rs["model_id"] == "strategy-judge"
-        assert rs["provider"] == "strategy-provider"
-
-
-class TestStrategyIdBinding:
-    """run.strategy_id 指向传入策略（一期恒 default）。"""
-
-    async def test_run_strategy_id_matches(self, test_session: AsyncSession):
-        version = await _make_version(test_session)
-        strategy = await _make_strategy(test_session)
-        run = await _make_run(test_session, version, strategy)
-
-        async def noop_gen(*, messages):
-            return "x"
-
-        async def noop_score(*, messages):
-            return _ok_score_json()
-
-        await execute_run(
-            run.id, test_session, generate_fn=noop_gen, score_fn=noop_score
-        )
-
-        # run 已绑定 strategy_id（_make_run 时设的）——验证 execute_run 不破坏它
-        await test_session.refresh(run)
-        assert run.strategy_id == strategy.id
-
-
-class TestCaseLevelIsolation:
-    """case 级错误隔离：单 case 失败不中断 run。"""
-
-    async def test_second_case_raises_run_still_completed(
-        self, test_session: AsyncSession
-    ):
-        dim = await _make_dimension(test_session, "copy_quality", 0.4)
-        await _make_rubrics(test_session, dim.id)
-
-        version = await _make_version(test_session)
-        strategy = await _make_strategy(test_session)
-        tc1 = await _make_test_case(test_session, "case1")
-        tc2 = await _make_test_case(test_session, "case2")
-        tc3 = await _make_test_case(test_session, "case3")
-
-        run = await _make_run(test_session, version, strategy)
-
-        counter = {"n": 0}
-
-        async def flaky_generate(*, messages):
-            counter["n"] += 1
-            if counter["n"] == 2:
-                raise RuntimeError("case2 boom")
-            return f"ok-{counter['n']}"
-
-        async def mock_score(*, messages):
-            return _ok_score_json()
-
-        await execute_run(
-            run.id,
-            test_session,
-            generate_fn=flaky_generate,
-            score_fn=mock_score,
-        )
-
-        await test_session.refresh(run)
-        assert run.status == RUN_STATUS_COMPLETED  # 不是 failed
-        assert run.completed_cases == 2  # case1 + case3 成功
-        assert run.failed_cases == 1  # case2 失败
-
-        meta = run.metadata_ or {}
-        errors = meta.get("errors", [])
-        assert len(errors) == 1
-        assert "case2 boom" in errors[0]
-
-        # 失败 case 不写 case_result（或写但标错）——这里验证成功 case 落库数 = 2
-        case_results = (
-            (
-                await test_session.execute(
-                    select(EvalCaseResult).where(EvalCaseResult.run_id == run.id)
-                )
-            )
-            .scalars()
-            .all()
-        )
-        assert len(case_results) == 2
+# ---------------------------------------------------------------------------
+# 权重三级覆盖
+# ---------------------------------------------------------------------------
 
 
 class TestWeightThreeLevelOverride:
-    """权重三级覆盖：strategy > version > dimension.default（B-权重）。"""
+    """权重三级覆盖：strategy > version > dimension.default。"""
 
     async def test_strategy_override_wins(self, test_session: AsyncSession):
         dim = await _make_dimension(test_session, "copy_quality", weight=0.4)
@@ -459,6 +322,7 @@ class TestWeightThreeLevelOverride:
         )
         tc = await _make_test_case(test_session, "case1")
         run = await _make_run(test_session, version, strategy)
+        job = await _make_job(test_session, run, tc)
 
         async def noop_gen(*, messages):
             return "x"
@@ -466,23 +330,15 @@ class TestWeightThreeLevelOverride:
         async def noop_score(*, messages):
             return _ok_score_json()
 
-        await execute_run(
-            run.id, test_session, generate_fn=noop_gen, score_fn=noop_score
+        await execute_case(
+            test_session, job.id, generate_fn=noop_gen, score_fn=noop_score
         )
 
         score = (
-            (
-                await test_session.execute(
-                    select(EvalScore).join(
-                        EvalCaseResult, EvalCaseResult.id == EvalScore.case_result_id
-                    ).where(EvalCaseResult.run_id == run.id)
-                )
-            )
-            .scalars()
-            .first()
+            (await test_session.execute(select(EvalScore))).scalars().first()
         )
         assert score is not None
-        assert float(score.weight_used) == pytest.approx(0.5)  # 策略级生效
+        assert float(score.weight_used) == pytest.approx(0.5)
 
     async def test_version_override_when_no_strategy(self, test_session: AsyncSession):
         dim = await _make_dimension(test_session, "copy_quality", weight=0.4)
@@ -495,6 +351,7 @@ class TestWeightThreeLevelOverride:
         strategy = await _make_strategy(test_session)  # 无 override
         tc = await _make_test_case(test_session, "case1")
         run = await _make_run(test_session, version, strategy)
+        job = await _make_job(test_session, run, tc)
 
         async def noop_gen(*, messages):
             return "x"
@@ -502,20 +359,12 @@ class TestWeightThreeLevelOverride:
         async def noop_score(*, messages):
             return _ok_score_json()
 
-        await execute_run(
-            run.id, test_session, generate_fn=noop_gen, score_fn=noop_score
+        await execute_case(
+            test_session, job.id, generate_fn=noop_gen, score_fn=noop_score
         )
 
         score = (
-            (
-                await test_session.execute(
-                    select(EvalScore).join(
-                        EvalCaseResult, EvalCaseResult.id == EvalScore.case_result_id
-                    ).where(EvalCaseResult.run_id == run.id)
-                )
-            )
-            .scalars()
-            .first()
+            (await test_session.execute(select(EvalScore))).scalars().first()
         )
         assert score is not None
         assert float(score.weight_used) == pytest.approx(0.35)
@@ -528,6 +377,7 @@ class TestWeightThreeLevelOverride:
         strategy = await _make_strategy(test_session)
         tc = await _make_test_case(test_session, "case1")
         run = await _make_run(test_session, version, strategy)
+        job = await _make_job(test_session, run, tc)
 
         async def noop_gen(*, messages):
             return "x"
@@ -535,84 +385,135 @@ class TestWeightThreeLevelOverride:
         async def noop_score(*, messages):
             return _ok_score_json()
 
-        await execute_run(
-            run.id, test_session, generate_fn=noop_gen, score_fn=noop_score
+        await execute_case(
+            test_session, job.id, generate_fn=noop_gen, score_fn=noop_score
         )
 
         score = (
-            (
-                await test_session.execute(
-                    select(EvalScore).join(
-                        EvalCaseResult, EvalCaseResult.id == EvalScore.case_result_id
-                    ).where(EvalCaseResult.run_id == run.id)
-                )
-            )
-            .scalars()
-            .first()
+            (await test_session.execute(select(EvalScore))).scalars().first()
         )
         assert score is not None
         assert float(score.weight_used) == pytest.approx(0.42)
 
 
-class TestTestCaseSelector:
-    """strategy.test_case_selector 解析：{"all":true} / {"tags":[...]} / {"ids":[...]}。"""
+# ---------------------------------------------------------------------------
+# case 级失败隔离
+# ---------------------------------------------------------------------------
 
-    async def test_filter_by_tags(self, test_session: AsyncSession):
+
+class TestCaseLevelFailureIsolation:
+    """generate/score 抛错 → execute_case 抛错，不落任何半成品（无 case_result/score）。"""
+
+    async def test_generate_raises_nothing_written(self, test_session: AsyncSession):
         dim = await _make_dimension(test_session, "copy_quality", 0.4)
         await _make_rubrics(test_session, dim.id)
 
         version = await _make_version(test_session)
-        strategy = await _make_strategy(
-            test_session,
-            test_case_selector={"tags": ["skincare"]},
-        )
-        tc1 = await _make_test_case(test_session, "case1", tags=["skincare"])
-        tc2 = await _make_test_case(test_session, "case2", tags=["diet"])
-        tc3 = await _make_test_case(test_session, "case3", tags=["skincare", "lite"])
-
+        strategy = await _make_strategy(test_session)
+        tc = await _make_test_case(test_session, "case1")
         run = await _make_run(test_session, version, strategy)
+        job = await _make_job(test_session, run, tc)
 
-        async def noop_gen(*, messages):
-            return "x"
+        async def boom_gen(*, messages):
+            raise RuntimeError("generate failed")
 
         async def noop_score(*, messages):
             return _ok_score_json()
 
-        await execute_run(
-            run.id, test_session, generate_fn=noop_gen, score_fn=noop_score
+        with pytest.raises(RuntimeError, match="generate failed"):
+            await execute_case(
+                test_session, job.id, generate_fn=boom_gen, score_fn=noop_score
+            )
+
+        # 不落任何半成品
+        crs = (
+            (await test_session.execute(select(EvalCaseResult))).scalars().all()
         )
+        assert len(crs) == 0
+        scs = (
+            (await test_session.execute(select(EvalScore))).scalars().all()
+        )
+        assert len(scs) == 0
 
-        await test_session.refresh(run)
-        # 只有 tc1 + tc3 命中 skincare tag
-        assert run.completed_cases == 2
+    async def test_score_raises_nothing_written(self, test_session: AsyncSession):
+        """第 2 维 score 抛错 → 整个 execute_case 抛错，连第 1 维都不落库（无半成品）。"""
+        dim1 = await _make_dimension(test_session, "hook_strength", 0.35)
+        dim2 = await _make_dimension(test_session, "conversion_power", 0.30)
+        await _make_rubrics(test_session, dim1.id)
+        await _make_rubrics(test_session, dim2.id)
 
-    async def test_filter_by_ids(self, test_session: AsyncSession):
+        version = await _make_version(test_session)
+        strategy = await _make_strategy(test_session)
+        tc = await _make_test_case(test_session, "case1")
+        run = await _make_run(test_session, version, strategy)
+        job = await _make_job(test_session, run, tc)
+
+        calls = {"n": 0}
+
+        async def noop_gen(*, messages):
+            return "x"
+
+        async def flaky_score(*, messages):
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise RuntimeError("dim2 score failed")
+            return _ok_score_json()
+
+        with pytest.raises(RuntimeError, match="dim2 score failed"):
+            await execute_case(
+                test_session, job.id, generate_fn=noop_gen, score_fn=flaky_score
+            )
+
+        # 无半成品落库（db.add 在 score 循环之后，抛错时未执行）
+        crs = (
+            (await test_session.execute(select(EvalCaseResult))).scalars().all()
+        )
+        assert len(crs) == 0
+        scs = (
+            (await test_session.execute(select(EvalScore))).scalars().all()
+        )
+        assert len(scs) == 0
+
+
+# ---------------------------------------------------------------------------
+# job 绑定正确 test_case
+# ---------------------------------------------------------------------------
+
+
+class TestJobBindsCorrectTestCase:
+    """job.test_case_id 决定唯一 tc，不串 case。"""
+
+    async def test_job_resolves_its_own_test_case(self, test_session: AsyncSession):
         dim = await _make_dimension(test_session, "copy_quality", 0.4)
         await _make_rubrics(test_session, dim.id)
 
         version = await _make_version(test_session)
+        strategy = await _make_strategy(test_session)
         tc1 = await _make_test_case(test_session, "case1")
         tc2 = await _make_test_case(test_session, "case2")
-        tc3 = await _make_test_case(test_session, "case3")
-
-        strategy = await _make_strategy(
-            test_session,
-            test_case_selector={"ids": [tc1.id, tc3.id]},
-        )
         run = await _make_run(test_session, version, strategy)
+        job = await _make_job(test_session, run, tc2)  # job 绑 tc2
 
         async def noop_gen(*, messages):
-            return "x"
+            return "for-tc2"
 
         async def noop_score(*, messages):
             return _ok_score_json()
 
-        await execute_run(
-            run.id, test_session, generate_fn=noop_gen, score_fn=noop_score
+        await execute_case(
+            test_session, job.id, generate_fn=noop_gen, score_fn=noop_score
         )
 
-        await test_session.refresh(run)
-        assert run.completed_cases == 2
+        cr = (
+            (await test_session.execute(select(EvalCaseResult))).scalars().one()
+        )
+        assert cr.test_case_id == tc2.id  # 绑的是 tc2，不是 tc1
+        assert cr.generated_output == "for-tc2"
+
+
+# ---------------------------------------------------------------------------
+# default rubric 变体选择
+# ---------------------------------------------------------------------------
 
 
 class TestDefaultRubricVariant:
@@ -640,6 +541,7 @@ class TestDefaultRubricVariant:
         strategy = await _make_strategy(test_session)
         tc = await _make_test_case(test_session, "case1")
         run = await _make_run(test_session, version, strategy)
+        job = await _make_job(test_session, run, tc)
 
         captured_score_msgs = []
 
@@ -650,19 +552,24 @@ class TestDefaultRubricVariant:
             captured_score_msgs.append(messages[0]["content"])
             return _ok_score_json()
 
-        await execute_run(
-            run.id, test_session, generate_fn=noop_gen, score_fn=capture_score
+        await execute_case(
+            test_session, job.id, generate_fn=noop_gen, score_fn=capture_score
         )
 
-        # 评分 prompt 应包含 default 变体 criteria，不含 skincare 变体
+        # 评分 prompt 应包含 default 变体 criteria，不含 scenario 变体
         assert len(captured_score_msgs) == 1
         prompt = captured_score_msgs[0]
         assert "level-10-criteria" in prompt  # default 变体文本
         assert "skincare-only" not in prompt  # scenario 变体未选
 
 
+# ---------------------------------------------------------------------------
+# adapter 绑定（生产路径）
+# ---------------------------------------------------------------------------
+
+
 class TestProductionAdapterBinding:
-    """generate_fn/score_fn 为 None 时走 adapter_registry 绑定（生产路径）。"""
+    """generate_fn/score_fn=None 时走 adapter_registry 绑定。"""
 
     async def test_none_fns_use_adapter_registry(self, test_session: AsyncSession):
         from app.evaluation.services import runner as runner_mod
@@ -674,8 +581,8 @@ class TestProductionAdapterBinding:
         strategy = await _make_strategy(test_session)
         tc = await _make_test_case(test_session, "case1")
         run = await _make_run(test_session, version, strategy)
+        job = await _make_job(test_session, run, tc)
 
-        # mock adapter + get_adapter，验证绑定逻辑
         mock_adapter = AsyncMock()
         mock_adapter.chat.return_value = _ok_score_json(9)
 
@@ -686,9 +593,137 @@ class TestProductionAdapterBinding:
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(runner_mod, "get_adapter", fake_get_adapter)
 
-            await execute_run(run.id, test_session)  # 不传 fn
+            await execute_case(test_session, job.id)  # 不传 fn
 
-        await test_session.refresh(run)
-        assert run.status == RUN_STATUS_COMPLETED
-        # mock_adapter.chat 被调用：generate（1 case）+ score（1 dim）= 2 次
+        # mock_adapter.chat 被调用：generate（1）+ score（1 dim）= 2 次
         assert mock_adapter.chat.await_count == 2
+        # 产物落库
+        cr = (
+            (await test_session.execute(select(EvalCaseResult))).scalars().one()
+        )
+        assert cr is not None
+
+    async def test_score_uses_frozen_resolved_scoring_and_binds_params(
+        self, test_session: AsyncSession
+    ):
+        """B-C2：execute_case 评分用 run.metadata 冻结的 resolved_scoring（不是当前 config），
+        且验证 partial 绑定的 model_id 参数（spec §7.1-5）。
+
+        场景：version.config 的 scoring_model_id='config-judge'，但 run.metadata 冻结
+        快照是 'frozen-judge'（模拟 trigger 时写入、之后 config 被改）。execute_case 评分
+        应该用 frozen-judge，保证「冻结值 = 实际使用」。
+        """
+        from unittest.mock import AsyncMock
+        from app.evaluation.services import runner as runner_mod
+
+        dim = await _make_dimension(test_session, "copy_quality", 0.4)
+        await _make_rubrics(test_session, dim.id)
+
+        version = await _make_version(
+            test_session, scoring_model_id="config-judge"
+        )
+        strategy = await _make_strategy(test_session)
+        tc = await _make_test_case(test_session, "case1")
+        run = await _make_run(test_session, version, strategy)
+        # 覆盖 metadata 为冻结快照（值与 config 不同）
+        run.metadata_ = {
+            "resolved_scoring": {
+                "model_id": "frozen-judge",
+                "provider": "yunwu",
+                "adapter": "yunwu",
+            }
+        }
+        await test_session.commit()
+        await test_session.refresh(run)
+        job = await _make_job(test_session, run, tc)
+
+        mock_adapter = AsyncMock()
+        mock_adapter.chat.return_value = _ok_score_json(9)
+
+        def fake_get_adapter(name):
+            return mock_adapter
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(runner_mod, "get_adapter", fake_get_adapter)
+            await execute_case(test_session, job.id)
+
+        # 2 次 adapter.chat：[0]=generate（用 config 的 model_id）, [1]=score（用冻结快照）
+        assert mock_adapter.chat.await_count == 2
+        calls = mock_adapter.chat.call_args_list
+        assert calls[0].kwargs["model_id"] == "gen-model"  # generate 绑 version config
+        # score 绑冻结快照的 model_id（不是 config 的 'config-judge'）→ B-C2 冻结生效
+        assert calls[1].kwargs["model_id"] == "frozen-judge"
+
+    async def test_falls_back_to_compute_when_metadata_missing(
+        self, test_session: AsyncSession
+    ):
+        """run.metadata 无 resolved_scoring（测试直建 run / 迁移期旧 run）→ 回退现算 config。"""
+        from unittest.mock import AsyncMock
+        from app.evaluation.services import runner as runner_mod
+
+        dim = await _make_dimension(test_session, "copy_quality", 0.4)
+        await _make_rubrics(test_session, dim.id)
+
+        version = await _make_version(
+            test_session, scoring_model_id="config-judge"
+        )
+        strategy = await _make_strategy(test_session)
+        tc = await _make_test_case(test_session, "case1")
+        run = await _make_run(test_session, version, strategy)  # metadata_={}
+        job = await _make_job(test_session, run, tc)
+
+        mock_adapter = AsyncMock()
+        mock_adapter.chat.return_value = _ok_score_json(9)
+
+        def fake_get_adapter(name):
+            return mock_adapter
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(runner_mod, "get_adapter", fake_get_adapter)
+            await execute_case(test_session, job.id)
+
+        # 无冻结快照 → score 用 config 的 scoring_model_id
+        calls = mock_adapter.chat.call_args_list
+        assert calls[1].kwargs["model_id"] == "config-judge"
+
+
+# ---------------------------------------------------------------------------
+# resolve_test_cases（selector 解析；从旧 execute_run 端到端测试迁为直接单测）
+# ---------------------------------------------------------------------------
+
+
+class TestResolveTestCases:
+    """strategy.test_case_selector 解析：{"all"}/{"tags"}/{"ids"}。"""
+
+    async def test_all_selector(self, test_session: AsyncSession):
+        await _make_test_case(test_session, "case1")
+        await _make_test_case(test_session, "case2")
+        cases = await resolve_test_cases(
+            test_session, EVAL_TOOL_QIANCHUAN_WRITER, {"all": True}
+        )
+        assert len(cases) >= 2
+
+    async def test_filter_by_tags(self, test_session: AsyncSession):
+        await _make_test_case(test_session, "a", tags=["skincare"])
+        await _make_test_case(test_session, "b", tags=["diet"])
+        c3 = await _make_test_case(test_session, "c", tags=["skincare", "lite"])
+        cases = await resolve_test_cases(
+            test_session, EVAL_TOOL_QIANCHUAN_WRITER, {"tags": ["skincare"]}
+        )
+        ids = {c.id for c in cases}
+        assert c3.id in ids
+        assert all(
+            "skincare" in (c.tags or []) for c in cases
+        )  # 命中的都含 skincare
+
+    async def test_filter_by_ids(self, test_session: AsyncSession):
+        c1 = await _make_test_case(test_session, "case1")
+        await _make_test_case(test_session, "case2")
+        c3 = await _make_test_case(test_session, "case3")
+        cases = await resolve_test_cases(
+            test_session,
+            EVAL_TOOL_QIANCHUAN_WRITER,
+            {"ids": [c1.id, c3.id]},
+        )
+        ids = {c.id for c in cases}
+        assert ids == {c1.id, c3.id}

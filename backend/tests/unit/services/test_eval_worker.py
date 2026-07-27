@@ -76,6 +76,7 @@ from app.evaluation.models import (  # noqa: E402
     EvalTestCase,
     EvalVersion,
 )
+from app.evaluation.services.runner import execute_case  # noqa: E402
 from app.evaluation.worker import aggregate_run_progress, recover_pending_jobs, run_case_job_logic  # noqa: E402
 
 
@@ -253,4 +254,111 @@ class TestRecoverPendingJobs:
         assert n == 0                               # 无 pending 可重投
         jr = await _reload(test_session, EvalCaseJob, j.id)
         assert jr.status == "running"               # 未被重置
+
+
+# ---------------------------------------------------------------------------
+# execute_case 接线（Phase 3）：run_case_job_logic(execute=execute_case) 端到端
+# ---------------------------------------------------------------------------
+
+
+async def _make_dim_with_rubrics(test_session):
+    """建一条 active 维度 + default 变体 rubric（供 execute_case 评分）。"""
+    dim = EvalDimension(
+        tool_code=EVAL_TOOL_QIANCHUAN_WRITER,
+        name=f"dim{uuid.uuid4().hex[:6]}",
+        display_name="dim",
+        default_weight=0.4,
+        score_min=1,
+        score_max=10,
+        prompt_template="评分 {{rubric_text}} 被评：{{generated_output}}",
+        is_active=True,
+    )
+    test_session.add(dim)
+    await test_session.flush()
+    test_session.add(
+        EvalRubric(
+            dimension_id=dim.id, level=8, criteria="good",
+            scenario_tag=None, is_active=True,
+        )
+    )
+    await test_session.commit()
+    await test_session.refresh(dim)
+    return dim
+
+
+def _ok_score_json(score=8):
+    import json as _json
+    return _json.dumps({"score": score, "reasoning": "ok", "strengths": [], "weaknesses": []})
+
+
+class TestExecuteCaseWiring:
+    """run_case_job_logic(execute=execute_case)：真实执行接线端到端。
+
+    mock get_adapter → execute_case 经 adapter.chat 生成+评分。
+    验证：job→done + run.completed+1 + run 收尾 completed + case_result/scores 落库。
+    """
+
+    async def test_success_persists_and_finalizes(self, test_session, _isolate):
+        from unittest.mock import AsyncMock, patch
+        from app.evaluation.services import runner as runner_mod
+
+        run = await _make_run(test_session, 1)
+        run_id = run.id
+        await _make_dim_with_rubrics(test_session)
+        job = await _make_job(test_session, run_id)
+        job_id = job.id  # 调用前捕获 int（失败路径 rollback 会 expire ORM 对象）
+
+        mock_adapter = AsyncMock()
+        mock_adapter.chat.return_value = _ok_score_json(9)
+        with patch.object(runner_mod, "get_adapter", return_value=mock_adapter):
+            result = await run_case_job_logic(
+                test_session, job_id, execute=execute_case
+            )
+
+        assert "done" in result
+        job = await _reload(test_session, EvalCaseJob, job_id)
+        assert job.status == JOB_STATUS_DONE
+        assert job.started_at is not None
+        assert job.finished_at is not None
+        run = await _reload(test_session, EvalRun, run_id)
+        assert run.completed_cases == 1
+        assert run.failed_cases == 0
+        assert run.status == RUN_STATUS_COMPLETED  # 全部 case 终态 → completed
+
+        crs = (await test_session.execute(select(EvalCaseResult))).scalars().all()
+        assert len(crs) == 1
+        scs = (await test_session.execute(select(EvalScore))).scalars().all()
+        assert len(scs) == 1  # 1 维 → 1 score
+        assert float(scs[0].ai_score) == 9.0
+
+    async def test_failure_marks_failed_and_aggregates(self, test_session, _isolate):
+        """execute_case 抛错（LLM down）→ job failed + last_error + run.failed+1 + 收尾 failed。"""
+        from unittest.mock import AsyncMock, patch
+        from app.evaluation.services import runner as runner_mod
+
+        run = await _make_run(test_session, 1)
+        run_id = run.id
+        await _make_dim_with_rubrics(test_session)
+        job = await _make_job(test_session, run_id)
+        job_id = job.id  # 调用前捕获 int（rollback 会 expire ORM 对象，事后同步读 .id 触发 MissingGreenlet）
+
+        mock_adapter = AsyncMock()
+        mock_adapter.chat.side_effect = RuntimeError("llm down")
+        with patch.object(runner_mod, "get_adapter", return_value=mock_adapter):
+            with pytest.raises(RuntimeError, match="llm down"):
+                await run_case_job_logic(
+                    test_session, job_id, execute=execute_case
+                )
+
+        job = await _reload(test_session, EvalCaseJob, job_id)
+        assert job.status == JOB_STATUS_FAILED
+        assert job.last_error is not None
+        assert "llm down" in job.last_error
+        run = await _reload(test_session, EvalRun, run_id)
+        assert run.failed_cases == 1
+        assert run.completed_cases == 0
+        assert run.status == RUN_STATUS_FAILED  # 全部 failed → run failed
+        # 失败不落 case_result（无半成品）
+        crs = (await test_session.execute(select(EvalCaseResult))).scalars().all()
+        assert len(crs) == 0
 
