@@ -50,10 +50,10 @@ INSERT INTO eval_versions (tool_code, name, description, config_payload, parent_
 SELECT 'qianchuan-writer', v.name, v.description,
        jsonb_build_object(
          'system_prompt_template', v.prompt,
-         'model_id','glm-4-flash','provider','glm',
-         'scoring_model_id','glm-4-flash','scoring_provider','glm','scoring_adapter','yunwu',
+         'model_id','k3','provider','kimi',
+         'scoring_model_id','glm-4.6','scoring_provider','glm','scoring_adapter','yunwu',
          'dimension_weights', jsonb_build_object('hook_strength',0.35,'conversion_power',0.30,'structure_fidelity',0.20,'persona_consistency',0.15),
-         'temperature',0.8,'max_tokens',900
+         'temperature',1,'max_tokens',900
        ),
        NULL, NULL, FALSE, ARRAY[]::text[], v.is_active, (SELECT id FROM users WHERE username='admin')
 FROM (VALUES
@@ -101,18 +101,18 @@ BEGIN
 
   INSERT INTO eval_runs(version_id,strategy_id,name,trigger_type,status,filter_tags,total_cases,completed_cases,failed_cases,metadata,created_by,started_at,finished_at)
   VALUES(va,sid,'基线回归 · v1.2-痛点共鸣','manual','completed',ARRAY[]::text[],5,5,0,
-    jsonb_build_object('resolved_scoring',jsonb_build_object('model_id','glm-4-flash','provider','glm','adapter','yunwu')),
+    jsonb_build_object('resolved_scoring',jsonb_build_object('model_id','glm-4.6','provider','glm','adapter','yunwu')),
     (SELECT id FROM users WHERE username='admin'),NOW()-interval '3 hour',NOW()-interval '170 minute') RETURNING id INTO ra;
   INSERT INTO eval_runs(version_id,strategy_id,name,trigger_type,status,filter_tags,total_cases,completed_cases,failed_cases,metadata,created_by,started_at,finished_at)
   VALUES(vb,sid,'线上回归 · v1.3-行动引导','manual','completed',ARRAY[]::text[],5,5,0,
-    jsonb_build_object('resolved_scoring',jsonb_build_object('model_id','glm-4-flash','provider','glm','adapter','yunwu')),
+    jsonb_build_object('resolved_scoring',jsonb_build_object('model_id','glm-4.6','provider','glm','adapter','yunwu')),
     (SELECT id FROM users WHERE username='admin'),NOW()-interval '1 hour',NOW()-interval '50 minute') RETURNING id INTO rb;
 
   FOR tc IN SELECT id,name FROM eval_test_cases ORDER BY id LOOP
     FOR r IN SELECT rid,tag FROM (VALUES (ra,'A'),(rb,'B')) AS x(rid,tag) LOOP
       INSERT INTO eval_case_results(run_id,test_case_id,generated_output,output_payload)
       VALUES(r.rid,tc.id,'【'||CASE WHEN r.tag='A' THEN 'v1.2 基线' ELSE 'v1.3 线上' END||'】'||tc.name||' 仿写稿……（demo 示例文本）',
-        jsonb_build_object('char_count',320,'model',CASE WHEN r.tag='A' THEN 'glm-4-flash' ELSE 'glm-4-flash' END)) RETURNING id INTO cr;
+        jsonb_build_object('char_count',320,'model',CASE WHEN r.tag='A' THEN 'k3' ELSE 'k3' END)) RETURNING id INTO cr;
       FOR dm IN SELECT id,name FROM eval_dimensions WHERE tool_code='qianchuan-writer' ORDER BY id LOOP
         bs := CASE dm.name
           WHEN 'hook_strength'        THEN 6.4 + (tc.id % 3)*0.3

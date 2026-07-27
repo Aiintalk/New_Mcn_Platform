@@ -248,5 +248,7 @@ class WorkerSettings:
     redis_settings = eval_redis_settings()
     on_startup = _on_startup   # 启动时恢复未入队/卡死的 pending job（重启补偿）
     max_jobs = 2          # 一期并发上限（凭证池限流）
-    job_timeout = 600     # 单 job 上限 10 分钟（单 case：1 生成 + 4 维评分）
+    # 单 case = 1 生成 + N 维评分（一期 4 维）= 5 次 LLM 调用，每次受 _HTTP_TIMEOUT(150s) 限；
+    # 5×150=750s + DB/渲染/解析开销 → job_timeout=900 留余量（reviewer 算术修正：原 600 余量为 0）
+    job_timeout = 900
     max_tries = 3         # 失败重试次数

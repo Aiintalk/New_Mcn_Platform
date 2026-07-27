@@ -254,6 +254,8 @@ async def execute_case(
                 db=db,
                 model_id=config.get("model_id"),
                 provider=config.get("provider", DEFAULT_ADAPTER),
+                # 透传 config.temperature（推理模型如 kimi-k3 只接受 1；原默认 0.7 会被拒 400）
+                temperature=config.get("temperature", 0.7),
             )
         if score_fn is None:
             score_fn = functools.partial(

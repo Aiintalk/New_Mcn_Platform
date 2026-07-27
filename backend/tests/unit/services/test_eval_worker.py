@@ -40,7 +40,7 @@ def test_worker_settings_basics():
     assert ping in WorkerSettings.functions
     assert WorkerSettings.max_jobs == 2      # 一期并发上限（已确认）
     assert WorkerSettings.max_tries == 3
-    assert WorkerSettings.job_timeout == 600
+    assert WorkerSettings.job_timeout == 900
 
 
 # ---------------------------------------------------------------------------
