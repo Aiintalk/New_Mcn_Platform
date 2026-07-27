@@ -98,14 +98,18 @@
 - **Redis 隔离**：依赖限定在 `app/evaluation/`，主工程零侵入；迁出时 `mcn-redis` 容器同迁
 - **生产注意**：`vite allowedHosts:true` 仅开发；生产走 nginx 前置，该配置不生效
 
-
 ---
 
-## 附录 A：改存量文件 diff（git diff `+/-` 格式，逐行证据）
+## 附录 A：改存量文件 diff（按文件分开）
 
-> 配合 §1 表格阅读：表格给"改了什么/为什么/风险"，此处给逐行 diff。
-> 已排除 `frontend/package-lock.json`（锁文件自动生成，纯噪音）。
-> 共 13 个存量文件，按「后端 → 前端」排列，每个文件以 `diff --git` 行分隔。
+> 每个文件：先「改了什么 / 为什么 / 风险」（同 §1，就近复制方便阅读），再 `git diff +/-` 逐行证据。
+> 共 13 个（项目根 1 + 后端 5 + 前端 7），已排除 `frontend/package-lock.json`（锁文件噪音）。
+
+### `.gitignore`
+
+- **改了什么**：+`coverage/` +`frontend/docs/design_reference/`
+- **为什么**：忽略覆盖率产物 / 评测设计稿导出（本地参考用）
+- **风险**：无
 
 ```diff
 diff --git a/.gitignore b/.gitignore
@@ -127,6 +131,15 @@ index 7ffcacf..1007256 100644
 +
 +# 评测 UI 设计稿导出（Open Design handoff，本地参考用，不进 git）
 +frontend/docs/design_reference/
+```
+
+### `backend/app/adapters/yunwu.py`
+
+- **改了什么**：`_HTTP_TIMEOUT` 60→150
+- **为什么**：推理模型（glm-4.6 评委 / kimi-k3 生成）长 prompt 响应慢，60s 触发 `httpx.ReadTimeout`
+- **风险**：⚠️ **共享 adapter，全局生效**：所有非流式 chat 超时放宽（流式 300s 不变）；代价=挂起请求多等最多 90s 才失败
+
+```diff
 diff --git a/backend/app/adapters/yunwu.py b/backend/app/adapters/yunwu.py
 index 709665b..4c41d80 100644
 --- a/backend/app/adapters/yunwu.py
@@ -140,6 +153,15 @@ index 709665b..4c41d80 100644
  _STREAM_TIMEOUT = 300  # 流式生成超时（秒），人格定位等长输出场景
  _QUEUE_TIMEOUT = 30   # 排队等待上限（秒）
  _STALE_LOCK_SECS = 360  # 僵尸锁超时（秒）：active_requests > 0 但 updated_at 超过此时间的视为泄漏
+```
+
+### `backend/app/main.py`
+
+- **改了什么**：+2 行 `include_router`（admin/operator eval）
+- **为什么**：挂载评测 API
+- **风险**：低（纯新增挂载，不动现有路由）
+
+```diff
 diff --git a/backend/app/main.py b/backend/app/main.py
 index 8d6c5de..8860dc8 100644
 --- a/backend/app/main.py
@@ -159,6 +181,15 @@ index 8d6c5de..8860dc8 100644
  app.include_router(admin_kol_workspace.router, prefix="/api")
 +app.include_router(admin_eval_router, prefix="/api")
 +app.include_router(operator_eval_router, prefix="/api")
+```
+
+### `backend/app/models/__init__.py`
+
+- **改了什么**：+12 个 eval 模型 import + `__all__`
+- **为什么**：Alembic 迁移 autogenerate 需模型注册可见
+- **风险**：低（纯新增）
+
+```diff
 diff --git a/backend/app/models/__init__.py b/backend/app/models/__init__.py
 index 13bc5e0..c0e0a3d 100644
 --- a/backend/app/models/__init__.py
@@ -201,6 +232,15 @@ index 13bc5e0..c0e0a3d 100644
 +    "EvalTestCase",
 +    "EvalVersion",
  ]
+```
+
+### `backend/requirements.txt`
+
+- **改了什么**：+`croniter` +`arq` +`redis`
+- **为什么**：cron 解析 / 异步队列载体
+- **风险**：部署需 `pip install`
+
+```diff
 diff --git a/backend/requirements.txt b/backend/requirements.txt
 index 5714e63..ad1ea81 100644
 --- a/backend/requirements.txt
@@ -213,6 +253,15 @@ index 5714e63..ad1ea81 100644
 +# —— 评测模块异步运行（arq + Redis）—— 仅评测模块依赖，将来评测工程独立时随迁 ——
 +arq>=0.26
 +redis>=5.0
+```
+
+### `backend/tests/conftest.py`
+
+- **改了什么**：+5 行 `AsyncSessionLocal` patch 目标
+- **为什么**：测试隔离（红线 #7：新模块必须注册，否则测试连生产库）
+- **风险**：低（仅测试基建）
+
+```diff
 diff --git a/backend/tests/conftest.py b/backend/tests/conftest.py
 index 71e5052..6150bad 100644
 --- a/backend/tests/conftest.py
@@ -229,6 +278,15 @@ index 71e5052..6150bad 100644
  ]
  
  
+```
+
+### `frontend/package.json`
+
+- **改了什么**：+`@vitest/coverage-v8`
+- **为什么**：前端覆盖率工具
+- **风险**：部署需 `npm install`
+
+```diff
 diff --git a/frontend/package.json b/frontend/package.json
 index d902897..cbe35f1 100644
 --- a/frontend/package.json
@@ -241,6 +299,15 @@ index d902897..cbe35f1 100644
      "eslint": "^10.3.0",
      "eslint-plugin-react-hooks": "^7.1.1",
      "eslint-plugin-react-refresh": "^0.5.2",
+```
+
+### `frontend/src/App.tsx`
+
+- **改了什么**：+lazy 路由挂载 8 个评测页面
+- **为什么**：挂载前端页面
+- **风险**：低（纯新增路由）
+
+```diff
 diff --git a/frontend/src/App.tsx b/frontend/src/App.tsx
 index 20f687e..10c90c6 100644
 --- a/frontend/src/App.tsx
@@ -286,6 +353,15 @@ index 20f687e..10c90c6 100644
                </Route>
              </Route>
            </Route>
+```
+
+### `frontend/src/__tests__/unit/api/conventionGuard.test.ts`
+
+- **改了什么**：测试守卫更新
+- **为什么**：评测 API 走 `request.ts` 约定守卫
+- **风险**：低（仅测试）
+
+```diff
 diff --git a/frontend/src/__tests__/unit/api/conventionGuard.test.ts b/frontend/src/__tests__/unit/api/conventionGuard.test.ts
 index 83ef40b..92428b3 100644
 --- a/frontend/src/__tests__/unit/api/conventionGuard.test.ts
@@ -395,6 +471,15 @@ index 83ef40b..92428b3 100644
      const violations = findFetchViolations()
  
      if (violations.length > 0) {
+```
+
+### `frontend/src/layouts/AdminLayout.tsx`
+
+- **改了什么**：+「评测配置」菜单组
+- **为什么**：admin 入口
+- **风险**：低
+
+```diff
 diff --git a/frontend/src/layouts/AdminLayout.tsx b/frontend/src/layouts/AdminLayout.tsx
 index 943b0d1..f0ea862 100644
 --- a/frontend/src/layouts/AdminLayout.tsx
@@ -443,6 +528,15 @@ index 943b0d1..f0ea862 100644
          </div>
        </div>
      </div>
+```
+
+### `frontend/src/layouts/OperatorLayout.tsx`
+
+- **改了什么**：+评测菜单项（admin-only，按 role 过滤）+ Suspense 修闪烁
+- **为什么**：operator 入口 + 修导航刷白
+- **风险**：低
+
+```diff
 diff --git a/frontend/src/layouts/OperatorLayout.tsx b/frontend/src/layouts/OperatorLayout.tsx
 index 31853e3..8be5cc2 100644
 --- a/frontend/src/layouts/OperatorLayout.tsx
@@ -510,6 +604,15 @@ index 31853e3..8be5cc2 100644
          </div>
        </div>
      </div>
+```
+
+### `frontend/src/test/setup.ts`
+
+- **改了什么**：测试 setup 配置更新
+- **为什么**：评测前端测试基建
+- **风险**：低（仅测试）
+
+```diff
 diff --git a/frontend/src/test/setup.ts b/frontend/src/test/setup.ts
 index a2d2a83..a5376a4 100644
 --- a/frontend/src/test/setup.ts
@@ -542,6 +645,15 @@ index a2d2a83..a5376a4 100644
 +    writable: true,
 +  });
 +}
+```
+
+### `frontend/vite.config.ts`
+
+- **改了什么**：`host:true` +`allowedHosts:true`
+- **为什么**：LAN/Tailscale 访问
+- **风险**：⚠️ `allowedHosts:true` **仅开发用**；生产 nginx 前置不生效
+
+```diff
 diff --git a/frontend/vite.config.ts b/frontend/vite.config.ts
 index 6e66a5f..e75e471 100644
 --- a/frontend/vite.config.ts
@@ -556,5 +668,3 @@ index 6e66a5f..e75e471 100644
        '/api': 'http://127.0.0.1:8010',
      },
 ```
-
-> 新增文件（~80 个，全部在 `app/evaluation/` / `src/evaluation/` / `backend/migrations/` / `backend/tests/` 下）为纯新增模块，无存量改动风险，不在此附录展开；如需查看完整新增清单见 §3。
