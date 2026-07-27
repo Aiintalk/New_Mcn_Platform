@@ -49,6 +49,15 @@ const QianchuanScriptReviewPage = lazy(() => import('./pages/operator/QianchuanS
 const KolWorkspacePage = lazy(() => import('./pages/operator/KolWorkspacePage'));
 const KolHubPage = lazy(() => import('./pages/operator/KolHubPage'));
 const KolWorkspaceConfigPage = lazy(() => import('./pages/admin/KolWorkspaceConfigPage'));
+// AIGC 评测模块（Phase 5）
+const EvalTestCasesPage = lazy(() => import('./evaluation/pages/TestCases'));
+const EvalTestCaseEditPage = lazy(() => import('./evaluation/pages/TestCaseEdit'));
+const EvalRunsPage = lazy(() => import('./evaluation/pages/Runs'));
+const EvalRunDetailPage = lazy(() => import('./evaluation/pages/RunDetail'));
+const EvalComparePage = lazy(() => import('./evaluation/pages/Compare'));
+const EvalVersionsPage = lazy(() => import('./evaluation/pages/Versions'));
+const EvalDimensionsPage = lazy(() => import('./evaluation/pages/Dimensions'));
+const EvalSchedulesPage = lazy(() => import('./evaluation/pages/Schedules'));
 
 function Page403() {
   return (
@@ -131,6 +140,13 @@ export default function App() {
               <Route path="/tasks" element={<TasksPage />} />
               <Route path="/outputs" element={<OutputsPage />} />
               <Route path="/kol-hub" element={<KolHubPage />} />
+              {/* AIGC 评测系统（Phase 5）— operator 可访问，admin 亦可用 */}
+              <Route path="/evaluation/test-cases" element={<EvalTestCasesPage />} />
+              <Route path="/evaluation/test-cases/new" element={<EvalTestCaseEditPage />} />
+              <Route path="/evaluation/test-cases/:id/edit" element={<EvalTestCaseEditPage />} />
+              <Route path="/evaluation/runs" element={<EvalRunsPage />} />
+              <Route path="/evaluation/runs/:id" element={<EvalRunDetailPage />} />
+              <Route path="/evaluation/compare" element={<EvalComparePage />} />
             </Route>
           </Route>
 
@@ -150,6 +166,10 @@ export default function App() {
                 <Route path="/admin/audit" element={<OperationLogsPage />} />
                 <Route path="/admin/config" element={<ServiceConfigPage />} />
                 <Route path="/admin/intake" element={<AdminIntakePage />} />
+                {/* AIGC 评测 — admin only */}
+                <Route path="/admin/evaluation/versions" element={<EvalVersionsPage />} />
+                <Route path="/admin/evaluation/dimensions" element={<EvalDimensionsPage />} />
+                <Route path="/admin/evaluation/schedules" element={<EvalSchedulesPage />} />
               </Route>
             </Route>
           </Route>

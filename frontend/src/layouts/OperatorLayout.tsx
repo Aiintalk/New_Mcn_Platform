@@ -1,14 +1,27 @@
+import { Suspense } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { logout } from '../api/auth';
-import { message } from 'antd';
+import { message, Spin } from 'antd';
 
-const MENU = [
+function ContentFallback() {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 'calc(100vh - 110px)' }}>
+      <Spin />
+    </div>
+  );
+}
+
+const MENU: { path: string; label: string; icon: string; adminOnly?: boolean }[] = [
   { path: '/',          label: '概览',     icon: '⊞' },
   { path: '/workspace', label: 'AI工具箱', icon: '✦' },
   { path: '/kol-hub',   label: '红人工作台', icon: '★' },
   { path: '/tasks',     label: '任务中心', icon: '☑' },
   { path: '/outputs',   label: '产出中心', icon: '⬇' },
+  // AIGC 评测（一期：千川仿写文案工具回归评测）—— 仅管理员可见
+  { path: '/evaluation/test-cases', label: '测试集',   icon: '⚑', adminOnly: true },
+  { path: '/evaluation/runs',       label: '运行管理', icon: '▶', adminOnly: true },
+  { path: '/evaluation/compare',    label: '版本对比', icon: '⇄', adminOnly: true },
 ];
 
 export default function OperatorLayout() {
@@ -16,8 +29,10 @@ export default function OperatorLayout() {
   const { pathname } = useLocation();
   const { user, clearAuth } = useAuthStore();
   const displayName = user?.real_name || user?.username || 'U';
-  const currentLabel = MENU.find(n => n.path === pathname)?.label
-    ?? MENU.slice().reverse().find(n => pathname.startsWith(n.path))?.label
+  // 仅管理员能看到评测入口（评测一期限定管理员）
+  const items = MENU.filter(n => !n.adminOnly || user?.role === 'admin');
+  const currentLabel = items.find(n => n.path === pathname)?.label
+    ?? items.slice().reverse().find(n => pathname.startsWith(n.path))?.label
     ?? '页面';
 
   async function handleLogout() {
@@ -36,7 +51,7 @@ export default function OperatorLayout() {
         </div>
         <nav className="sidebar-nav">
           <div className="nav-group">
-            {MENU.map(n => (
+            {items.map(n => (
               <div
                 key={n.path}
                 className={pathname === n.path ? 'nav-item active' : 'nav-item'}
@@ -68,7 +83,9 @@ export default function OperatorLayout() {
           </div>
         </div>
         <div className="main-body">
-          <Outlet />
+          <Suspense fallback={<ContentFallback />}>
+            <Outlet />
+          </Suspense>
         </div>
       </div>
     </div>

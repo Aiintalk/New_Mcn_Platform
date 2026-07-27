@@ -1,7 +1,8 @@
 /**
  * 前端规范守卫 — 红线 #3: API 调用必须走 request.ts
  *
- * 扫描 src/api/*.ts（排除 request.ts 自身），检查是否有裸 fetch() 调用。
+ * 扫描范围：src 下所有 api 子目录里的 .ts 文件（含 src/api 与 src/evaluation/api 等）。
+ * 检查：是否存在裸 fetch() 调用（未走 request.ts 的 get/post/put/del）。
  *
  * 例外场景（允许直接使用 fetch）:
  *   - FormData 上传（代码中出现 FormData）
@@ -12,10 +13,10 @@
  * 例外函数也必须手动解包 .data（见 CLAUDE.md §12 #3）。
  */
 import { describe, it } from 'vitest'
-import { readFileSync, readdirSync } from 'fs'
-import { join, resolve } from 'path'
+import { readFileSync, readdirSync, statSync, existsSync } from 'fs'
+import { join, resolve, relative } from 'path'
 
-const API_DIR = resolve(process.cwd(), 'src', 'api')
+const ROOT_DIR = resolve(process.cwd(), 'src')
 
 // fetch() 附近出现以下任一模式时视为合法例外
 const EXCEPTION_INDICATORS = [
@@ -35,19 +36,54 @@ interface FetchViolation {
   context: string
 }
 
-function findFetchViolations(): FetchViolation[] {
-  const violations: FetchViolation[] = []
+/** 递归收集所有 src 下 api 子目录里的 .ts 文件（排除 request.ts 自身） */
+function collectApiFiles(): string[] {
+  const result: string[] = []
 
-  let files: string[]
-  try {
-    files = readdirSync(API_DIR)
-      .filter((f) => f.endsWith('.ts') && f !== 'request.ts')
-  } catch {
-    return [{ file: '(api-dir)', line: 0, context: `无法读取目录 ${API_DIR}` }]
+  function walk(dir: string) {
+    if (!existsSync(dir)) return
+    let entries: string[]
+    try {
+      entries = readdirSync(dir)
+    } catch {
+      return
+    }
+    for (const name of entries) {
+      const abs = join(dir, name)
+      let st
+      try {
+        st = statSync(abs)
+      } catch {
+        continue
+      }
+      if (st.isDirectory()) {
+        walk(abs)
+      } else if (st.isFile() && name.endsWith('.ts') && name !== 'request.ts') {
+        // 只接受路径段包含 /api/ 的文件
+        const normalized = abs.replace(/\\/g, '/')
+        // 排除测试文件（自身守卫扫描不应触发自己）
+        if (normalized.includes('/api/') && !normalized.includes('.test.') && !normalized.includes('/__tests__/')) {
+          result.push(abs)
+        }
+      }
+    }
   }
 
-  for (const file of files) {
-    const content = readFileSync(join(API_DIR, file), 'utf-8')
+  walk(ROOT_DIR)
+  return Array.from(new Set(result))
+}
+
+function findFetchViolations(): FetchViolation[] {
+  const violations: FetchViolation[] = []
+  const files = collectApiFiles()
+
+  if (files.length === 0) {
+    return [{ file: '(api-dir)', line: 0, context: `未扫描到任何 .ts 文件（${ROOT_DIR}）` }]
+  }
+
+  for (const abs of files) {
+    const rel = relative(process.cwd(), abs)
+    const content = readFileSync(abs, 'utf-8')
     const lines = content.split('\n')
 
     for (let i = 0; i < lines.length; i++) {
@@ -66,7 +102,7 @@ function findFetchViolations(): FetchViolation[] {
       const hasException = EXCEPTION_INDICATORS.some((p) => window.includes(p))
       if (!hasException) {
         violations.push({
-          file,
+          file: rel,
           line: i + 1,
           context: trimmed.substring(0, 80),
         })
@@ -78,7 +114,7 @@ function findFetchViolations(): FetchViolation[] {
 }
 
 describe('红线 #3: API 调用必须走 request.ts', () => {
-  it('src/api/*.ts 中不应有未经例外的裸 fetch() 调用', () => {
+  it('src/api/*.ts 与 src/**/api/*.ts 中不应有未经例外的裸 fetch() 调用', () => {
     const violations = findFetchViolations()
 
     if (violations.length > 0) {

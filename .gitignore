@@ -19,6 +19,7 @@ node_modules/
 dist/
 build/
 .cache/
+coverage/
 
 # 日志
 *.log
@@ -65,3 +66,6 @@ backend/legacy_for_server_*.sql
 
 # Walkthrough 生成产物（skill 自动产出，每次重新生成，不进 git）
 docs/walkthrough/
+
+# 评测 UI 设计稿导出（Open Design handoff，本地参考用，不进 git）
+frontend/docs/design_reference/

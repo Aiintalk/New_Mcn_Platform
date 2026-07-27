@@ -29,7 +29,7 @@ _DEFAULT_BASE_URLS = {
     "siliconflow": os.getenv("SILICONFLOW_BASE_URL",  "https://api.siliconflow.cn/v1"),
     "glm":         os.getenv("GLM_BASE_URL",          "https://open.bigmodel.cn/api/paas/v4"),
 }
-_HTTP_TIMEOUT  = 60
+_HTTP_TIMEOUT  = 150  # 推理模型（glm-4.6 评委 / kimi k3 生成）长 prompt 响应慢；配合 job_timeout 留余量（见 worker.WorkerSettings）
 _STREAM_TIMEOUT = 300  # 流式生成超时（秒），人格定位等长输出场景
 _QUEUE_TIMEOUT = 30   # 排队等待上限（秒）
 _STALE_LOCK_SECS = 360  # 僵尸锁超时（秒）：active_requests > 0 但 updated_at 超过此时间的视为泄漏

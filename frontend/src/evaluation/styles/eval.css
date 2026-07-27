@@ -1,0 +1,509 @@
+/* ============================================================
+   AIGC 评测系统 · React 模块样式
+   移植自 frontend/docs/design_reference/eval_design_v2/css/eval.css
+   tokens 与现有 variables.css 已对齐（Stone 暖灰 + 橙 #f59a23）。
+
+   本文件只声明评测模块特有的组件样式（不在 variables.css / admin.css 内），
+   并通过 .eval-page 前缀作用域，避免污染其它页面。
+   ============================================================ */
+
+/* ─── 1. page header ─────────────────────────────────────── */
+.eval-page .page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-5);
+  margin-bottom: var(--sp-6);
+  flex-wrap: wrap;
+}
+.eval-page .page-title {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  line-height: 1.2;
+  margin: 0;
+}
+.eval-page .page-title .title-tag {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--brand);
+  background: var(--brand-light);
+  border: 1px solid var(--brand-border);
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  margin-left: var(--sp-2);
+  vertical-align: 2px;
+}
+.eval-page .page-desc {
+  font-size: 13px;
+  color: var(--gray-500);
+  margin-top: 4px;
+  max-width: 70ch;
+}
+.eval-page .page-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+
+/* ─── 2. stat cards ──────────────────────────────────────── */
+.eval-page .stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-5);
+}
+.eval-page .stat-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--sp-4) var(--sp-5);
+  box-shadow: var(--shadow-sm);
+}
+.eval-page .stat-card .stat-label {
+  font-size: 12px;
+  color: var(--gray-500);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.eval-page .stat-card .stat-value {
+  font-family: var(--font-mono);
+  font-size: 30px;
+  font-weight: 600;
+  color: var(--gray-900);
+  line-height: 1.1;
+  margin-top: 6px;
+  letter-spacing: -0.02em;
+}
+.eval-page .stat-card .stat-value .unit {
+  font-size: 14px;
+  color: var(--gray-500);
+  font-weight: 400;
+  margin-left: 2px;
+}
+.eval-page .stat-card.accent {
+  border-color: var(--brand-border);
+}
+.eval-page .stat-card.accent .stat-value {
+  color: var(--brand);
+}
+
+/* ─── 3. card ────────────────────────────────────────────── */
+.eval-page .card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow 0.15s ease;
+}
+.eval-page .card + .card {
+  margin-top: var(--sp-5);
+}
+.eval-page .card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-4) var(--sp-5);
+  border-bottom: 1px solid var(--border);
+}
+.eval-page .card-header h3 {
+  font-size: 15px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin: 0;
+}
+.eval-page .card-header .ch-sub {
+  font-size: 12px;
+  color: var(--gray-500);
+  font-weight: 400;
+}
+.eval-page .card-body {
+  padding: var(--sp-5);
+}
+.eval-page .card-body.flush {
+  padding: 0;
+}
+.eval-page .card:hover {
+  box-shadow: var(--shadow-md);
+}
+
+/* ─── 4. filter bar + sub tabs ───────────────────────────── */
+.eval-page .filter-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--sp-4);
+}
+.eval-page .filter-bar .grow {
+  flex: 1;
+}
+.eval-page .filter-bar .filter-count {
+  font-size: 12px;
+  color: var(--gray-500);
+}
+.eval-page .sub-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: var(--sp-5);
+}
+.eval-page .sub-tab {
+  padding: 10px var(--sp-4);
+  font-size: 13px;
+  color: var(--gray-500);
+  border: none;
+  background: transparent;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  cursor: pointer;
+}
+.eval-page .sub-tab:hover {
+  color: var(--gray-800);
+}
+.eval-page .sub-tab.active {
+  color: var(--brand);
+  border-bottom-color: var(--brand);
+  font-weight: 600;
+}
+.eval-page .sub-tab .count {
+  font-size: 11px;
+  color: var(--gray-400);
+  margin-left: 4px;
+}
+.eval-page .sub-tab.active .count {
+  color: var(--brand);
+}
+
+/* ─── 5. score chips & diff ──────────────────────────────── */
+.eval-page .score-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 13px;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  line-height: 18px;
+}
+.eval-page .score-hi {
+  color: var(--success);
+  background: var(--success-bg);
+}
+.eval-page .score-mid {
+  color: var(--warning);
+  background: var(--warning-bg);
+}
+.eval-page .score-lo {
+  color: var(--danger);
+  background: var(--danger-bg);
+}
+.eval-page .score-na {
+  color: var(--gray-500);
+  background: var(--gray-100);
+}
+.eval-page .diff-up {
+  color: var(--success);
+  font-weight: 600;
+}
+.eval-page .diff-down {
+  color: var(--danger);
+  font-weight: 600;
+}
+.eval-page .diff-flat {
+  color: var(--gray-500);
+}
+
+/* ─── 6. weight bar ──────────────────────────────────────── */
+.eval-page .weight-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.eval-page .weight-bar .wb-track {
+  width: 80px;
+  height: 6px;
+  background: var(--gray-100);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.eval-page .weight-bar .wb-fill {
+  height: 100%;
+  background: var(--brand);
+  border-radius: 3px;
+  transition: width 0.15s;
+}
+.eval-page .weight-bar .wb-pct {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--gray-700);
+  min-width: 38px;
+}
+
+/* ─── 7. cell progress (run list) ────────────────────────── */
+.eval-page .cell-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 140px;
+}
+.eval-page .cell-progress .bar-track {
+  flex: 1;
+  height: 6px;
+  background: var(--gray-100);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.eval-page .cell-progress .bar-fill {
+  height: 100%;
+  background: var(--brand);
+  border-radius: 3px;
+  transition: width 0.3s;
+}
+.eval-page .cell-progress .bar-fill.success {
+  background: var(--success);
+}
+.eval-page .cell-progress .bar-fill.warn {
+  background: var(--warning);
+}
+.eval-page .cell-progress .bar-fill.danger {
+  background: var(--danger);
+}
+.eval-page .cell-progress .pct {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--gray-500);
+  width: 42px;
+  text-align: right;
+}
+
+/* ─── 8. callout ─────────────────────────────────────────── */
+.eval-page .callout {
+  border: 1px solid var(--brand-border);
+  background: var(--brand-light);
+  border-radius: var(--radius-md);
+  padding: var(--sp-3) var(--sp-4);
+  font-size: 13px;
+  color: var(--gray-700);
+  display: flex;
+  gap: var(--sp-2);
+  align-items: flex-start;
+}
+.eval-page .callout.info {
+  border-color: var(--info-border, #BFDBFE);
+  background: var(--info-bg);
+}
+.eval-page .callout.warn {
+  border-color: var(--warning-border, #FDE68A);
+  background: var(--warning-bg);
+}
+.eval-page .callout-icon {
+  font-weight: 700;
+  color: var(--brand);
+  flex-shrink: 0;
+}
+.eval-page .callout.info .callout-icon {
+  color: var(--info);
+}
+.eval-page .callout.warn .callout-icon {
+  color: var(--warning);
+}
+
+/* ─── 9. msg bubbles (chat preview) ──────────────────────── */
+.eval-page .chat-preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+.eval-page .msg {
+  max-width: 88%;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.eval-page .msg.assistant {
+  align-self: flex-start;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-top-left-radius: 4px;
+}
+.eval-page .msg.user {
+  align-self: flex-end;
+  background: var(--brand);
+  color: #fff;
+  border-top-right-radius: 4px;
+}
+.eval-page .msg .msg-role {
+  font-size: 11px;
+  opacity: 0.7;
+  margin-bottom: 4px;
+  font-family: var(--font-mono);
+}
+
+/* ─── 10. utilities ──────────────────────────────────────── */
+.eval-page .text-muted {
+  color: var(--gray-500);
+}
+.eval-page .text-sm {
+  font-size: 12px;
+}
+.eval-page .text-xs {
+  font-size: 11px;
+}
+.eval-page .text-mono {
+  font-family: var(--font-mono);
+}
+.eval-page .fw-600 {
+  font-weight: 600;
+}
+.eval-page .mb-3 {
+  margin-bottom: var(--sp-3);
+}
+.eval-page .mb-4 {
+  margin-bottom: var(--sp-4);
+}
+.eval-page .mb-5 {
+  margin-bottom: var(--sp-5);
+}
+
+/* ─── 11. compare bars ───────────────────────────────────── */
+.eval-page .compare-row {
+  margin-bottom: var(--sp-4);
+}
+.eval-page .compare-row .compare-line {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.eval-page .compare-row .compare-line .compare-label {
+  width: 28px;
+  font-size: 11px;
+  color: var(--gray-500);
+}
+.eval-page .compare-row .compare-line .compare-track {
+  flex: 1;
+  height: 18px;
+  background: var(--gray-100);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.eval-page .compare-row .compare-line .compare-fill {
+  height: 100%;
+  transition: width 0.3s;
+}
+.eval-page .compare-row .compare-line .compare-val {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  width: 34px;
+  text-align: right;
+}
+
+/* ─── 12. radar chart container ──────────────────────────── */
+.eval-page .radar-wrap {
+  display: flex;
+  gap: var(--sp-5);
+  flex-wrap: wrap;
+  align-items: center;
+}
+.eval-page .radar-wrap .radar-legend {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  flex: 1;
+  min-width: 220px;
+}
+.eval-page .radar-wrap .radar-legend .legend-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--gray-50);
+}
+
+/* ─── 13. tag input ──────────────────────────────────────── */
+.eval-page .tag-input {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  min-height: 36px;
+  align-items: center;
+}
+.eval-page .tag-input:focus-within {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 2px rgba(245, 149, 35, 0.12);
+}
+.eval-page .tag-input input {
+  border: none;
+  outline: none;
+  flex: 1;
+  min-width: 120px;
+  font-size: 13px;
+  padding: 2px;
+  background: transparent;
+}
+
+/* ─── 14. code area ──────────────────────────────────────── */
+.eval-page .code-area {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  background: var(--gray-50);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  min-height: 120px;
+  white-space: pre-wrap;
+  width: 100%;
+  resize: vertical;
+}
+.eval-page .code-area:focus {
+  outline: none;
+  border-color: var(--brand);
+  box-shadow: 0 0 0 2px rgba(245, 149, 35, 0.12);
+}
+
+/* ─── 15. empty state ────────────────────────────────────── */
+.eval-page .empty-state {
+  text-align: center;
+  padding: var(--sp-8) var(--sp-5);
+  color: var(--gray-500);
+}
+.eval-page .empty-state .es-icon {
+  font-size: 36px;
+  color: var(--gray-300);
+  margin-bottom: var(--sp-3);
+}
+.eval-page .empty-state .es-text {
+  font-size: 14px;
+}
+.eval-page .empty-state .es-hint {
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+/* ─── responsive ─────────────────────────────────────────── */
+@media (max-width: 1100px) {
+  .eval-page .form-grid-2 {
+    grid-template-columns: 1fr !important;
+  }
+}
+@media (max-width: 768px) {
+  .eval-page .stats-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .eval-page .radar-wrap {
+    flex-direction: column;
+  }
+}
