@@ -17,7 +17,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from sqlalchemy import select, text
 
-from app.evaluation.models import EvalDimension, EvalStrategy
+from app.evaluation.models import (
+    EvalCaseJob,
+    EvalDimension,
+    EvalRun,
+    EvalStrategy,
+    EvalTestCase,
+    EvalVersion,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -94,6 +101,55 @@ async def _seed_qianchuan_config(test_session, system_prompt="global default {{n
 async def _setup(test_session):
     """Common setup: ensure default strategy exists."""
     await _seed_default_strategy(test_session)
+
+
+# ---------------------------------------------------------------------------
+# Phase 5 seed helpers（runs + case_jobs）
+# ---------------------------------------------------------------------------
+
+
+async def _seed_version(test_session, name="v"):
+    v = EvalVersion(
+        tool_code="qianchuan-writer", name=name, description=None,
+        config_payload={"system_prompt_template": "x", "model_id": "m", "provider": "yunwu"},
+        parent_version_id=None, source_kol_id=None, auto_run_on_create=False,
+        auto_run_tags=[], is_active=True,
+    )
+    test_session.add(v)
+    await test_session.commit()
+    await test_session.refresh(v)
+    return v.id
+
+
+async def _seed_test_case(test_session, name="tc"):
+    tc = EvalTestCase(
+        tool_code="qianchuan-writer", name=name, description=None,
+        input_payload={}, tags=[], is_active=True,
+    )
+    test_session.add(tc)
+    await test_session.commit()
+    await test_session.refresh(tc)
+    return tc.id
+
+
+async def _seed_run(test_session, version_id, strategy_id, *, name="run", status="pending"):
+    run = EvalRun(
+        version_id=version_id, strategy_id=strategy_id, name=name,
+        trigger_type="manual", status=status, filter_tags=[],
+        total_cases=1, completed_cases=0, failed_cases=0, metadata_={},
+    )
+    test_session.add(run)
+    await test_session.commit()
+    await test_session.refresh(run)
+    return run.id
+
+
+async def _seed_job(test_session, run_id, test_case_id, status="pending", last_error=None):
+    job = EvalCaseJob(run_id=run_id, test_case_id=test_case_id, status=status, last_error=last_error)
+    test_session.add(job)
+    await test_session.commit()
+    await test_session.refresh(job)
+    return job.id
 
 
 # ---------------------------------------------------------------------------
@@ -928,3 +984,76 @@ class TestHandlersDirectCall:
         result = await delete_schedule_policy(15, _make_request(), db, _make_user())
         assert result.success is True
         assert existing.deleted_at is not None
+
+
+class TestObservability:
+    """Phase 5：queue-stats（队列健康度）+ 单 run jobs 明细（admin 只读）。"""
+
+    @pytest.mark.asyncio
+    async def test_queue_stats_returns_shape(self, test_client, admin_headers):
+        resp = await test_client.get("/api/admin/evaluation/queue-stats", headers=admin_headers)
+        body = resp.json()
+        assert resp.status_code == 200, body
+        data = body["data"]
+        for k in ("pending", "running", "failed_dead_letter", "done", "cancelled", "runs_active"):
+            assert isinstance(data[k], int)
+        assert data["oldest_pending_secs"] is None or isinstance(data["oldest_pending_secs"], int)
+
+    @pytest.mark.asyncio
+    async def test_queue_stats_pending_reflects_seeded(self, test_client, admin_headers, test_session):
+        sid = await _seed_default_strategy(test_session)
+        vid = await _seed_version(test_session, name="qsp-v")
+        run_id = await _seed_run(test_session, vid, sid, name="qsp-run", status="running")
+        for i in range(2):
+            tc_id = await _seed_test_case(test_session, name=f"qsp-tc-{i}")
+            await _seed_job(test_session, run_id, tc_id, status="pending")
+
+        data = (await test_client.get(
+            "/api/admin/evaluation/queue-stats", headers=admin_headers
+        )).json()["data"]
+        assert data["pending"] >= 2                       # 含我 seed 的 2 个（DB 累积，>=）
+        assert data["oldest_pending_secs"] is not None    # 有 pending → 有最老等待秒数
+
+    @pytest.mark.asyncio
+    async def test_queue_stats_no_token_401(self, test_client):
+        resp = await test_client.get("/api/admin/evaluation/queue-stats")
+        assert resp.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_queue_stats_operator_forbidden_403(self, test_client, operator_headers):
+        resp = await test_client.get("/api/admin/evaluation/queue-stats", headers=operator_headers)
+        assert resp.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_run_jobs_returns_per_job_detail(self, test_client, admin_headers, test_session):
+        sid = await _seed_default_strategy(test_session)
+        vid = await _seed_version(test_session, name="rj-v")
+        run_id = await _seed_run(test_session, vid, sid, name="rj-run", status="running")
+        tc1 = await _seed_test_case(test_session, name="rj-tc1")
+        tc2 = await _seed_test_case(test_session, name="rj-tc2")
+        tc3 = await _seed_test_case(test_session, name="rj-tc3")
+        await _seed_job(test_session, run_id, tc1, status="pending")
+        await _seed_job(test_session, run_id, tc2, status="running")
+        await _seed_job(test_session, run_id, tc3, status="failed", last_error="chat failed [glm]: ReadTimeout")
+
+        resp = await test_client.get(
+            f"/api/admin/evaluation/runs/{run_id}/jobs", headers=admin_headers
+        )
+        body = resp.json()
+        assert resp.status_code == 200, body
+        jobs = body["data"]
+        assert len(jobs) == 3
+        assert [j["status"] for j in jobs] == ["pending", "running", "failed"]
+        # failed job 带 last_error（一眼看失败原因，如 glm 超时）
+        failed_job = next(j for j in jobs if j["status"] == "failed")
+        assert "ReadTimeout" in failed_job["last_error"]
+
+    @pytest.mark.asyncio
+    async def test_run_jobs_404(self, test_client, admin_headers):
+        resp = await test_client.get("/api/admin/evaluation/runs/999999/jobs", headers=admin_headers)
+        assert resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_run_jobs_operator_forbidden_403(self, test_client, operator_headers):
+        resp = await test_client.get("/api/admin/evaluation/runs/1/jobs", headers=operator_headers)
+        assert resp.status_code == 403
