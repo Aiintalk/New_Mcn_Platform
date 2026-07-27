@@ -247,6 +247,17 @@ export interface EvalScore {
   updated_at: string | null;
 }
 
+/** GET /runs/{id}/case-results — 单 case 生成结果（含 generated_output，供「查看输出」） */
+export interface EvalCaseResult {
+  id: number;
+  test_case_id: number;
+  test_case_name: string;
+  generated_output: string | null;
+  output_payload: Record<string, unknown> | null;
+  input_snapshot: Record<string, unknown> | null;
+  created_at: string | null;
+}
+
 export interface EvalHumanLabelRequest {
   human_score: number;
   human_feedback?: string | null;

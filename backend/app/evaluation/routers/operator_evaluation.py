@@ -498,6 +498,43 @@ async def list_run_scores(
     return success_response(data=[_score_to_dict(s) for s in rows])
 
 
+@router.get("/runs/{run_id}/case-results")
+async def list_run_case_results(
+    run_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_operator),
+):
+    """运行的所有 case 生成结果（含 generated_output，供前端「查看输出」）。
+
+    join eval_test_cases 拿真实样本名；按 test_case_id 排序。
+    """
+    run = await db.get(EvalRun, run_id)
+    if run is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": ErrorCode.RESOURCE_NOT_FOUND, "message": "运行不存在"},
+        )
+    stmt = (
+        select(EvalCaseResult, EvalTestCase.name)
+        .outerjoin(EvalTestCase, EvalTestCase.id == EvalCaseResult.test_case_id)
+        .where(EvalCaseResult.run_id == run_id)
+        .order_by(EvalCaseResult.test_case_id.asc())
+    )
+    rows = (await db.execute(stmt)).all()
+    return success_response(data=[
+        {
+            "id": cr.id,
+            "test_case_id": cr.test_case_id,
+            "test_case_name": name or f"样本 #{cr.test_case_id}",
+            "generated_output": cr.generated_output,
+            "output_payload": cr.output_payload,
+            "input_snapshot": cr.input_snapshot,
+            "created_at": _ts(cr.created_at),
+        }
+        for cr, name in rows
+    ])
+
+
 @router.post("/runs/{run_id}/cancel")
 async def cancel_run(
     run_id: int,

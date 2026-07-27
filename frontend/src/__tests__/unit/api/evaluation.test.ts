@@ -29,6 +29,7 @@ import {
   getRun,
   listRuns,
   listRunScores,
+  listCaseResults,
   cancelRun,
   submitHumanLabel,
   compareRuns,
@@ -186,6 +187,12 @@ describe('evaluation API — 运行 + 评分 (operator)', () => {
     mockGet.mockResolvedValue([]);
     await listRunScores(10);
     expect(mockGet).toHaveBeenCalledWith('/api/operator/evaluation/runs/10/scores');
+  });
+
+  it('listCaseResults calls GET operator/runs/:id/case-results', async () => {
+    mockGet.mockResolvedValue([]);
+    await listCaseResults(10);
+    expect(mockGet).toHaveBeenCalledWith('/api/operator/evaluation/runs/10/case-results');
   });
 
   it('cancelRun calls POST operator/runs/:id/cancel', async () => {

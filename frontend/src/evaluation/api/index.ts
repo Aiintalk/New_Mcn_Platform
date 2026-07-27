@@ -10,6 +10,7 @@
 import { get, post, put, del } from '../../api/request';
 import type {
   EvalCaseDelta,
+  EvalCaseResult,
   EvalComparisonReport,
   EvalDimension,
   EvalDimensionCreate,
@@ -106,6 +107,10 @@ export async function getRun(id: number) {
 
 export async function listRunScores(id: number) {
   return get<EvalScore[]>(`/api/operator/evaluation/runs/${id}/scores`);
+}
+
+export async function listCaseResults(runId: number) {
+  return get<EvalCaseResult[]>(`/api/operator/evaluation/runs/${runId}/case-results`);
 }
 
 export async function cancelRun(id: number) {

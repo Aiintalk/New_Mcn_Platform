@@ -635,6 +635,45 @@ class TestRunsCancel:
         assert resp.status_code == 401
 
 
+class TestRunCaseResults:
+    """GET /runs/{id}/case-results：case 生成结果（generated_output + 真实样本名）。"""
+
+    @pytest.mark.asyncio
+    async def test_returns_case_results_with_output(self, test_client, operator_headers, test_session):
+        vid = await _seed_version(test_session, name="cr-v")
+        sid = await _seed_default_strategy(test_session)
+        tc_id = await _seed_test_case(test_session, name="真实样本A")
+        run_id = await _seed_run(test_session, vid, sid, name="cr-run", status="completed")
+        test_session.add(EvalCaseResult(
+            run_id=run_id, test_case_id=tc_id, generated_output="这是 kimi 生成的文案",
+            output_payload={"text": "..."}, input_snapshot={"name": "达人"},
+        ))
+        await test_session.commit()
+
+        resp = await test_client.get(
+            f"/api/operator/evaluation/runs/{run_id}/case-results",
+            headers=operator_headers,
+        )
+        body = resp.json()
+        assert resp.status_code == 200, body
+        items = body["data"]
+        assert any(it["generated_output"] == "这是 kimi 生成的文案" for it in items)
+        assert any(it["test_case_name"] == "真实样本A" for it in items)  # join 出真实样本名
+
+    @pytest.mark.asyncio
+    async def test_case_results_404(self, test_client, operator_headers):
+        resp = await test_client.get(
+            "/api/operator/evaluation/runs/999999/case-results",
+            headers=operator_headers,
+        )
+        assert resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_case_results_no_token_401(self, test_client):
+        resp = await test_client.get("/api/operator/evaluation/runs/1/case-results")
+        assert resp.status_code == 401
+
+
 # ---------------------------------------------------------------------------
 # Human label — single-transaction atomicity
 # ---------------------------------------------------------------------------

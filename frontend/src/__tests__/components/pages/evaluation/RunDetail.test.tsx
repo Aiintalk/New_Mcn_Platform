@@ -10,12 +10,15 @@ const mockGetRun = vi.fn();
 const mockListRunScores = vi.fn();
 const mockSubmitHumanLabel = vi.fn();
 const mockCancelRun = vi.fn();
+const mockListCaseResults = vi.fn();
+mockListCaseResults.mockResolvedValue([]);  // 默认空（多数测试不关心 case-results）
 
 vi.mock('../../../../evaluation/api', () => ({
   getRun: (...args: unknown[]) => mockGetRun(...args),
   listRunScores: (...args: unknown[]) => mockListRunScores(...args),
   submitHumanLabel: (...args: unknown[]) => mockSubmitHumanLabel(...args),
   cancelRun: (...args: unknown[]) => mockCancelRun(...args),
+  listCaseResults: (...args: unknown[]) => mockListCaseResults(...args),
 }));
 
 vi.mock('react-router-dom', async () => {
@@ -273,6 +276,24 @@ describe('RunDetailPage — 边界渲染', () => {
     fireEvent.click(screen.getAllByText(/校准 d1/)[0]);
     expect(await screen.findByText(/优点：钩子强/)).toBeInTheDocument();
     expect(screen.getByText(/缺点：结尾弱/)).toBeInTheDocument();
+  });
+
+  it('展示 case 真实样本名 + 展开看生成输出（来自 case-results）', async () => {
+    mockGetRun.mockResolvedValue(sampleRun);
+    mockListRunScores.mockResolvedValue(sampleScores);
+    mockListCaseResults.mockResolvedValueOnce([
+      {
+        id: 1, test_case_id: 10, test_case_name: '口红种草样本',
+        generated_output: '姐妹们，这支口红太绝了…', output_payload: null,
+        input_snapshot: null, created_at: 't',
+      },
+    ]);
+    renderWithProviders(<RunDetailPage />);
+    await waitFor(() => expect(screen.getByText('口红种草样本')).toBeInTheDocument());  // 真实样本名（替掉假"样本 #1"）
+    // 展开行看生成文案
+    const expandIcon = document.querySelector('.ant-table-row-expand-icon') as Element;
+    fireEvent.click(expandIcon);
+    expect(await screen.findByText('姐妹们，这支口红太绝了…')).toBeInTheDocument();
   });
 });
 

@@ -19,8 +19,8 @@ const { TextArea } = Input;
 import type { ColumnsType } from 'antd/es/table';
 import '../../styles/variables.css';
 import '../styles/eval.css';
-import { cancelRun, getRun, listRunScores, submitHumanLabel } from '../api';
-import type { EvalScore } from '../types';
+import { cancelRun, getRun, listCaseResults, listRunScores, submitHumanLabel } from '../api';
+import type { EvalCaseResult, EvalScore } from '../types';
 import {
   Callout,
   PageHeader,
@@ -36,6 +36,7 @@ interface CaseRow {
   scores: EvalScore[];
   aiAvg: number | null;
   humanCalibrated: boolean;
+  generated_output: string | null;
 }
 
 export default function RunDetailPage() {
@@ -47,6 +48,7 @@ export default function RunDetailPage() {
   const [loading, setLoading] = useState(false);
   const [run, setRun] = useState<{ id: number; name: string; status: string; version_id: number; total_cases: number; completed_cases: number; failed_cases: number; started_at: string | null; finished_at: string | null; trigger_type: string; filter_tags: string[] } | null>(null);
   const [scores, setScores] = useState<EvalScore[]>([]);
+  const [caseResults, setCaseResults] = useState<EvalCaseResult[]>([]);
   const [calibrating, setCalibrating] = useState<EvalScore | null>(null);
   const [humanScore, setHumanScore] = useState(7);
   const [humanFeedback, setHumanFeedback] = useState('');
@@ -56,12 +58,14 @@ export default function RunDetailPage() {
     if (!runId) return;
     setLoading(true);
     try {
-      const [runData, scoreData] = await Promise.all([
+      const [runData, scoreData, crData] = await Promise.all([
         getRun(runId),
         listRunScores(runId),
+        listCaseResults(runId),
       ]);
       setRun(runData);
       setScores(scoreData);
+      setCaseResults(crData);
     } catch (err) {
       const msg = err instanceof Error ? err.message : '加载失败';
       message.error(msg);
@@ -89,8 +93,14 @@ export default function RunDetailPage() {
         if (cancelled) return;
         setRun(runData);
         if (runData.status === 'completed' || runData.status === 'failed') {
-          const scoreData = await listRunScores(runId);
-          if (!cancelled) setScores(scoreData);
+          const [scoreData, crData] = await Promise.all([
+            listRunScores(runId),
+            listCaseResults(runId),
+          ]);
+          if (!cancelled) {
+            setScores(scoreData);
+            setCaseResults(crData);
+          }
         }
       } catch {
         // 静默：单次轮询失败不打断（下次重试）
@@ -104,8 +114,7 @@ export default function RunDetailPage() {
     };
   }, [run?.id, run?.status]);
 
-  // 按 case_result_id 分组（后端返回扁平的 scores，每个 score 有 case_result_id）
-  // 同一 case 的多个 dimension scores 聚合为一行
+  // 按 case_result_id 聚合（scores ∪ caseResults：有输出但未评分的 case 也要显示）
   const rows: CaseRow[] = useMemo(() => {
     const byCase = new Map<number, EvalScore[]>();
     scores.forEach((s) => {
@@ -113,21 +122,27 @@ export default function RunDetailPage() {
       arr.push(s);
       byCase.set(s.case_result_id, arr);
     });
-    return Array.from(byCase.entries()).map(([caseResultId, scoreList], idx) => {
+    const crMap = new Map<number, EvalCaseResult>();
+    caseResults.forEach((cr) => crMap.set(cr.id, cr));
+    const allIds = new Set<number>([...byCase.keys(), ...crMap.keys()]);
+    return Array.from(allIds).sort((a, b) => a - b).map((caseResultId) => {
+      const scoreList = byCase.get(caseResultId) ?? [];
+      const cr = crMap.get(caseResultId);
       const aiScores = scoreList.map((s) => s.ai_score).filter((v): v is number => v !== null);
       const aiAvg = aiScores.length > 0 ? aiScores.reduce((a, b) => a + b, 0) / aiScores.length : null;
       const anyHuman = scoreList.some((s) => s.human_score !== null);
       return {
         key: String(caseResultId),
         case_result_id: caseResultId,
-        test_case_id: idx + 1,
-        test_case_name: `样本 #${caseResultId}`,
+        test_case_id: cr?.test_case_id ?? caseResultId,
+        test_case_name: cr?.test_case_name ?? `样本 #${caseResultId}`,
         scores: scoreList,
         aiAvg,
         humanCalibrated: anyHuman,
+        generated_output: cr?.generated_output ?? null,
       };
     });
-  }, [scores]);
+  }, [scores, caseResults]);
 
   // 维度聚合（雷达图 + 列表）
   const dimensionAgg = useMemo(() => {
@@ -385,6 +400,27 @@ export default function RunDetailPage() {
             pagination={{ pageSize: 20 }}
             style={{ padding: '0 var(--sp-5)' }}
             locale={{ emptyText: '暂无样本评分数据' }}
+            expandable={{
+              expandedRowRender: (r) =>
+                r.generated_output ? (
+                  <div
+                    style={{
+                      background: 'var(--gray-50)',
+                      border: '1px solid var(--border)',
+                      borderRadius: 'var(--radius-md)',
+                      padding: 12,
+                      fontSize: 13,
+                      color: 'var(--gray-700)',
+                      whiteSpace: 'pre-wrap',
+                    }}
+                  >
+                    {r.generated_output}
+                  </div>
+                ) : (
+                  <span className="text-muted">该 case 无生成输出</span>
+                ),
+              rowExpandable: () => true,
+            }}
           />
         </div>
       </div>
