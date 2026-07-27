@@ -16,6 +16,7 @@ import pytest
 from sqlalchemy import select, text
 
 from app.evaluation.models import (
+    EvalCaseJob,
     EvalCaseResult,
     EvalDimension,
     EvalHumanLabel,
@@ -147,6 +148,14 @@ async def _seed_run(
     await test_session.commit()
     await test_session.refresh(run)
     return run.id
+
+
+async def _seed_job(test_session, run_id, test_case_id, status="pending"):
+    job = EvalCaseJob(run_id=run_id, test_case_id=test_case_id, status=status)
+    test_session.add(job)
+    await test_session.commit()
+    await test_session.refresh(job)
+    return job.id
 
 
 @pytest.fixture(autouse=True)
@@ -532,6 +541,98 @@ class TestRunsList:
         assert set(body.keys()) >= {"success", "code", "message", "data"}
         assert set(body["data"].keys()) >= {"items", "pagination"}
         assert set(body["data"]["pagination"].keys()) >= {"page", "page_size", "total", "total_pages"}
+
+
+class TestRunsCancel:
+    """POST /runs/{id}/cancel：pending job 标 cancelled + run 收尾 cancelled。worker 不参与。"""
+
+    async def _job_statuses(self, test_session, run_id):
+        rows = (await test_session.execute(
+            text("SELECT status FROM eval_case_jobs WHERE run_id = :r ORDER BY id"),
+            {"r": run_id},
+        )).all()
+        return [r[0] for r in rows]
+
+    @pytest.mark.asyncio
+    async def test_cancel_pending_run_marks_jobs_and_run(self, test_client, operator_headers, test_session):
+        vid = await _seed_version(test_session, name="cancel-v")
+        sid = await _seed_default_strategy(test_session)
+        run_id = await _seed_run(test_session, vid, sid, name="cancel-run", status="pending", total_cases=3, completed_cases=0)
+        # UNIQUE(run_id, test_case_id) → 每 job 一个独立 test_case
+        for i in range(3):
+            tc_id = await _seed_test_case(test_session, name=f"cancel-case-{i}")
+            await _seed_job(test_session, run_id, tc_id, status="pending")
+
+        resp = await test_client.post(
+            f"/api/operator/evaluation/runs/{run_id}/cancel",
+            headers=operator_headers,
+        )
+        body = resp.json()
+        assert resp.status_code == 200, body
+        assert body["data"]["status"] == "cancelled"
+        assert body["data"]["finished_at"] is not None
+        # pending jobs → cancelled
+        assert all(s == "cancelled" for s in await self._job_statuses(test_session, run_id))
+
+    @pytest.mark.asyncio
+    async def test_cancel_writes_op_log(self, test_client, operator_headers, test_session):
+        vid = await _seed_version(test_session, name="cancellog-v")
+        sid = await _seed_default_strategy(test_session)
+        run_id = await _seed_run(test_session, vid, sid, name="cancellog-run", status="running")
+        await test_client.post(
+            f"/api/operator/evaluation/runs/{run_id}/cancel",
+            headers=operator_headers,
+        )
+        log = (await test_session.execute(text(
+            "SELECT action FROM operation_logs WHERE action='evaluation_run_cancel'"
+        ))).fetchone()
+        assert log is not None
+
+    @pytest.mark.asyncio
+    async def test_cancel_only_pending_jobs_untouched_running_done(self, test_client, operator_headers, test_session):
+        vid = await _seed_version(test_session, name="cancelmix-v")
+        sid = await _seed_default_strategy(test_session)
+        run_id = await _seed_run(test_session, vid, sid, name="cancelmix-run", status="running", total_cases=3, completed_cases=1)
+        # UNIQUE(run_id, test_case_id) → 每 job 一个独立 test_case
+        tc_pend = await _seed_test_case(test_session, name="cancelmix-pend")
+        tc_run = await _seed_test_case(test_session, name="cancelmix-run")
+        tc_done = await _seed_test_case(test_session, name="cancelmix-done")
+        await _seed_job(test_session, run_id, tc_pend, status="pending")
+        await _seed_job(test_session, run_id, tc_run, status="running")
+        await _seed_job(test_session, run_id, tc_done, status="done")
+
+        await test_client.post(
+            f"/api/operator/evaluation/runs/{run_id}/cancel",
+            headers=operator_headers,
+        )
+        statuses = await self._job_statuses(test_session, run_id)
+        assert statuses.count("cancelled") == 1   # 只 pending → cancelled
+        assert statuses.count("running") == 1     # 在跑的不动
+        assert statuses.count("done") == 1         # 已完成的不动
+
+    @pytest.mark.asyncio
+    async def test_cancel_404(self, test_client, operator_headers):
+        resp = await test_client.post(
+            "/api/operator/evaluation/runs/999999/cancel",
+            headers=operator_headers,
+        )
+        assert resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_cancel_terminal_409(self, test_client, operator_headers, test_session):
+        vid = await _seed_version(test_session, name="cancel409-v")
+        sid = await _seed_default_strategy(test_session)
+        run_id = await _seed_run(test_session, vid, sid, name="cancel409-run", status="completed")
+        resp = await test_client.post(
+            f"/api/operator/evaluation/runs/{run_id}/cancel",
+            headers=operator_headers,
+        )
+        assert resp.status_code == 409
+
+    @pytest.mark.asyncio
+    async def test_cancel_no_token_401(self, test_client):
+        resp = await test_client.post("/api/operator/evaluation/runs/1/cancel")
+        assert resp.status_code == 401
 
 
 # ---------------------------------------------------------------------------

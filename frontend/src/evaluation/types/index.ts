@@ -12,7 +12,7 @@ export type EvalToolCode = 'qianchuan-writer';
 export type EvalTriggerType = 'manual' | 'auto' | 'schedule';
 
 /** 运行状态机 */
-export type EvalRunStatus = 'pending' | 'running' | 'completed' | 'failed' | 'partial';
+export type EvalRunStatus = 'pending' | 'running' | 'completed' | 'failed' | 'partial' | 'cancelled';
 
 /** 通用分页结构 */
 export interface EvalPagination {

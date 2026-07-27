@@ -32,6 +32,7 @@ from app.evaluation.constants import (
     JOB_STATUS_FAILED,
     JOB_STATUS_RUNNING,
     JOB_STATUS_TERMINAL,
+    RUN_STATUS_CANCELLED,
     RUN_STATUS_COMPLETED,
     RUN_STATUS_FAILED,
 )
@@ -144,13 +145,20 @@ async def aggregate_run_progress(db: AsyncSession, run_id: int, success: bool) -
     row = (
         await db.execute(
             text(
-                "SELECT total_cases, completed_cases, failed_cases "
+                "SELECT total_cases, completed_cases, failed_cases, status "
                 "FROM eval_runs WHERE id = :id"
             ),
             {"id": run_id},
         )
     ).fetchone()
-    if row and row[0] > 0 and (row[1] + row[2]) >= row[0]:
+    # 已 cancel 的 run 不被 in-flight job 完成翻成 completed/failed
+    # （POST /runs/{id}/cancel 直接收尾 cancelled；在跑的 job 跑完 aggregate 时跳过覆盖）
+    if (
+        row
+        and row[0] > 0
+        and (row[1] + row[2]) >= row[0]
+        and row[3] != RUN_STATUS_CANCELLED
+    ):
         status = RUN_STATUS_FAILED if row[1] == 0 else RUN_STATUS_COMPLETED
         await db.execute(
             text("UPDATE eval_runs SET status = :s, finished_at = NOW() WHERE id = :id"),

@@ -12,14 +12,14 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { App, Button, Drawer, Input, Skeleton, Slider, Table, Tag } from 'antd';
+import { App, Button, Drawer, Input, Popconfirm, Skeleton, Slider, Table, Tag } from 'antd';
 import { ArrowLeftOutlined } from '@ant-design/icons';
 
 const { TextArea } = Input;
 import type { ColumnsType } from 'antd/es/table';
 import '../../styles/variables.css';
 import '../styles/eval.css';
-import { getRun, listRunScores, submitHumanLabel } from '../api';
+import { cancelRun, getRun, listRunScores, submitHumanLabel } from '../api';
 import type { EvalScore } from '../types';
 import {
   Callout,
@@ -78,7 +78,7 @@ export default function RunDetailPage() {
   // 检测到终态（completed/failed）→ 重拉 listRunScores（挂载时 pending 期 scores 为空）+ 停轮询。
   // 依赖 run?.status：状态变化时 effect 重跑，自动清旧 timer。
   useEffect(() => {
-    if (!run || run.status === 'completed' || run.status === 'failed') return;
+    if (!run || run.status === 'completed' || run.status === 'failed' || run.status === 'cancelled') return;
     const runId = run.id;
     let cancelled = false;
     let timer: ReturnType<typeof setInterval> | null = null;
@@ -149,6 +149,18 @@ export default function RunDetailPage() {
     const all = scores.map((s) => s.ai_score).filter((v): v is number => v !== null);
     return all.length > 0 ? all.reduce((a, b) => a + b, 0) / all.length : null;
   }, [scores]);
+
+  const handleCancel = async () => {
+    if (!run) return;
+    try {
+      const updated = await cancelRun(run.id);
+      setRun(updated);
+      message.success('运行已取消');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '取消失败';
+      message.error(msg);
+    }
+  };
 
   const openCalibrate = (score: EvalScore) => {
     setCalibrating(score);
@@ -278,6 +290,17 @@ export default function RunDetailPage() {
             <Button type="primary" onClick={() => navigate('/evaluation/compare')}>
               与其它版本对比
             </Button>
+            {(run.status === 'pending' || run.status === 'running') && (
+              <Popconfirm
+                title="确认取消此运行？"
+                description="未开始的样本会被跳过；已在跑的样本会自然跑完。"
+                okText="确认取消"
+                cancelText="算了"
+                onConfirm={() => void handleCancel()}
+              >
+                <Button danger>取消运行</Button>
+              </Popconfirm>
+            )}
           </>
         }
       />

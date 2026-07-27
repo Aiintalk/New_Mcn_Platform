@@ -108,6 +108,10 @@ export async function listRunScores(id: number) {
   return get<EvalScore[]>(`/api/operator/evaluation/runs/${id}/scores`);
 }
 
+export async function cancelRun(id: number) {
+  return post<EvalRun>(`/api/operator/evaluation/runs/${id}/cancel`);
+}
+
 export async function submitHumanLabel(scoreId: number, body: EvalHumanLabelRequest) {
   return put<EvalScore>(`/api/operator/evaluation/scores/${scoreId}/human-label`, body);
 }

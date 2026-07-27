@@ -9,11 +9,13 @@ import { MemoryRouter } from 'react-router-dom';
 const mockGetRun = vi.fn();
 const mockListRunScores = vi.fn();
 const mockSubmitHumanLabel = vi.fn();
+const mockCancelRun = vi.fn();
 
 vi.mock('../../../../evaluation/api', () => ({
   getRun: (...args: unknown[]) => mockGetRun(...args),
   listRunScores: (...args: unknown[]) => mockListRunScores(...args),
   submitHumanLabel: (...args: unknown[]) => mockSubmitHumanLabel(...args),
+  cancelRun: (...args: unknown[]) => mockCancelRun(...args),
 }));
 
 vi.mock('react-router-dom', async () => {
@@ -333,5 +335,65 @@ describe('RunDetailPage — 进度轮询（Phase 4）', () => {
     // 第二次轮询成功完成（8s）
     await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
     expect(mockGetRun).toHaveBeenCalledTimes(3);  // 初始 + 失败那次 + 完成那次
+  });
+});
+
+describe('RunDetailPage — 取消运行', () => {
+  beforeEach(() => {
+    mockGetRun.mockReset();
+    mockListRunScores.mockReset();
+    mockSubmitHumanLabel.mockReset();
+    mockCancelRun.mockReset();
+  });
+
+  it('pending 时显示取消按钮；点击确认 → cancelRun + 状态变 cancelled', async () => {
+    mockGetRun.mockResolvedValue({ ...sampleRun, status: 'pending', completed_cases: 0 });
+    mockListRunScores.mockResolvedValue([]);
+    mockCancelRun.mockResolvedValue({ ...sampleRun, status: 'cancelled', finished_at: '2026-07-27T00:00:00Z' });
+    renderWithProviders(<RunDetailPage />);
+    await waitFor(() => expect(screen.getByText('核心集全量回归')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: '取消运行' }));
+    fireEvent.click(await screen.findByRole('button', { name: '确认取消' }));
+
+    await waitFor(() => expect(mockCancelRun).toHaveBeenCalledWith(42));
+    await waitFor(() => expect(screen.getByText(/运行已取消/)).toBeInTheDocument());
+  });
+
+  it('completed 时不显示取消按钮', async () => {
+    mockGetRun.mockResolvedValue(sampleRun);  // completed
+    mockListRunScores.mockResolvedValue(sampleScores);
+    renderWithProviders(<RunDetailPage />);
+    await waitFor(() => expect(screen.getByText('核心集全量回归')).toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: '取消运行' })).not.toBeInTheDocument();
+  });
+
+  it('取消失败显示错误提示', async () => {
+    mockGetRun.mockResolvedValue({ ...sampleRun, status: 'pending', completed_cases: 0 });
+    mockListRunScores.mockResolvedValue([]);
+    mockCancelRun.mockRejectedValue(new Error('运行已终态'));
+    renderWithProviders(<RunDetailPage />);
+    await waitFor(() => expect(screen.getByText('核心集全量回归')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: '取消运行' }));
+    fireEvent.click(await screen.findByRole('button', { name: '确认取消' }));
+    await waitFor(() => expect(screen.getByText(/运行已终态/)).toBeInTheDocument());
+  });
+
+  it('轮询中发现 run 转 cancelled 后停止（防 cancel 后 timer 泄漏）', async () => {
+    vi.useFakeTimers();
+    try {
+      mockGetRun.mockResolvedValueOnce({ ...sampleRun, status: 'pending', completed_cases: 0 });
+      mockGetRun.mockResolvedValueOnce({ ...sampleRun, status: 'cancelled' });  // 轮询发现被 cancel
+      mockListRunScores.mockResolvedValue(sampleScores);
+      renderWithProviders(<RunDetailPage />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });  // 初始 pending
+      expect(mockGetRun).toHaveBeenCalledTimes(1);
+      await act(async () => { await vi.advanceTimersByTimeAsync(4000); });  // 第一次轮询 → cancelled
+      expect(mockGetRun).toHaveBeenCalledTimes(2);
+      await act(async () => { await vi.advanceTimersByTimeAsync(12000); });  // 再推进 12s
+      expect(mockGetRun).toHaveBeenCalledTimes(2);  // cancelled 终态 → 不再轮询
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

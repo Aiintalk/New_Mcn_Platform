@@ -29,6 +29,7 @@ import {
   getRun,
   listRuns,
   listRunScores,
+  cancelRun,
   submitHumanLabel,
   compareRuns,
   listDimensions,
@@ -185,6 +186,12 @@ describe('evaluation API — 运行 + 评分 (operator)', () => {
     mockGet.mockResolvedValue([]);
     await listRunScores(10);
     expect(mockGet).toHaveBeenCalledWith('/api/operator/evaluation/runs/10/scores');
+  });
+
+  it('cancelRun calls POST operator/runs/:id/cancel', async () => {
+    mockPost.mockResolvedValue({ id: 10, status: 'cancelled' });
+    await cancelRun(10);
+    expect(mockPost).toHaveBeenCalledWith('/api/operator/evaluation/runs/10/cancel');
   });
 
   it('submitHumanLabel calls PUT operator/scores/:id/human-label', async () => {

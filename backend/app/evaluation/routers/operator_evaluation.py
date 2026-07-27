@@ -29,7 +29,7 @@ import math
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -38,7 +38,12 @@ from app.middlewares.auth import get_current_user
 from app.models.log import OperationLog
 from app.models.user import User
 
-from app.evaluation.constants import TRIGGER_TYPE_MANUAL
+from app.evaluation.constants import (
+    RUN_STATUS_CANCELLED,
+    RUN_STATUS_PENDING,
+    RUN_STATUS_RUNNING,
+    TRIGGER_TYPE_MANUAL,
+)
 from app.evaluation.models import (
     EvalCaseResult,
     EvalHumanLabel,
@@ -491,6 +496,58 @@ async def list_run_scores(
     )
     rows = (await db.execute(stmt)).scalars().all()
     return success_response(data=[_score_to_dict(s) for s in rows])
+
+
+@router.post("/runs/{run_id}/cancel")
+async def cancel_run(
+    run_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_operator),
+):
+    """取消运行：pending job 标 cancelled + run 直接收尾 cancelled（写 OperationLog）。
+
+    worker 无需改动——已入队的 pending job 被 arq 投递时，run_case_job_logic 的幂等守卫
+    （status ∈ terminal → skip）自动跳过；在跑的 job 自然跑完（结果落库，run 仍 cancelled）。
+    """
+    run = await db.get(EvalRun, run_id)
+    if run is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": ErrorCode.RESOURCE_NOT_FOUND, "message": "运行不存在"},
+        )
+    if run.status not in (RUN_STATUS_PENDING, RUN_STATUS_RUNNING):
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "CONFLICT", "message": f"运行已终态（{run.status}），无法取消"},
+        )
+
+    prev_status = run.status
+    # pending job → cancelled（在跑的 job 不动，自然跑完）
+    await db.execute(
+        text(
+            "UPDATE eval_case_jobs SET status = 'cancelled', finished_at = NOW() "
+            "WHERE run_id = :rid AND status = 'pending'"
+        ),
+        {"rid": run_id},
+    )
+    run.status = RUN_STATUS_CANCELLED
+    run.finished_at = datetime.now(timezone.utc)
+
+    db.add(OperationLog(
+        user_id=current_user.id,
+        username=current_user.username,
+        role=current_user.role,
+        action="evaluation_run_cancel",
+        target_type="eval_run",
+        target_id=run.id,
+        detail={"prev_status": prev_status},
+        ip=_get_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    ))
+    await db.commit()
+    await db.refresh(run)
+    return success_response(data=_run_to_dict(run))
 
 
 # ---------------------------------------------------------------------------
