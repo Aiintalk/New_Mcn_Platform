@@ -1,8 +1,8 @@
 /**
  * RunDetail 页面测试
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 import { App as AntApp } from 'antd';
 import { MemoryRouter } from 'react-router-dom';
 
@@ -271,5 +271,67 @@ describe('RunDetailPage — 边界渲染', () => {
     fireEvent.click(screen.getAllByText(/校准 d1/)[0]);
     expect(await screen.findByText(/优点：钩子强/)).toBeInTheDocument();
     expect(screen.getByText(/缺点：结尾弱/)).toBeInTheDocument();
+  });
+});
+
+describe('RunDetailPage — 进度轮询（Phase 4）', () => {
+  beforeEach(() => {
+    mockGetRun.mockReset();
+    mockListRunScores.mockReset();
+    mockSubmitHumanLabel.mockReset();
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('pending 时轮询 getRun；转 completed 后重拉 scores 且停轮询', async () => {
+    // 初始 getRun → pending；第一次轮询 getRun → completed
+    mockGetRun.mockResolvedValueOnce({ ...sampleRun, status: 'pending', completed_cases: 0 });
+    mockGetRun.mockResolvedValueOnce({ ...sampleRun, status: 'completed', completed_cases: 28 });
+    mockListRunScores.mockResolvedValue(sampleScores);
+
+    renderWithProviders(<RunDetailPage />);
+
+    // 初始 mount：getRun(pending) + listRunScores 各 1 次（flush microtasks）
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(mockGetRun).toHaveBeenCalledTimes(1);
+    expect(mockListRunScores).toHaveBeenCalledTimes(1);
+
+    // 推进 4s → 第一次轮询：getRun(completed) + 终态重拉 scores
+    await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
+    expect(mockGetRun).toHaveBeenCalledTimes(2);
+    expect(mockListRunScores).toHaveBeenCalledTimes(2);  // 完成时重拉
+
+    // 再推进 8s → 终态不再轮询
+    await act(async () => { await vi.advanceTimersByTimeAsync(8000); });
+    expect(mockGetRun).toHaveBeenCalledTimes(2);
+    expect(mockListRunScores).toHaveBeenCalledTimes(2);
+  });
+
+  it('终态(completed)不轮询', async () => {
+    mockGetRun.mockResolvedValue(sampleRun);  // completed
+    mockListRunScores.mockResolvedValue(sampleScores);
+    renderWithProviders(<RunDetailPage />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(mockGetRun).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(12000); });
+    expect(mockGetRun).toHaveBeenCalledTimes(1);  // 12s 后仍只 1 次（没轮询）
+    expect(mockListRunScores).toHaveBeenCalledTimes(1);
+  });
+
+  it('轮询中 getRun 单次失败不中断（下次继续）', async () => {
+    mockGetRun.mockResolvedValueOnce({ ...sampleRun, status: 'pending', completed_cases: 0 });
+    mockGetRun.mockRejectedValueOnce(new Error('瞬时网络抖动'));
+    mockGetRun.mockResolvedValueOnce({ ...sampleRun, status: 'completed', completed_cases: 28 });
+    mockListRunScores.mockResolvedValue(sampleScores);
+
+    renderWithProviders(<RunDetailPage />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    // 第一次轮询失败（4s）
+    await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
+    // 第二次轮询成功完成（8s）
+    await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
+    expect(mockGetRun).toHaveBeenCalledTimes(3);  // 初始 + 失败那次 + 完成那次
   });
 });

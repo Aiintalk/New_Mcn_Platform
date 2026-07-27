@@ -224,6 +224,14 @@ export interface EvalTriggerRunRequest {
   trigger_type?: EvalTriggerType;
 }
 
+/** GET /runs 列表查询参数 */
+export interface EvalRunListParams {
+  page?: number;
+  page_size?: number;
+  status?: EvalRunStatus;
+  version_id?: number;
+}
+
 export interface EvalScore {
   id: number;
   case_result_id: number;

@@ -133,6 +133,22 @@ async def _seed_version(test_session, name="v1"):
     return version.id
 
 
+async def _seed_run(
+    test_session, version_id, strategy_id, *, name="run",
+    status="completed", total_cases=1, completed_cases=1, failed_cases=0,
+):
+    run = EvalRun(
+        version_id=version_id, strategy_id=strategy_id, name=name,
+        trigger_type="manual", status=status, filter_tags=[],
+        total_cases=total_cases, completed_cases=completed_cases,
+        failed_cases=failed_cases, metadata_={},
+    )
+    test_session.add(run)
+    await test_session.commit()
+    await test_session.refresh(run)
+    return run.id
+
+
 @pytest.fixture(autouse=True)
 async def _setup(test_session):
     """Common setup: ensure default strategy + one dimension + rubric."""
@@ -434,6 +450,88 @@ class TestRuns:
             headers=operator_headers,
         )
         assert resp.status_code == 404
+
+
+class TestRunsList:
+    """GET /runs 列表（分页 + status/version_id 过滤 + 权限 + 信封）。"""
+
+    @pytest.mark.asyncio
+    async def test_list_pagination(self, test_client, operator_headers, test_session):
+        vid = await _seed_version(test_session, name="list-v")
+        sid = await _seed_default_strategy(test_session)
+        for i in range(15):
+            await _seed_run(test_session, vid, sid, name=f"list-r-{i:02d}")
+
+        resp = await test_client.get(
+            "/api/operator/evaluation/runs?page=1&page_size=10",
+            headers=operator_headers,
+        )
+        body = resp.json()
+        assert resp.status_code == 200, body
+        assert body["success"] is True
+        assert body["data"]["pagination"]["page_size"] == 10
+        assert body["data"]["pagination"]["total"] >= 15
+        assert len(body["data"]["items"]) <= 10
+        assert body["data"]["pagination"]["total_pages"] >= 2
+        # id 倒序（最新在前）
+        ids = [it["id"] for it in body["data"]["items"]]
+        assert ids == sorted(ids, reverse=True)
+
+    @pytest.mark.asyncio
+    async def test_list_status_filter(self, test_client, operator_headers, test_session):
+        vid = await _seed_version(test_session, name="filt-v")
+        sid = await _seed_default_strategy(test_session)
+        await _seed_run(test_session, vid, sid, name="filt-pend", status="pending", total_cases=0, completed_cases=0)
+        await _seed_run(test_session, vid, sid, name="filt-done", status="completed")
+
+        resp = await test_client.get(
+            "/api/operator/evaluation/runs?status=completed",
+            headers=operator_headers,
+        )
+        body = resp.json()
+        # 过滤生效：返回的都是 completed（DB 跨测试可能累积，只验过滤约束）
+        assert all(it["status"] == "completed" for it in body["data"]["items"])
+        assert "filt-done" in [it["name"] for it in body["data"]["items"]]
+
+    @pytest.mark.asyncio
+    async def test_list_version_filter(self, test_client, operator_headers, test_session):
+        sid = await _seed_default_strategy(test_session)
+        va = await _seed_version(test_session, name="vfa")
+        vb = await _seed_version(test_session, name="vfb")
+        await _seed_run(test_session, va, sid, name="run-vfa")
+        await _seed_run(test_session, vb, sid, name="run-vfb")
+
+        resp = await test_client.get(
+            f"/api/operator/evaluation/runs?version_id={va}",
+            headers=operator_headers,
+        )
+        body = resp.json()
+        assert all(it["version_id"] == va for it in body["data"]["items"])
+        assert "run-vfa" in [it["name"] for it in body["data"]["items"]]
+
+    @pytest.mark.asyncio
+    async def test_list_page_size_clamp(self, test_client, operator_headers):
+        resp = await test_client.get(
+            "/api/operator/evaluation/runs?page=1&page_size=2",
+            headers=operator_headers,
+        )
+        assert resp.json()["data"]["pagination"]["page_size"] == 20
+
+    @pytest.mark.asyncio
+    async def test_list_no_token_401(self, test_client):
+        resp = await test_client.get("/api/operator/evaluation/runs")
+        assert resp.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_list_envelope(self, test_client, operator_headers):
+        resp = await test_client.get(
+            "/api/operator/evaluation/runs",
+            headers=operator_headers,
+        )
+        body = resp.json()
+        assert set(body.keys()) >= {"success", "code", "message", "data"}
+        assert set(body["data"].keys()) >= {"items", "pagination"}
+        assert set(body["data"]["pagination"].keys()) >= {"page", "page_size", "total", "total_pages"}
 
 
 # ---------------------------------------------------------------------------

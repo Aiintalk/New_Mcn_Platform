@@ -19,6 +19,7 @@ import type {
   EvalRubric,
   EvalRubricBatchUpdate,
   EvalRun,
+  EvalRunListParams,
   EvalSchedulePolicy,
   EvalSchedulePolicyCreate,
   EvalSchedulePolicyUpdate,
@@ -90,6 +91,13 @@ export async function cloneVersion(id: number, body: EvalVersionClone) {
 
 export async function triggerRun(body: EvalTriggerRunRequest) {
   return post<EvalRun>('/api/operator/evaluation/runs', body);
+}
+
+export async function listRuns(params: EvalRunListParams = {}) {
+  return get<EvalPaged<EvalRun>>(
+    '/api/operator/evaluation/runs',
+    params as Record<string, string | number | boolean | undefined>,
+  );
 }
 
 export async function getRun(id: number) {

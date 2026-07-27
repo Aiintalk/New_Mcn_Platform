@@ -354,6 +354,52 @@ async def list_versions(
 # ---------------------------------------------------------------------------
 
 
+@router.get("/runs")
+async def list_runs(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    status: str | None = None,
+    version_id: int | None = None,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_operator),
+):
+    """运行分页列表（status / version_id 过滤，id 倒序）。
+
+    响应：{items:[_run_to_dict], pagination:{page,page_size,total,total_pages}}。
+    """
+    if page_size not in _PAGE_SIZE_ALLOWED:
+        page_size = 20
+
+    stmt = select(EvalRun)
+    if status:
+        stmt = stmt.where(EvalRun.status == status)
+    if version_id:
+        stmt = stmt.where(EvalRun.version_id == version_id)
+
+    from sqlalchemy import func as sa_func
+    count_stmt = select(sa_func.count()).select_from(EvalRun)
+    if status:
+        count_stmt = count_stmt.where(EvalRun.status == status)
+    if version_id:
+        count_stmt = count_stmt.where(EvalRun.version_id == version_id)
+    total = (await db.execute(count_stmt)).scalar() or 0
+
+    stmt = stmt.order_by(EvalRun.id.desc()).limit(page_size).offset((page - 1) * page_size)
+    rows = (await db.execute(stmt)).scalars().all()
+
+    items = [_run_to_dict(r) for r in rows]
+    total_pages = math.ceil(total / page_size) if total > 0 else 0
+    return success_response(data={
+        "items": items,
+        "pagination": {
+            "page": page,
+            "page_size": page_size,
+            "total": total,
+            "total_pages": total_pages,
+        },
+    })
+
+
 @router.post("/runs")
 async def trigger_run(
     body: dict,

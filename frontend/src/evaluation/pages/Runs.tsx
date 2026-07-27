@@ -2,11 +2,9 @@
  * 运行列表（设计稿 runs.html）
  *
  * 列表 + 子 tab 过滤 + 触发抽屉。
- * 数据接口：GET /api/operator/evaluation/runs（待后端补列表接口，一期从 trigger 拿 run_id）。
- *
- * 注：后端 operator_evaluation.py 暂未提供 runs 列表接口（spec Phase 4 只实现了 trigger + get + scores），
- * 这里复用现有 trigger 后回填到本地 state，并支持轮询单个 run。
- * 列表数据来源：后端补 GET /runs 后接入（已在 frontend-issues.md 记录）。
+ * 数据接口：GET /api/operator/evaluation/runs（Phase 4 起接入，替代早期 localStorage 兜底）。
+ * 拉最近 50 条（后端 _PAGE_SIZE_ALLOWED 最大值，不被 clamp）；tab 过滤 + 状态卡基于当前列表客户端计算。
+ * 待决：run 历史超 50 条时改服务端分页（见 spec §1）。
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -15,7 +13,7 @@ import { PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import '../../styles/variables.css';
 import '../styles/eval.css';
-import { listVersionsOperator, triggerRun } from '../api';
+import { listRuns, listVersionsOperator, triggerRun } from '../api';
 import type { EvalRun, EvalRunStatus, EvalTriggerType, EvalVersion } from '../types';
 import {
   Callout,
@@ -57,33 +55,26 @@ export default function RunsPage() {
     tags: string[];
   }>();
 
-  // 一期：runs 列表无后端接口，初始化时从 localStorage 恢复最近触发的 run
-  // （triggerRun 返回完整 run 对象）。后端补 GET /runs 后切换为接口请求。
-  const loadFromLocal = useCallback(() => {
+  const [total, setTotal] = useState(0);
+
+  // 从后端 GET /runs 拉列表（Phase 4：替代 localStorage 兜底，跨设备可见）
+  const loadRuns = useCallback(async () => {
     setLoading(true);
     try {
-      const raw = localStorage.getItem('eval_runs_cache');
-      const list: EvalRun[] = raw ? JSON.parse(raw) : [];
-      setRuns(list);
+      const data = await listRuns({ page: 1, page_size: 50 });
+      setRuns(data.items);
+      setTotal(data.pagination.total);
     } catch {
       setRuns([]);
+      setTotal(0);
     } finally {
       setLoading(false);
     }
   }, []);
 
-  const persistRuns = useCallback((list: EvalRun[]) => {
-    setRuns(list);
-    try {
-      localStorage.setItem('eval_runs_cache', JSON.stringify(list.slice(0, 20)));
-    } catch {
-      // 静默：写入失败不影响功能
-    }
-  }, []);
-
   useEffect(() => {
-    void loadFromLocal();
-  }, [loadFromLocal]);
+    void loadRuns();
+  }, [loadRuns]);
 
   // 加载版本列表（抽屉用）
   useEffect(() => {
@@ -124,10 +115,9 @@ export default function RunsPage() {
         filter_tags: values.scope === 'tags' ? values.tags : [],
         trigger_type: 'manual',
       });
-      const next = [run, ...runs];
-      persistRuns(next);
       message.success('运行已启动，可到详情页查看进度');
       setTriggerOpen(false);
+      void loadRuns();   // 刷新列表（不阻塞跳详情）
       navigate(`/evaluation/runs/${run.id}`);
     } catch (err) {
       if (err instanceof Error && err.message) {
@@ -221,7 +211,7 @@ export default function RunsPage() {
         description="用某个版本跑一批测试样本，产出仿写结果与多维评分。状态机：pending → running → completed / failed。"
         actions={
           <>
-            <Button icon={<ReloadOutlined />} onClick={() => loadFromLocal()}>
+            <Button icon={<ReloadOutlined />} onClick={() => void loadRuns()}>
               刷新
             </Button>
             <Button type="primary" icon={<PlusOutlined />} onClick={() => setTriggerOpen(true)}>
@@ -233,8 +223,8 @@ export default function RunsPage() {
 
       <div className="stats-grid">
         <div className="stat-card">
-          <div className="stat-label">本地缓存运行</div>
-          <div className="stat-value">{counts.all}</div>
+          <div className="stat-label">运行总数</div>
+          <div className="stat-value">{total}</div>
         </div>
         <div className="stat-card">
           <div className="stat-label">已完成</div>
@@ -270,11 +260,6 @@ export default function RunsPage() {
               ))}
             </div>
           </div>
-
-          <Callout variant="warn" icon="!" style={{ margin: '0 var(--sp-5) var(--sp-4)' }}>
-            一期运行列表暂存在浏览器 localStorage（后端 GET /runs 列表接口尚未实现）。
-            触发的运行会自动追加到列表顶部；切换浏览器或清理缓存后列表会重置，但 run id 仍可从「详情」直接访问。
-          </Callout>
 
           {loading ? (
             <div style={{ padding: 'var(--sp-5)' }}>

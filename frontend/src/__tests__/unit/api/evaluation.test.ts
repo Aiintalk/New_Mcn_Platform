@@ -27,6 +27,7 @@ import {
   cloneVersion,
   triggerRun,
   getRun,
+  listRuns,
   listRunScores,
   submitHumanLabel,
   compareRuns,
@@ -155,6 +156,23 @@ describe('evaluation API — 运行 + 评分 (operator)', () => {
       version_id: 1,
       trigger_type: 'manual',
     });
+  });
+
+  it('listRuns calls GET operator/runs with pagination + filter params', async () => {
+    mockGet.mockResolvedValue({ items: [], pagination: { total: 0 } });
+    await listRuns({ page: 2, page_size: 20, status: 'completed', version_id: 5 });
+    expect(mockGet).toHaveBeenCalledWith('/api/operator/evaluation/runs', {
+      page: 2,
+      page_size: 20,
+      status: 'completed',
+      version_id: 5,
+    });
+  });
+
+  it('listRuns defaults to empty params', async () => {
+    mockGet.mockResolvedValue({ items: [], pagination: { total: 0 } });
+    await listRuns();
+    expect(mockGet).toHaveBeenCalledWith('/api/operator/evaluation/runs', {});
   });
 
   it('getRun calls GET operator/runs/:id', async () => {

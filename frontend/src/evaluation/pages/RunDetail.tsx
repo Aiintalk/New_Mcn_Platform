@@ -74,6 +74,36 @@ export default function RunDetailPage() {
     void load();
   }, [load]);
 
+  // 进度轮询（Phase 4）：run 处于 pending/running 时每 4s 拉 getRun；
+  // 检测到终态（completed/failed）→ 重拉 listRunScores（挂载时 pending 期 scores 为空）+ 停轮询。
+  // 依赖 run?.status：状态变化时 effect 重跑，自动清旧 timer。
+  useEffect(() => {
+    if (!run || run.status === 'completed' || run.status === 'failed') return;
+    const runId = run.id;
+    let cancelled = false;
+    let timer: ReturnType<typeof setInterval> | null = null;
+
+    const poll = async () => {
+      try {
+        const runData = await getRun(runId);
+        if (cancelled) return;
+        setRun(runData);
+        if (runData.status === 'completed' || runData.status === 'failed') {
+          const scoreData = await listRunScores(runId);
+          if (!cancelled) setScores(scoreData);
+        }
+      } catch {
+        // 静默：单次轮询失败不打断（下次重试）
+      }
+    };
+
+    timer = setInterval(() => { void poll(); }, 4000);
+    return () => {
+      cancelled = true;
+      if (timer) clearInterval(timer);
+    };
+  }, [run?.id, run?.status]);
+
   // 按 case_result_id 分组（后端返回扁平的 scores，每个 score 有 case_result_id）
   // 同一 case 的多个 dimension scores 聚合为一行
   const rows: CaseRow[] = useMemo(() => {
