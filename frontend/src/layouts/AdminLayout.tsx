@@ -33,6 +33,7 @@ const GROUPS: NavGroup[] = [
       { path: '/admin/evaluation/dimensions', label: '维度与评分标准' },
       { path: '/admin/evaluation/versions',   label: '版本快照' },
       { path: '/admin/evaluation/schedules',  label: '定时策略' },
+      { path: '/admin/evaluation/observability', label: '评测监控' },
     ],
   },
   {

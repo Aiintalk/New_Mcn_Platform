@@ -258,6 +258,30 @@ export interface EvalCaseResult {
   created_at: string | null;
 }
 
+/** GET /admin/evaluation/queue-stats — 队列健康度 */
+export interface EvalQueueStats {
+  pending: number;
+  running: number;
+  failed_dead_letter: number;
+  done: number;
+  cancelled: number;
+  oldest_pending_secs: number | null;
+  runs_active: number;
+}
+
+/** GET /admin/evaluation/runs/{id}/jobs — 单 run 的 job 明细 */
+export interface EvalRunJob {
+  id: number;
+  test_case_id: number;
+  status: string;
+  attempts: number;
+  max_attempts: number;
+  last_error: string | null;
+  enqueued_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
 export interface EvalHumanLabelRequest {
   human_score: number;
   human_feedback?: string | null;

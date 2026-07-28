@@ -17,7 +17,9 @@ import type {
   EvalDimensionUpdate,
   EvalHumanLabelRequest,
   EvalPaged,
+  EvalQueueStats,
   EvalRubric,
+  EvalRunJob,
   EvalRubricBatchUpdate,
   EvalRun,
   EvalRunListParams,
@@ -126,6 +128,18 @@ export async function compareRuns(runA: number, runB: number) {
     run_a: runA,
     run_b: runB,
   });
+}
+
+// ---------------------------------------------------------------------------
+// 可观测（admin，Phase 5）
+// ---------------------------------------------------------------------------
+
+export async function getQueueStats() {
+  return get<EvalQueueStats>('/api/admin/evaluation/queue-stats');
+}
+
+export async function getRunJobs(runId: number) {
+  return get<EvalRunJob[]>(`/api/admin/evaluation/runs/${runId}/jobs`);
 }
 
 // ---------------------------------------------------------------------------

@@ -31,6 +31,8 @@ import {
   listRunScores,
   listCaseResults,
   cancelRun,
+  getQueueStats,
+  getRunJobs,
   submitHumanLabel,
   compareRuns,
   listDimensions,
@@ -199,6 +201,18 @@ describe('evaluation API — 运行 + 评分 (operator)', () => {
     mockPost.mockResolvedValue({ id: 10, status: 'cancelled' });
     await cancelRun(10);
     expect(mockPost).toHaveBeenCalledWith('/api/operator/evaluation/runs/10/cancel');
+  });
+
+  it('getQueueStats calls GET admin/queue-stats', async () => {
+    mockGet.mockResolvedValue({ pending: 0 });
+    await getQueueStats();
+    expect(mockGet).toHaveBeenCalledWith('/api/admin/evaluation/queue-stats');
+  });
+
+  it('getRunJobs calls GET admin/runs/:id/jobs', async () => {
+    mockGet.mockResolvedValue([]);
+    await getRunJobs(16);
+    expect(mockGet).toHaveBeenCalledWith('/api/admin/evaluation/runs/16/jobs');
   });
 
   it('submitHumanLabel calls PUT operator/scores/:id/human-label', async () => {
