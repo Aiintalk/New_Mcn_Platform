@@ -1,6 +1,8 @@
 # 前端文档目录
 
 > 本目录存放前端相关的所有文档。开发前端时，不出 `frontend/` 目录即可找到全部所需内容。
+>
+> 2026-07-28：`request.ts` 对 HTTP 5xx 且非 JSON 的响应改为中文可行动诊断，保留状态码并提示检查后端日志与数据库迁移；不再把底层 JSON 解析错误直接展示给运营。
 
 ---
 
@@ -12,7 +14,7 @@ frontend/
 │   ├── api/                           # API 调用层（36 个模块）
 │   ├── components/                    # 可复用组件
 │   │   └── OutputHistoryDrawer.tsx    #   产出历史抽屉（按 tool_code 过滤全局 outputs，分页+软删，支持自定义 renderItem）2026-07-01 新增
-│   │   ├── request.ts                 #   基础封装（get/post/patch/put/del + 拦截器）
+│   │   ├── request.ts                 #   基础封装（get/post/patch/put/del + 鉴权/非 JSON 服务端异常诊断）
 │   │   ├── auth.ts                    #   登录、改密码
 │   │   ├── users.ts                   #   用户管理
 │   │   ├── kols.ts                    #   红人管理
