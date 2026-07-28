@@ -56,6 +56,10 @@ export async function updateTestCase(id: number, body: EvalTestCaseUpdate) {
   return put<EvalTestCase>(`/api/operator/evaluation/test-cases/${id}`, body);
 }
 
+export async function getTestCase(id: number) {
+  return get<EvalTestCase>(`/api/operator/evaluation/test-cases/${id}`);
+}
+
 export async function deleteTestCase(id: number) {
   return del<{ id: number; deleted_at: string }>(`/api/operator/evaluation/test-cases/${id}`);
 }

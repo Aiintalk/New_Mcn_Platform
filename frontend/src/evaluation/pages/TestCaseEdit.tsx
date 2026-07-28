@@ -14,7 +14,7 @@ import { ArrowLeftOutlined } from '@ant-design/icons';
 import '../../styles/variables.css';
 import '../styles/eval.css';
 import { Callout } from '../components/primitives';
-import { createTestCase, listTestCases, updateTestCase } from '../api';
+import { createTestCase, getTestCase, updateTestCase } from '../api';
 import type { EvalTestCaseCreate, EvalTestCaseUpdate } from '../types';
 
 const { TextArea } = Input;
@@ -58,15 +58,8 @@ export default function TestCaseEditPage() {
     (async () => {
       setLoading(true);
       try {
-        // 后端无 GET /test-cases/:id 单条接口，从 list 中查找
-        const page = await listTestCases({ page: 1, page_size: 50 });
-        const found = page.items.find((it) => it.id === testCaseId);
+        const found = await getTestCase(testCaseId);
         if (cancelled) return;
-        if (!found) {
-          message.error('样本不存在或已被删除');
-          navigate('/evaluation/test-cases');
-          return;
-        }
         const ip = found.input_payload ?? {};
         form.setFieldsValue({
           name: found.name,

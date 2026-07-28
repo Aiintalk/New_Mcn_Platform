@@ -225,6 +225,22 @@ async def list_test_cases(
     })
 
 
+@router.get("/test-cases/{test_case_id}")
+async def get_test_case(
+    test_case_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_operator),
+):
+    """测试样本单条（编辑模式用，替代早期 list+find，样本超 50 也能取到）。"""
+    tc = await db.get(EvalTestCase, test_case_id)
+    if tc is None or tc.deleted_at is not None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": ErrorCode.RESOURCE_NOT_FOUND, "message": "测试样本不存在"},
+        )
+    return success_response(data=_test_case_to_dict(tc))
+
+
 @router.post("/test-cases")
 async def create_test_case(
     body: TestCaseCreate,

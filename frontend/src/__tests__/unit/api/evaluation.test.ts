@@ -18,6 +18,7 @@ import {
   listTestCases,
   createTestCase,
   updateTestCase,
+  getTestCase,
   deleteTestCase,
   listVersionsAdmin,
   listVersionsOperator,
@@ -88,6 +89,12 @@ describe('evaluation API — 测试样本 (operator)', () => {
     mockDel.mockResolvedValue({ id: 7, deleted_at: 't' });
     await deleteTestCase(7);
     expect(mockDel).toHaveBeenCalledWith('/api/operator/evaluation/test-cases/7');
+  });
+
+  it('getTestCase calls GET test-cases/:id', async () => {
+    mockGet.mockResolvedValue({ id: 7 });
+    await getTestCase(7);
+    expect(mockGet).toHaveBeenCalledWith('/api/operator/evaluation/test-cases/7');
   });
 });
 

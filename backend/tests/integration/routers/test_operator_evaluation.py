@@ -317,6 +317,26 @@ class TestTestCases:
         names = [i["name"] for i in resp.json()["data"]["items"]]
         assert "del-case" not in names
 
+    @pytest.mark.asyncio
+    async def test_get_test_case_single(self, test_client, operator_headers, test_session):
+        tc_id = await _seed_test_case(test_session, name="single-tc")
+        resp = await test_client.get(
+            f"/api/operator/evaluation/test-cases/{tc_id}",
+            headers=operator_headers,
+        )
+        body = resp.json()
+        assert resp.status_code == 200, body
+        assert body["data"]["id"] == tc_id
+        assert body["data"]["name"] == "single-tc"
+
+    @pytest.mark.asyncio
+    async def test_get_test_case_404(self, test_client, operator_headers):
+        resp = await test_client.get(
+            "/api/operator/evaluation/test-cases/999999",
+            headers=operator_headers,
+        )
+        assert resp.status_code == 404
+
 
 # ---------------------------------------------------------------------------
 # Versions (read-only)
