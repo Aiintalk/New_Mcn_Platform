@@ -20,7 +20,7 @@ import type { ColumnsType } from 'antd/es/table';
 import '../../styles/variables.css';
 import '../styles/eval.css';
 import { cancelRun, getRun, listCaseResults, listRunScores, submitHumanLabel } from '../api';
-import type { EvalCaseResult, EvalScore } from '../types';
+import type { EvalCaseResult, EvalRun, EvalScore } from '../types';
 import {
   Callout,
   PageHeader,
@@ -46,7 +46,7 @@ export default function RunDetailPage() {
   const navigate = useNavigate();
 
   const [loading, setLoading] = useState(false);
-  const [run, setRun] = useState<{ id: number; name: string; status: string; version_id: number; total_cases: number; completed_cases: number; failed_cases: number; started_at: string | null; finished_at: string | null; trigger_type: string; filter_tags: string[] } | null>(null);
+  const [run, setRun] = useState<EvalRun | null>(null);
   const [scores, setScores] = useState<EvalScore[]>([]);
   const [caseResults, setCaseResults] = useState<EvalCaseResult[]>([]);
   const [calibrating, setCalibrating] = useState<EvalScore | null>(null);
@@ -348,6 +348,16 @@ export default function RunDetailPage() {
           <div className="stat-label">耗时</div>
           <div className="stat-value" style={{ fontSize: 22 }}>
             {formatDuration(run.started_at, run.finished_at)}
+          </div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">预计剩余</div>
+          <div className="stat-value" style={{ fontSize: 22 }}>
+            {run.eta_secs != null
+              ? run.eta_secs >= 60
+                ? `≈${Math.floor(run.eta_secs / 60)}m ${run.eta_secs % 60}s`
+                : `≈${run.eta_secs}s`
+              : '—'}
           </div>
         </div>
       </div>

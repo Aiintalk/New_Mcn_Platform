@@ -464,14 +464,29 @@ async def get_run(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_operator),
 ):
-    """运行状态查询。"""
+    """运行状态查询（含 ETA：avg_case_duration_secs + eta_secs）。"""
     run = await db.get(EvalRun, run_id)
     if run is None:
         raise HTTPException(
             status_code=404,
             detail={"code": ErrorCode.RESOURCE_NOT_FOUND, "message": "运行不存在"},
         )
-    return success_response(data=_run_to_dict(run))
+    # ETA：用本 run 已完成 job 的平均耗时估算剩余（无 done job 则 null）
+    dur = (await db.execute(
+        text(
+            "SELECT AVG(EXTRACT(EPOCH FROM (finished_at - started_at))), "
+            "COUNT(*) FILTER (WHERE status = 'done'), "
+            "COUNT(*) FILTER (WHERE status = 'pending') "
+            "FROM eval_case_jobs WHERE run_id = :rid"
+        ),
+        {"rid": run_id},
+    )).fetchone()
+    avg_dur = dur[0] if dur else None
+    pending_n = (dur[2] if dur else 0) or 0
+    data = _run_to_dict(run)
+    data["avg_case_duration_secs"] = int(avg_dur) if avg_dur is not None else None
+    data["eta_secs"] = int(avg_dur * pending_n) if (avg_dur is not None and pending_n > 0) else None
+    return success_response(data=data)
 
 
 @router.get("/runs/{run_id}/scores")

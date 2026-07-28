@@ -460,6 +460,35 @@ class TestRuns:
         )
         assert resp.status_code == 404
 
+    @pytest.mark.asyncio
+    async def test_get_run_eta(self, test_client, operator_headers, test_session):
+        """get_run 返回 ETA：done job 平均耗时 × pending 数。"""
+        from datetime import datetime, timedelta, timezone
+
+        vid = await _seed_version(test_session, name="eta-v")
+        sid = await _seed_default_strategy(test_session)
+        tc1 = await _seed_test_case(test_session, name="eta-tc1")
+        tc2 = await _seed_test_case(test_session, name="eta-tc2")
+        tc3 = await _seed_test_case(test_session, name="eta-tc3")
+        run_id = await _seed_run(test_session, vid, sid, name="eta-run", status="running")
+
+        # 1 done（耗时 ~60s）+ 2 pending
+        j_done = EvalCaseJob(run_id=run_id, test_case_id=tc1, status="done")
+        j_done.started_at = datetime.now(timezone.utc) - timedelta(seconds=60)
+        j_done.finished_at = datetime.now(timezone.utc)
+        test_session.add(j_done)
+        test_session.add(EvalCaseJob(run_id=run_id, test_case_id=tc2, status="pending"))
+        test_session.add(EvalCaseJob(run_id=run_id, test_case_id=tc3, status="pending"))
+        await test_session.commit()
+
+        data = (await test_client.get(
+            f"/api/operator/evaluation/runs/{run_id}", headers=operator_headers
+        )).json()["data"]
+        assert data["avg_case_duration_secs"] is not None   # ~60s
+        assert 55 <= data["avg_case_duration_secs"] <= 65
+        assert data["eta_secs"] is not None                  # 2 pending × ~60 = ~120s
+        assert 110 <= data["eta_secs"] <= 130
+
 
 class TestRunsList:
     """GET /runs 列表（分页 + status/version_id 过滤 + 权限 + 信封）。"""

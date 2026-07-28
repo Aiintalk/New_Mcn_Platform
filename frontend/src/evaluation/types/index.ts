@@ -215,6 +215,9 @@ export interface EvalRun {
   started_at: string | null;
   finished_at: string | null;
   created_at: string | null;
+  /** 仅 GET /runs/{id} 详情返回（list 不返回）：ETA 估算 */
+  eta_secs?: number | null;
+  avg_case_duration_secs?: number | null;
 }
 
 export interface EvalTriggerRunRequest {
