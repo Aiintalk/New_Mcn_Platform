@@ -58,6 +58,7 @@ from app.evaluation.services.comparator import compare_runs
 router = APIRouter(
     prefix="/operator/evaluation",
     tags=["operator-evaluation"],
+    lifespan=None,
 )
 
 

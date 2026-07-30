@@ -2,6 +2,7 @@ import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.routing import APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -75,19 +76,13 @@ from app.evaluation.routers.admin_evaluation import router as admin_eval_router
 from app.evaluation.routers.operator_evaluation import router as operator_eval_router
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    await seed_initial_data()
-    # 启动 KOL TikHub 定时刷新后台任务
-    asyncio.create_task(tikhub_refresh_scheduler())
-    yield
+# Routers are included after this point (see below)
 
 
 app = FastAPI(
     title="MCN Information System Platform",
     version="0.1.0",
     description="M1 Base API",
-    lifespan=lifespan,
     redirect_slashes=False,
 )
 
@@ -200,3 +195,14 @@ app.include_router(operator_retrospective.router, prefix="/api")
 app.include_router(admin_kol_workspace.router, prefix="/api")
 app.include_router(admin_eval_router, prefix="/api")
 app.include_router(operator_eval_router, prefix="/api")
+
+
+# Startup logic (after all routers included, to avoid lifespan merging bug)
+@asynccontextmanager
+async def startup_lifespan(app: FastAPI):
+    await seed_initial_data()
+    asyncio.create_task(tikhub_refresh_scheduler())
+    yield
+
+
+app.lifespan_context = startup_lifespan
