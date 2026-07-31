@@ -518,14 +518,14 @@ CREATE INDEX idx_external_logs_created_at ON external_service_logs(created_at DE
 
 ### 15.1 用途
 
-Sprint 4 新增。存储云雾 / 硅基流动 / GLM 等 AI 服务商的 API Key，支持多 Key 并发调度与排队管理。与 `service_credentials` 不同，本表面向 AI 并发控制场景，通过 `active_requests` / `max_concurrent` 实现 DB 级原子锁定（`FOR UPDATE SKIP LOCKED`）。
+Sprint 4 新增。存储云雾 / 硅基流动 / GLM / Gemini 等 AI 服务商的 API Key，**或任意自定义厂商编码**（OpenAI 兼容协议的第三方服务商，如 DeepSeek、Moonshot），支持多 Key 并发调度与排队管理。与 `service_credentials` 不同，本表面向 AI 并发控制场景，通过 `active_requests` / `max_concurrent` 实现 DB 级原子锁定（`FOR UPDATE SKIP LOCKED`）。
 
 ### 15.2 字段说明
 
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---:|---|
 | `id` | BIGSERIAL | 是 | Key ID |
-| `provider` | VARCHAR(64) | 是 | 服务商：`yunwu` / `siliconflow` / `glm` |
+| `provider` | VARCHAR(64) | 是 | 服务商标识：`yunwu` / `siliconflow` / `glm` / `gemini`，或自定义厂商编码（任意小写字母/数字/短横线组合，正则 `^[a-z][a-z0-9-]{0,31}$`；接入 OpenAI 兼容协议的第三方服务商） |
 | `label` | VARCHAR(128) | 否 | 名称标签 |
 | `api_key` | TEXT | 是 | 明文 API Key（管理端内部使用，不对外暴露） |
 | `base_url` | VARCHAR(512) | 否 | 接口地址，为空时使用服务商默认地址 |
@@ -586,7 +586,7 @@ Sprint 4 新增。管理可调用的 AI 模型配置。`model_id` 与 `ai_call_l
 |---|---|---:|---|
 | `id` | BIGSERIAL | 是 | 模型 ID |
 | `name` | VARCHAR(128) | 是 | 模型名称（展示用） |
-| `provider` | VARCHAR(64) | 是 | 服务商：`yunwu` / `siliconflow` / `glm` |
+| `provider` | VARCHAR(64) | 是 | 服务商标识：`yunwu` / `siliconflow` / `glm` / `gemini`，或自定义厂商编码（任意小写字母/数字/短横线组合，正则 `^[a-z][a-z0-9-]{0,31}$`；接入 OpenAI 兼容协议的第三方服务商） |
 | `model_id` | VARCHAR(128) | 是 | 模型 ID（传给 API），全局唯一 |
 | `status` | VARCHAR(32) | 是 | `active` / `disabled` |
 | `last_tested_at` | TIMESTAMPTZ | 否 | 最近一次测试时间 |

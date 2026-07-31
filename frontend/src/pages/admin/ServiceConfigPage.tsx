@@ -1521,8 +1521,13 @@ export function AsrConfigTab() {
   );
 }
 
-// ── AiConfigTab ───────────────────────────────────────────────────────────────
-function AiConfigTab() {
+// ── AiConfigTab ─────────────────────────────────────────────────────────────--
+// 自定义厂商 sentinel：作为 Select 的"自定义"标记，提交时由 handler 转换为用户填的真实编码
+const CUSTOM_PROVIDER_SENTINEL = '__custom__';
+// 已预设的厂商编码（用于编辑时判断 provider 是否在预设内）
+const PRESET_PROVIDERS = ['yunwu', 'siliconflow', 'glm', 'gemini'];
+
+export function AiConfigTab() {
   const [providerFilter, setProviderFilter] = useState('全部');
   const [statusFilter,   setStatusFilter]   = useState('全部');
   const [timeRange,      setTimeRange]       = useState('近7天');
@@ -1566,17 +1571,17 @@ function AiConfigTab() {
   }, []);
 
   const [addKeyOpen, setAddKeyOpen] = useState(false);
-  const [addKeyForm] = Form.useForm<{ label: string; provider: string; api_key: string; base_url: string; max_concurrent: number; remark?: string }>();
+  const [addKeyForm] = Form.useForm<{ label: string; provider: string; custom_provider?: string; api_key: string; base_url: string; max_concurrent: number; remark?: string }>();
 
   const [editKey, setEditKey] = useState<AiKeyRecord | null>(null);
-  const [editKeyForm] = Form.useForm<{ label: string; provider: string; api_key: string; base_url: string; max_concurrent: number }>();
+  const [editKeyForm] = Form.useForm<{ label: string; provider: string; custom_provider?: string; api_key: string; base_url: string; max_concurrent: number }>();
 
   const [testingKeyId, setTestingKeyId] = useState<number | null>(null);
 
   const [testingModelId, setTestingModelId] = useState<number | null>(null);
 
   const [addModelOpen, setAddModelOpen] = useState(false);
-  const [addModelForm] = Form.useForm<{ name: string; model_id: string; provider: string }>();
+  const [addModelForm] = Form.useForm<{ name: string; model_id: string; provider: string; custom_provider?: string }>();
 
 
   const filteredKeys = keys.filter(k => {
@@ -1607,9 +1612,11 @@ function AiConfigTab() {
       .finally(() => setModelsLoading(false));
   }
 
-  async function handleAddKey(v: { label: string; provider: string; api_key: string; base_url: string; max_concurrent: number; remark?: string }) {
+  async function handleAddKey(v: { label: string; provider: string; custom_provider?: string; api_key: string; base_url: string; max_concurrent: number; remark?: string }) {
+    // 自定义厂商：把 sentinel 替换为用户填的编码
+    const provider = v.provider === CUSTOM_PROVIDER_SENTINEL ? (v.custom_provider ?? '') : v.provider;
     try {
-      await createAiKey(v);
+      await createAiKey({ ...v, provider });
       message.success('Key 已添加');
       setAddKeyOpen(false);
       addKeyForm.resetFields();
@@ -1619,10 +1626,11 @@ function AiConfigTab() {
     }
   }
 
-  async function handleEditKey(v: { label: string; provider: string; api_key: string; base_url: string; max_concurrent: number }) {
+  async function handleEditKey(v: { label: string; provider: string; custom_provider?: string; api_key: string; base_url: string; max_concurrent: number }) {
     if (!editKey) return;
+    const provider = v.provider === CUSTOM_PROVIDER_SENTINEL ? (v.custom_provider ?? '') : v.provider;
     try {
-      await updateAiKey(editKey.id, v);
+      await updateAiKey(editKey.id, { ...v, provider });
       message.success('更新成功');
       setEditKey(null);
       editKeyForm.resetFields();
@@ -1633,7 +1641,16 @@ function AiConfigTab() {
   }
 
   function openEditKey(k: AiKeyRecord) {
-    editKeyForm.setFieldsValue({ label: k.label, provider: k.provider, api_key: k.api_key, base_url: k.base_url, max_concurrent: k.max_concurrent });
+    // 编辑回填：provider 不在预设里 → 视为自定义，把 sentinel 填入 provider、真实编码填入 custom_provider
+    const isCustom = !PRESET_PROVIDERS.includes(k.provider);
+    editKeyForm.setFieldsValue({
+      label: k.label,
+      provider: isCustom ? CUSTOM_PROVIDER_SENTINEL : k.provider,
+      custom_provider: isCustom ? k.provider : undefined,
+      api_key: k.api_key,
+      base_url: k.base_url,
+      max_concurrent: k.max_concurrent,
+    });
     setEditKey(k);
   }
 
@@ -1681,9 +1698,10 @@ function AiConfigTab() {
     }
   }
 
-  async function handleAddModel(v: CreateAiModelRequest) {
+  async function handleAddModel(v: CreateAiModelRequest & { custom_provider?: string }) {
+    const provider = v.provider === CUSTOM_PROVIDER_SENTINEL ? (v.custom_provider ?? '') : v.provider;
     try {
-      await createAiModel(v);
+      await createAiModel({ name: v.name, model_id: v.model_id, provider });
       message.success('模型已添加');
       setAddModelOpen(false);
       addModelForm.resetFields();
@@ -1952,14 +1970,35 @@ function AiConfigTab() {
             <Select
               placeholder="请选择服务商"
               onChange={(val: string) => {
-                addKeyForm.setFieldValue('base_url', PROVIDER_BASE_URL[val] ?? '');
+                if (val === CUSTOM_PROVIDER_SENTINEL) {
+                  addKeyForm.setFieldValue('base_url', '');
+                } else {
+                  addKeyForm.setFieldValue('base_url', PROVIDER_BASE_URL[val] ?? '');
+                }
               }}
             >
               <Select.Option value="yunwu">云雾</Select.Option>
               <Select.Option value="siliconflow">硅基流动</Select.Option>
               <Select.Option value="glm">GLM</Select.Option>
               <Select.Option value="gemini">Gemini</Select.Option>
+              <Select.Option value={CUSTOM_PROVIDER_SENTINEL}>自定义厂商</Select.Option>
             </Select>
+          </Form.Item>
+          {/* 自定义厂商：让用户填编码（提交时由 handleAddKey 替换 sentinel） */}
+          <Form.Item noStyle shouldUpdate={(prev, cur) => prev.provider !== cur.provider}>
+            {({ getFieldValue }) => getFieldValue('provider') === CUSTOM_PROVIDER_SENTINEL ? (
+              <Form.Item
+                label="厂商编码"
+                name="custom_provider"
+                rules={[
+                  { required: true, message: '请输入厂商编码' },
+                  { pattern: /^[a-z][a-z0-9-]{0,31}$/, message: '小写字母开头，仅含小写字母/数字/短横线，≤32 字符' },
+                ]}
+                extra="作为服务商标识（如 deepseek、moonshot）。需 OpenAI 兼容协议。"
+              >
+                <Input placeholder="如 deepseek" />
+              </Form.Item>
+            ) : null}
           </Form.Item>
           <Form.Item label="Base URL" name="base_url" rules={[{ required: true, message: '请输入 Base URL' }]}>
             <Input placeholder="https://..." />
@@ -1989,14 +2028,34 @@ function AiConfigTab() {
           <Form.Item label="服务商" name="provider" rules={[{ required: true, message: '请选择服务商' }]}>
             <Select
               onChange={(val: string) => {
-                editKeyForm.setFieldValue('base_url', PROVIDER_BASE_URL[val] ?? editKeyForm.getFieldValue('base_url'));
+                if (val === CUSTOM_PROVIDER_SENTINEL) {
+                  editKeyForm.setFieldValue('base_url', '');
+                } else {
+                  editKeyForm.setFieldValue('base_url', PROVIDER_BASE_URL[val] ?? editKeyForm.getFieldValue('base_url'));
+                }
               }}
             >
               <Select.Option value="yunwu">云雾</Select.Option>
               <Select.Option value="siliconflow">硅基流动</Select.Option>
               <Select.Option value="glm">GLM</Select.Option>
               <Select.Option value="gemini">Gemini</Select.Option>
+              <Select.Option value={CUSTOM_PROVIDER_SENTINEL}>自定义厂商</Select.Option>
             </Select>
+          </Form.Item>
+          <Form.Item noStyle shouldUpdate={(prev, cur) => prev.provider !== cur.provider}>
+            {({ getFieldValue }) => getFieldValue('provider') === CUSTOM_PROVIDER_SENTINEL ? (
+              <Form.Item
+                label="厂商编码"
+                name="custom_provider"
+                rules={[
+                  { required: true, message: '请输入厂商编码' },
+                  { pattern: /^[a-z][a-z0-9-]{0,31}$/, message: '小写字母开头，仅含小写字母/数字/短横线，≤32 字符' },
+                ]}
+                extra="作为服务商标识（如 deepseek、moonshot）。需 OpenAI 兼容协议。"
+              >
+                <Input placeholder="如 deepseek" />
+              </Form.Item>
+            ) : null}
           </Form.Item>
           <Form.Item label="Base URL" name="base_url" rules={[{ required: true, message: '请输入 Base URL' }]}>
             <Input />
@@ -2031,7 +2090,23 @@ function AiConfigTab() {
               <Select.Option value="siliconflow">硅基流动</Select.Option>
               <Select.Option value="glm">GLM</Select.Option>
               <Select.Option value="gemini">Gemini</Select.Option>
+              <Select.Option value={CUSTOM_PROVIDER_SENTINEL}>自定义厂商</Select.Option>
             </Select>
+          </Form.Item>
+          <Form.Item noStyle shouldUpdate={(prev, cur) => prev.provider !== cur.provider}>
+            {({ getFieldValue }) => getFieldValue('provider') === CUSTOM_PROVIDER_SENTINEL ? (
+              <Form.Item
+                label="厂商编码"
+                name="custom_provider"
+                rules={[
+                  { required: true, message: '请输入厂商编码' },
+                  { pattern: /^[a-z][a-z0-9-]{0,31}$/, message: '小写字母开头，仅含小写字母/数字/短横线，≤32 字符' },
+                ]}
+                extra="作为服务商标识（如 deepseek、moonshot）。需 OpenAI 兼容协议。"
+              >
+                <Input placeholder="如 deepseek" />
+              </Form.Item>
+            ) : null}
           </Form.Item>
         </Form>
       </Modal>

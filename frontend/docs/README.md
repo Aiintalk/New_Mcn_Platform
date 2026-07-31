@@ -60,7 +60,7 @@ frontend/
 │   │   │   ├── KolsPage.tsx           #     红人管理
 │   │   │   ├── UsersPage.tsx          #     用户管理
 │   │   │   ├── AiManagementPage.tsx   #     AI 密钥/模型管理
-│   │   │   ├── ServiceConfigPage.tsx  #     工具配置：AI / TikHub / OSS / ASR 凭证池（OSS / ASR Tab 完整对齐 TikHub：4 张统计卡 + 操作分布饼图 + 7 天趋势折线图 + 3 子 Tab 凭证管理/操作统计/用户排行；OSS 表单=AccessKey ID/Secret/Bucket/Endpoint，ASR 表单=AppKey/AccessKey ID/Secret/Region；均含连通性测试）
+│   │   │   ├── ServiceConfigPage.tsx  #     工具配置：AI / TikHub / OSS / ASR 凭证池（OSS / ASR Tab 完整对齐 TikHub：4 张统计卡 + 操作分布饼图 + 7 天趋势折线图 + 3 子 Tab 凭证管理/操作统计/用户排行；OSS 表单=AccessKey ID/Secret/Bucket/Endpoint，ASR 表单=AppKey/AccessKey ID/Secret/Region；均含连通性测试；**AI 配置 Tab 自 2026-07-31 起支持自定义厂商**：除预设 yunwu/siliconflow/glm/gemini 外，可在加 Key/编辑 Key/加模型表单选「自定义厂商」填厂商编码（小写字母/数字/短横线，如 deepseek）+ 自定义 base_url，需 OpenAI 兼容协议；提交后等价于预设厂商）
 │   │   │   ├── WorkspaceConfigPage.tsx #    工作空间配置（工具列表 + 配置 Tab：搜索/状态筛选 + 15/页分页；2026-07-01 加「配置」按钮直达对应 Tab + Tabs 受控；含 CONFIG_TAB_KEYS 白名单 + TOOL_CODE_TO_TAB_KEY 例外映射 kol-intake/qianchuan-script-review/selling-point-extractor；4 个预留 Tab 用 PlaceholderConfigTab 占位：persona-positioning/qianchuan-collection/qianchuan分组/review分组）
 │   │   │   ├── AdminIntakePage.tsx    #     入驻问卷管理
 │   │   │   ├── AdminTasksPage.tsx     #     任务管理
