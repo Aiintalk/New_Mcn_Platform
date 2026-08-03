@@ -88,7 +88,7 @@ npx vitest run src/__tests__/components/pages/WorkspaceReferences.test.tsx src/_
 
 目标测试、工作台页面和相关请求层合并运行后为 8 个测试文件、73/73 通过；原 71 项基线上增加了保存竞态与无可补全内容两项审查回归测试。
 
-全量前端使用 JSON 报告重新运行，结果为 149 个测试文件、486/486 通过、0 失败、0 跳过。测试环境仍有既有的 jsdom 样式、React `act`、React Router 未来行为和 Ant Design React 19 兼容提示，不影响退出码。
+全量前端使用 JSON 报告重新运行，结果为 51 个测试文件、486/486 通过、0 失败、0 跳过。测试环境仍有既有的 jsdom 样式、React `act`、React Router 未来行为和 Ant Design React 19 兼容提示，不影响退出码。
 
 ### 类型与生产构建
 
