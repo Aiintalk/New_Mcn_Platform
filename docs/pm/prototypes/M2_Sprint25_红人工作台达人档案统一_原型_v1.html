@@ -1,0 +1,628 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>M2 Sprint 25 红人工作台达人档案统一原型</title>
+  <style>
+    :root {
+      --brand: #f59a23;
+      --brand-hover: #e78b15;
+      --brand-soft: #fff7eb;
+      --brand-border: #f6d6aa;
+      --page: #f5f5f7;
+      --surface: #ffffff;
+      --sidebar: #1d1c1a;
+      --sidebar-muted: #aaa7a3;
+      --text: #1d1d1f;
+      --text-2: #5f5f63;
+      --text-3: #8c8c91;
+      --border: #dedee3;
+      --border-soft: #ededf0;
+      --success: #16834a;
+      --success-soft: #edf8f2;
+      --shadow: 0 8px 28px rgba(20, 20, 25, 0.08);
+      --font: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body { margin: 0; min-height: 100%; background: #e9e9ec; color: var(--text); font-family: var(--font); letter-spacing: 0; }
+    button, textarea, select { font: inherit; letter-spacing: 0; }
+    button { cursor: pointer; }
+
+    .prototype-bar {
+      min-height: 58px;
+      padding: 10px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      background: #252528;
+      color: #fff;
+      border-bottom: 1px solid #363639;
+    }
+
+    .prototype-title { min-width: 220px; }
+    .prototype-title strong { display: block; font-size: 14px; font-weight: 650; }
+    .prototype-title span { display: block; margin-top: 2px; color: #b9b9be; font-size: 11px; }
+
+    .view-switcher {
+      display: flex;
+      gap: 4px;
+      padding: 4px;
+      background: #3a3a3e;
+      border-radius: 8px;
+      overflow-x: auto;
+    }
+
+    .view-switcher button {
+      min-height: 32px;
+      padding: 0 12px;
+      border: 0;
+      border-radius: 6px;
+      color: #d8d8dc;
+      background: transparent;
+      white-space: nowrap;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .view-switcher button.active { color: #1d1d1f; background: #fff; }
+
+    .prototype-note { color: #b9b9be; font-size: 11px; text-align: right; }
+
+    .app {
+      width: min(1500px, 100%);
+      height: calc(100vh - 58px);
+      min-height: 710px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-rows: 72px minmax(0, 1fr);
+      background: var(--page);
+      box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.04);
+      overflow: hidden;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      gap: 22px;
+      padding: 0 28px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border-soft);
+    }
+
+    .back-button {
+      height: 38px;
+      padding: 0 14px;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      background: #fff;
+      color: #343438;
+      font-weight: 600;
+    }
+
+    .divider { width: 1px; height: 30px; background: var(--border); }
+
+    .kol-identity { display: flex; align-items: center; gap: 12px; min-width: 0; }
+    .avatar { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; background: #ececea; color: #7e7e82; font-size: 13px; font-weight: 700; }
+    .kol-identity strong { font-size: 19px; font-weight: 700; }
+    .kol-identity span { margin-left: 8px; color: var(--text-3); font-size: 15px; font-weight: 500; }
+    .tool-identity { display: none; align-items: baseline; gap: 10px; }
+    .tool-identity strong { font-size: 19px; }
+    .tool-identity span { color: var(--text-3); font-size: 14px; }
+
+    .app-body { min-height: 0; display: grid; grid-template-columns: 238px minmax(0, 1fr); }
+
+    .sidebar {
+      padding: 20px 14px;
+      background: var(--sidebar);
+      color: var(--sidebar-muted);
+      overflow-y: auto;
+    }
+
+    .nav-item {
+      width: 100%;
+      height: 48px;
+      margin-bottom: 4px;
+      padding: 0 15px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border: 0;
+      border-radius: 7px;
+      color: inherit;
+      background: transparent;
+      font-size: 14px;
+      font-weight: 600;
+      text-align: left;
+    }
+
+    .nav-item.active { color: #fff; background: var(--brand); }
+    .nav-mark { width: 21px; color: currentColor; font-size: 12px; font-weight: 700; text-align: center; }
+
+    .main { min-width: 0; overflow-y: auto; background: var(--page); }
+    .content { width: min(1040px, calc(100% - 64px)); margin: 0 auto; padding: 38px 0 72px; }
+
+    .page-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 24px;
+      padding-bottom: 25px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .page-head h1 { margin: 0; font-size: 30px; line-height: 1.25; font-weight: 750; }
+    .page-head p { margin: 8px 0 0; color: var(--text-2); font-size: 13px; line-height: 1.6; }
+    .completeness { min-width: 170px; text-align: right; }
+    .completeness strong { font-size: 15px; }
+    .progress { width: 170px; height: 5px; margin-top: 9px; overflow: hidden; border-radius: 3px; background: #dfdfe3; }
+    .progress span { display: block; width: 86%; height: 100%; background: var(--brand); }
+
+    .section { padding: 28px 0 4px; border-bottom: 1px solid var(--border); }
+    .section:last-child { border-bottom: 0; }
+    .section-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-bottom: 6px; }
+    .section-head h2 { margin: 0; font-size: 19px; font-weight: 720; }
+    .section-head p { margin: 6px 0 0; color: var(--text-3); font-size: 12px; line-height: 1.5; }
+
+    .button {
+      min-height: 38px;
+      padding: 0 15px;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      background: #fff;
+      color: #36363a;
+      font-size: 13px;
+      font-weight: 650;
+    }
+
+    .button:hover { border-color: #b9b9bf; }
+    .button.primary { border-color: var(--brand); background: var(--brand); color: #fff; }
+    .button.primary:hover { border-color: var(--brand-hover); background: var(--brand-hover); }
+    .button.ghost { background: transparent; }
+    .button.small { min-height: 32px; padding: 0 11px; font-size: 12px; }
+    .button:disabled { cursor: not-allowed; color: #aaaab0; border-color: #dedee2; background: #f0f0f2; }
+
+    .field-row {
+      position: relative;
+      display: grid;
+      grid-template-columns: 180px minmax(0, 1fr) 74px;
+      gap: 22px;
+      align-items: start;
+      padding: 22px 0;
+      border-top: 1px solid var(--border-soft);
+    }
+
+    .section-head + .field-row { margin-top: 20px; }
+    .field-label strong { display: block; font-size: 14px; }
+    .field-label span { display: block; margin-top: 6px; color: var(--text-3); font-size: 11px; line-height: 1.5; }
+    .field-value { min-width: 0; color: #3f3f43; font-size: 13px; line-height: 1.75; white-space: pre-line; }
+    .field-value.empty { color: #a0a0a5; }
+    .field-status { display: inline-flex; align-items: center; min-height: 23px; margin-top: 8px; padding: 0 8px; border-radius: 5px; background: var(--success-soft); color: var(--success); font-size: 11px; font-weight: 650; }
+    .field-status.empty { background: #f1f1f3; color: #76767b; }
+
+    .edit-box { grid-column: 2 / 4; }
+    .edit-box textarea {
+      width: 100%;
+      min-height: 132px;
+      padding: 12px 13px;
+      resize: vertical;
+      border: 1px solid #a8a8ae;
+      border-radius: 7px;
+      outline: none;
+      background: #fff;
+      color: var(--text);
+      font-size: 13px;
+      line-height: 1.7;
+    }
+
+    .edit-box textarea:focus { border-color: var(--brand); box-shadow: 0 0 0 3px rgba(245, 154, 35, 0.16); }
+    .edit-actions { display: flex; gap: 8px; margin-top: 10px; }
+
+    .notice {
+      margin-top: 18px;
+      padding: 13px 15px;
+      border: 1px solid var(--brand-border);
+      border-radius: 7px;
+      background: var(--brand-soft);
+      color: #74501f;
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
+    .modal-backdrop {
+      position: fixed;
+      inset: 58px 0 0;
+      z-index: 10;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: rgba(23, 23, 26, 0.48);
+    }
+
+    .modal-backdrop.visible { display: flex; }
+    .modal {
+      width: min(780px, calc(100vw - 48px));
+      max-height: calc(100vh - 110px);
+      overflow-y: auto;
+      border: 1px solid rgba(0, 0, 0, 0.08);
+      border-radius: 8px;
+      background: #fff;
+      box-shadow: var(--shadow);
+    }
+
+    .modal-head { padding: 24px 26px 18px; border-bottom: 1px solid var(--border-soft); }
+    .modal-head h2 { margin: 0; font-size: 20px; }
+    .modal-head p { margin: 7px 0 0; color: var(--text-2); font-size: 12px; line-height: 1.6; }
+    .modal-body { padding: 4px 26px 12px; }
+    .sync-field { padding: 20px 0; border-bottom: 1px solid var(--border-soft); }
+    .sync-field:last-child { border-bottom: 0; }
+    .sync-title { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+    .sync-title strong { font-size: 14px; }
+    .sync-tag { padding: 4px 7px; border-radius: 5px; background: var(--brand-soft); color: #975d13; font-size: 11px; font-weight: 650; }
+    .compare { margin-top: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .compare-box { min-height: 88px; padding: 12px; border: 1px solid var(--border-soft); border-radius: 7px; background: #fafafa; }
+    .compare-box span { display: block; margin-bottom: 6px; color: var(--text-3); font-size: 10px; font-weight: 650; }
+    .compare-box p { margin: 0; color: #4d4d52; font-size: 12px; line-height: 1.6; }
+    .choice { display: flex; gap: 18px; margin-top: 13px; font-size: 12px; }
+    .choice label { display: flex; align-items: center; gap: 7px; cursor: pointer; }
+    .choice input { accent-color: var(--brand); }
+    .auto-written { margin-top: 12px; padding: 11px 12px; border-radius: 7px; background: var(--success-soft); color: #21663f; font-size: 12px; line-height: 1.55; }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 16px 26px 22px; border-top: 1px solid var(--border-soft); }
+
+    .tool-view { display: none; }
+    body[data-view="tool"] .workspace-view { display: none; }
+    body[data-view="tool"] .tool-view { display: block; }
+    body[data-view="tool"] .workspace-top-item,
+    body[data-view="tool"] .workspace-nav-item { display: none; }
+    body[data-view="tool"] .tool-identity { display: flex; }
+    body:not([data-view="tool"]) .tool-nav-item { display: none; }
+
+    .tool-panel { max-width: 820px; padding-top: 6px; }
+    .tool-panel h1 { margin: 0; font-size: 30px; }
+    .tool-panel > p { margin: 9px 0 28px; color: var(--text-2); font-size: 13px; }
+    .tool-section { padding: 24px 0; border-top: 1px solid var(--border); }
+    .tool-section h2 { margin: 0 0 6px; font-size: 17px; }
+    .tool-section > p { margin: 0 0 18px; color: var(--text-3); font-size: 12px; }
+    .kol-selector { display: grid; grid-template-columns: minmax(0, 1fr) 210px; gap: 14px; }
+    .select-wrap label { display: block; margin-bottom: 7px; font-size: 12px; font-weight: 650; }
+    .select-wrap select { width: 100%; height: 40px; padding: 0 12px; border: 1px solid var(--border); border-radius: 7px; outline: none; background: #fff; }
+    .select-wrap select:focus { border-color: var(--brand); box-shadow: 0 0 0 3px rgba(245, 154, 35, 0.16); }
+    .kol-preview { padding: 12px 14px; border: 1px solid var(--border-soft); border-radius: 7px; background: #fff; }
+    .kol-preview strong { display: block; font-size: 13px; }
+    .kol-preview span { display: block; margin-top: 4px; color: var(--text-3); font-size: 11px; }
+    .upload-line { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 18px; }
+    .upload-zone { min-height: 116px; display: grid; place-items: center; padding: 16px; border: 1px dashed #bfc0c5; border-radius: 7px; background: #fafafa; color: #5f5f64; text-align: center; font-size: 12px; }
+    .upload-zone span { display: block; margin-top: 6px; color: var(--text-3); font-size: 10px; }
+    .tool-action { display: flex; justify-content: flex-end; margin-top: 18px; }
+
+    .toast {
+      position: fixed;
+      z-index: 20;
+      top: 74px;
+      left: 50%;
+      transform: translate(-50%, -10px);
+      min-width: 260px;
+      padding: 12px 16px;
+      border: 1px solid #cce7d8;
+      border-radius: 7px;
+      background: #fff;
+      color: #245b3d;
+      box-shadow: var(--shadow);
+      opacity: 0;
+      pointer-events: none;
+      transition: 180ms ease;
+      font-size: 12px;
+      text-align: center;
+    }
+
+    .toast.visible { opacity: 1; transform: translate(-50%, 0); }
+
+    @media (max-width: 1100px) {
+      .prototype-note { display: none; }
+      .app-body { grid-template-columns: 206px minmax(0, 1fr); }
+      .sidebar { padding-left: 10px; padding-right: 10px; }
+      .content { width: calc(100% - 42px); padding-top: 30px; }
+      .field-row { grid-template-columns: 145px minmax(0, 1fr) 66px; gap: 16px; }
+      .page-head h1, .tool-panel h1 { font-size: 27px; }
+    }
+
+    @media (max-width: 820px) {
+      .prototype-bar { align-items: flex-start; flex-direction: column; }
+      .view-switcher { width: 100%; }
+      .app { height: auto; min-height: calc(100vh - 98px); }
+      .app-body { grid-template-columns: 72px minmax(0, 1fr); }
+      .nav-item { justify-content: center; padding: 0; }
+      .nav-item span:last-child { display: none; }
+      .field-row { grid-template-columns: 1fr 64px; }
+      .field-label { grid-column: 1; }
+      .field-value { grid-column: 1 / 3; }
+      .field-row > .button { grid-column: 2; grid-row: 1; }
+      .edit-box { grid-column: 1 / 3; }
+      .kol-selector, .upload-line, .compare { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body data-view="default">
+  <header class="prototype-bar">
+    <div class="prototype-title">
+      <strong>达人档案统一交互原型 v1</strong>
+      <span>设计稿控制区，不属于正式产品页面</span>
+    </div>
+    <nav class="view-switcher" aria-label="原型状态切换">
+      <button type="button" class="active" data-target="default">人物档案默认态</button>
+      <button type="button" data-target="editing">字段编辑态</button>
+      <button type="button" data-target="overwrite">报告覆盖确认</button>
+      <button type="button" data-target="tool">人格工具绑定达人</button>
+    </nav>
+    <div class="prototype-note">目标尺寸：1440×900 / 1024×768</div>
+  </header>
+
+  <div class="app">
+    <header class="topbar">
+      <button class="back-button workspace-top-item" type="button">← 返回红人列表</button>
+      <div class="divider workspace-top-item"></div>
+      <div class="kol-identity workspace-top-item">
+        <div class="avatar">兔</div>
+        <div><strong>mini兔兔</strong><span>工作台</span></div>
+      </div>
+      <div class="tool-identity"><strong>AI 工具箱</strong><span>人格定位</span></div>
+    </header>
+
+    <div class="app-body">
+      <aside class="sidebar">
+        <button class="nav-item workspace-nav-item" type="button"><span class="nav-mark">首</span><span>工作台首页</span></button>
+        <button class="nav-item workspace-nav-item active" type="button"><span class="nav-mark">档</span><span>人物档案</span></button>
+        <button class="nav-item workspace-nav-item" type="button"><span class="nav-mark">素</span><span>素材库</span></button>
+        <button class="nav-item workspace-nav-item" type="button"><span class="nav-mark">品</span><span>产品库</span></button>
+        <button class="nav-item workspace-nav-item" type="button"><span class="nav-mark">千</span><span>千川仿写</span></button>
+        <button class="nav-item workspace-nav-item" type="button"><span class="nav-mark">种</span><span>种草仿写</span></button>
+        <button class="nav-item workspace-nav-item" type="button"><span class="nav-mark">人</span><span>人设仿写</span></button>
+        <button class="nav-item workspace-nav-item" type="button"><span class="nav-mark">播</span><span>直播仿写</span></button>
+        <button class="nav-item workspace-nav-item" type="button"><span class="nav-mark">复</span><span>复盘</span></button>
+        <button class="nav-item tool-nav-item" type="button"><span class="nav-mark">首</span><span>工具箱首页</span></button>
+        <button class="nav-item tool-nav-item active" type="button"><span class="nav-mark">人</span><span>人格定位</span></button>
+        <button class="nav-item tool-nav-item" type="button"><span class="nav-mark">卖</span><span>产品卖点提取</span></button>
+        <button class="nav-item tool-nav-item" type="button"><span class="nav-mark">复</span><span>复盘工具</span></button>
+      </aside>
+
+      <main class="main">
+        <div class="content workspace-view">
+          <section class="page-head">
+            <div>
+              <h1>mini兔兔人物档案</h1>
+              <p>统一维护人格定位、内容规划和脚本可用的人物事实 · 上次更新 2026/08/03 14:30</p>
+            </div>
+            <div class="completeness">
+              <strong>档案完整度 6/7</strong>
+              <div class="progress"><span></span></div>
+            </div>
+          </section>
+
+          <section class="section">
+            <div class="section-head">
+              <div>
+                <h2>定位与规划</h2>
+                <p>决定红人的人物形象、表达方向和内容策略，下游创作工具会优先参考。</p>
+              </div>
+              <button class="button small" type="button" id="open-sync">查看报告同步示例</button>
+            </div>
+
+            <article class="field-row" data-field="persona">
+              <div class="field-label">
+                <strong>人格档案</strong>
+                <span>人设定位、人物形象与表达原则</span>
+                <span class="field-status">已填写</span>
+              </div>
+              <div class="field-value">真实、克制、有生活经验的成熟女性朋友。表达不说教，先讲自己的经历，再给出可以落地的判断；面对争议保持边界感，不制造焦虑。</div>
+              <button class="button ghost small edit-trigger" type="button">编辑</button>
+            </article>
+
+            <article class="field-row" data-field="content-plan">
+              <div class="field-label">
+                <strong>内容规划</strong>
+                <span>选题方向、内容结构与创作策略</span>
+                <span class="field-status">已填写</span>
+              </div>
+              <div class="field-value">围绕轻熟龄穿搭、真实职场和自我关系三条内容线。每周至少一条个人经历型内容；商品内容从真实场景进入，避免直接堆卖点。</div>
+              <button class="button ghost small edit-trigger" type="button">编辑</button>
+            </article>
+          </section>
+
+          <section class="section">
+            <div class="section-head">
+              <div>
+                <h2>人物事实素材</h2>
+                <p>脚本改编可以使用的具体人物经历和关系细节。人工维护内容不会被报告自动覆盖。</p>
+              </div>
+              <button class="button small" type="button" id="fill-empty">从最新人格报告补全空字段</button>
+            </div>
+
+            <article class="field-row">
+              <div class="field-label"><strong>基本身份</strong><span>年龄、职业、背景、性格</span><span class="field-status">已填写</span></div>
+              <div class="field-value">32岁，杭州人，曾从事服装买手工作；慢热、理性，对穿搭细节敏感。</div>
+              <button class="button ghost small" type="button">编辑</button>
+            </article>
+            <article class="field-row">
+              <div class="field-label"><strong>真实经历</strong><span>可以替换脚本人物经历的素材</span><span class="field-status">已填写</span></div>
+              <div class="field-value">从线下服装店离职后开始拍短视频，早期独自完成选题、拍摄和剪辑；经历过连续三个月数据低迷。</div>
+              <button class="button ghost small" type="button">编辑</button>
+            </article>
+            <article class="field-row">
+              <div class="field-label"><strong>关系网</strong><span>家人、朋友和长期关系线索</span><span class="field-status">已填写</span></div>
+              <div class="field-value">母亲偶尔参与试穿；大学同学小敏是日常穿搭建议的重要讨论对象。</div>
+              <button class="button ghost small" type="button">编辑</button>
+            </article>
+            <article class="field-row">
+              <div class="field-label"><strong>独家经历</strong><span>只有这个红人拥有的人生故事</span><span class="field-status">已填写</span></div>
+              <div class="field-value">第一次直播只卖出两件衣服，结束后把全部观众留言整理成表格，逐条调整讲解方式。</div>
+              <button class="button ghost small" type="button">编辑</button>
+            </article>
+            <article class="field-row">
+              <div class="field-label"><strong>其他补充</strong><span>习惯、口头禅、禁区和表达约束</span><span class="field-status empty">待补充</span></div>
+              <div class="field-value empty">暂未填写。系统只会从最新人格报告补充空字段。</div>
+              <button class="button ghost small" type="button">编辑</button>
+            </article>
+          </section>
+        </div>
+
+        <div class="content tool-view">
+          <div class="tool-panel">
+            <h1>人格定位</h1>
+            <p>先选择本次报告对应的红人，再上传资料并开始分析。报告不会再通过姓名猜测归属。</p>
+
+            <section class="tool-section">
+              <h2>1. 选择对应红人</h2>
+              <p>必填。生成任务、历史报告和档案同步都会记录同一个红人编号。</p>
+              <div class="kol-selector">
+                <div class="select-wrap">
+                  <label for="kol-select">对应红人</label>
+                  <select id="kol-select">
+                    <option value="">请选择红人</option>
+                    <option value="43">mini兔兔</option>
+                    <option value="56">韩国欧尼慧敏</option>
+                  </select>
+                </div>
+                <div class="kol-preview" id="kol-preview">
+                  <strong>尚未选择</strong>
+                  <span>选择后核对账号和档案完整度</span>
+                </div>
+              </div>
+            </section>
+
+            <section class="tool-section">
+              <h2>2. 上传分析资料</h2>
+              <p>保留当前人格定位工具的资料上传能力。</p>
+              <div class="upload-line">
+                <button class="upload-zone" type="button">上传达人访谈资料<span>支持文档或整理后的文本</span></button>
+                <button class="upload-zone" type="button">上传历史内容资料<span>支持脚本、复盘或内容样本</span></button>
+              </div>
+              <div class="tool-action">
+                <button class="button primary" type="button" id="generate" disabled>开始生成人格报告</button>
+              </div>
+            </section>
+
+            <div class="notice">生成完成后的规则：空的人格档案或内容规划直接写入；已有内容只询问是否覆盖；五个人物事实字段只补空值，不逐项确认。</div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="sync-modal" role="dialog" aria-modal="true" aria-labelledby="sync-title">
+    <div class="modal">
+      <div class="modal-head">
+        <h2 id="sync-title">确认同步人格定位结果</h2>
+        <p>报告内容已经生成，不需要在这里判断内容是否正确。只需要决定是否覆盖已有正式档案。</p>
+      </div>
+      <div class="modal-body">
+        <section class="sync-field">
+          <div class="sync-title"><strong>人格档案</strong><span class="sync-tag">已有内容，需要选择</span></div>
+          <div class="compare">
+            <div class="compare-box"><span>当前正式内容</span><p>真实、克制、有生活经验的成熟女性朋友，表达不说教。</p></div>
+            <div class="compare-box"><span>本次报告内容</span><p>有判断力的轻熟龄朋友，以亲历故事建立信任，给出克制且可执行的建议。</p></div>
+          </div>
+          <div class="choice">
+            <label><input type="radio" name="persona-choice" checked> 保留原内容</label>
+            <label><input type="radio" name="persona-choice"> 覆盖为新报告</label>
+          </div>
+        </section>
+
+        <section class="sync-field">
+          <div class="sync-title"><strong>内容规划</strong><span class="sync-tag">原字段为空，已自动写入</span></div>
+          <div class="auto-written">系统已直接写入本次内容规划，不需要运营确认。关闭窗口也不会撤销这次自动写入。</div>
+        </section>
+
+        <section class="sync-field">
+          <div class="sync-title"><strong>人物事实素材</strong><span class="sync-tag">只补空值</span></div>
+          <div class="auto-written">已补全：其他补充。已保留 4 个原有事实字段，没有覆盖人工维护内容。</div>
+        </section>
+      </div>
+      <div class="modal-actions">
+        <button class="button" type="button" id="close-sync">暂不覆盖</button>
+        <button class="button primary" type="button" id="confirm-sync">确认同步</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast">操作完成</div>
+
+  <script>
+    const body = document.body;
+    const viewButtons = [...document.querySelectorAll('[data-target]')];
+    const modal = document.getElementById('sync-modal');
+    const toast = document.getElementById('toast');
+    let toastTimer;
+
+    function showToast(message) {
+      toast.textContent = message;
+      toast.classList.add('visible');
+      window.clearTimeout(toastTimer);
+      toastTimer = window.setTimeout(() => toast.classList.remove('visible'), 2600);
+    }
+
+    function setView(view) {
+      body.dataset.view = view;
+      viewButtons.forEach((button) => button.classList.toggle('active', button.dataset.target === view));
+      modal.classList.toggle('visible', view === 'overwrite');
+
+      const personaRow = document.querySelector('[data-field="persona"]');
+      const existingEditor = personaRow.querySelector('.edit-box');
+      if (existingEditor) existingEditor.remove();
+      personaRow.querySelector('.field-value').style.display = '';
+      personaRow.querySelector('.edit-trigger').style.display = '';
+
+      if (view === 'editing') openEditor(personaRow);
+    }
+
+    function openEditor(row) {
+      if (row.querySelector('.edit-box')) return;
+      const value = row.querySelector('.field-value');
+      const trigger = row.querySelector('.edit-trigger');
+      value.style.display = 'none';
+      trigger.style.display = 'none';
+      const editor = document.createElement('div');
+      editor.className = 'edit-box';
+      editor.innerHTML = `<textarea aria-label="编辑人格档案">${value.textContent.trim()}</textarea><div class="edit-actions"><button class="button primary small" type="button" data-save>保存</button><button class="button small" type="button" data-cancel>取消</button></div>`;
+      row.appendChild(editor);
+      editor.querySelector('textarea').focus();
+      editor.querySelector('[data-save]').addEventListener('click', () => {
+        value.textContent = editor.querySelector('textarea').value;
+        editor.remove();
+        value.style.display = '';
+        trigger.style.display = '';
+        showToast('人格档案已保存');
+      });
+      editor.querySelector('[data-cancel]').addEventListener('click', () => setView('default'));
+    }
+
+    viewButtons.forEach((button) => button.addEventListener('click', () => setView(button.dataset.target)));
+    document.querySelector('.edit-trigger').addEventListener('click', () => setView('editing'));
+    document.getElementById('open-sync').addEventListener('click', () => setView('overwrite'));
+    document.getElementById('close-sync').addEventListener('click', () => setView('default'));
+    document.getElementById('confirm-sync').addEventListener('click', () => {
+      setView('default');
+      showToast('同步完成：内容规划已写入，原人格档案已保留，其他补充已补全');
+    });
+    document.getElementById('fill-empty').addEventListener('click', () => showToast('已从最新人格报告补全：其他补充；其余字段保持不变'));
+
+    const kolSelect = document.getElementById('kol-select');
+    const kolPreview = document.getElementById('kol-preview');
+    const generate = document.getElementById('generate');
+    kolSelect.addEventListener('change', () => {
+      const selected = kolSelect.value === '43';
+      generate.disabled = !kolSelect.value;
+      kolPreview.innerHTML = kolSelect.value
+        ? `<strong>${selected ? 'mini兔兔' : '韩国欧尼慧敏'}</strong><span>${selected ? '抖音账号：mini兔兔 · 档案完整度 6/7' : '抖音账号：韩国欧尼慧敏 · 档案完整度 7/7'}</span>`
+        : '<strong>尚未选择</strong><span>选择后核对账号和档案完整度</span>';
+    });
+    generate.addEventListener('click', () => showToast('已绑定红人，可以进入现有生成流程'));
+
+    const requestedView = new URLSearchParams(window.location.search).get('view');
+    if (['default', 'editing', 'overwrite', 'tool'].includes(requestedView)) setView(requestedView);
+  </script>
+</body>
+</html>
