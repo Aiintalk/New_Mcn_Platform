@@ -1,6 +1,15 @@
 import { get, post, del } from './request';
 import { useAuthStore } from '../store/authStore';
-import type { FetchDouyinResult, PersonaReport, PersonaReportDetail, KolSubmission } from '../types/persona';
+import type {
+  FetchDouyinResult,
+  PersonaKolIntake,
+  PersonaKolList,
+  PersonaReport,
+  PersonaReportDetail,
+  PersonaSyncDecision,
+  PersonaSyncDecisionResult,
+  PersonaSyncField,
+} from '../types/persona';
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
 const API = '/api/persona';          // 给 request.ts 封装用的（内部已拼 BASE_URL）
@@ -47,6 +56,7 @@ export async function downloadQuestionnaireTemplate(): Promise<void> {
 // ── SSE 流式生成 ────────────────────────────────────────────────
 
 export interface GenerateParams {
+  kol_id: number;
   influencer_info: string;
   top10_content?: string;
   supplement_text?: string;
@@ -138,10 +148,16 @@ export async function exportPersonaWord(params: {
   URL.revokeObjectURL(url);
 }
 
-// ── KOL 入驻列表 ────────────────────────────────────────────────
+// ── 正式达人及关联入驻资料 ──────────────────────────────────────
 
-export const getKolSubmissions = () =>
-  get<KolSubmission[]>(`${API}/kol-submissions`);
+export const getPersonaKols = (params: {
+  page: number;
+  page_size: 10 | 20 | 50;
+  keyword?: string;
+}) => get<PersonaKolList>(`${API}/kols`, params);
+
+export const getPersonaKolIntake = (kolId: number) =>
+  get<PersonaKolIntake | null>(`${API}/kols/${kolId}/intake`);
 
 // ── 报告列表 / 详情 / 删除 ──────────────────────────────────────
 
@@ -150,6 +166,11 @@ export const getPersonaReports = () =>
 
 export const getPersonaReportDetail = (id: number) =>
   get<PersonaReportDetail>(`${API}/reports/${id}`);
+
+export const syncPersonaReportDecisions = (
+  id: number,
+  decisions: Partial<Record<PersonaSyncField, PersonaSyncDecision>>,
+) => post<PersonaSyncDecisionResult>(`${API}/reports/${id}/sync-decisions`, { decisions });
 
 export const deletePersonaReport = (id: number) =>
   del<{ deleted: boolean }>(`${API}/reports/${id}`);
