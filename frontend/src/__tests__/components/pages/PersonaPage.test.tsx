@@ -328,6 +328,49 @@ describe('PersonaPage 正式达人绑定', () => {
     await waitFor(() => expect(mockGetPersonaReportDetail).toHaveBeenCalledWith(88));
   });
 
+  it('报告详情无待覆盖字段时，将每个同步动作显示为中文字段名和中文结果', async () => {
+    const user = userEvent.setup();
+    mockGetPersonaReportDetail
+      .mockResolvedValueOnce({
+        id: 88,
+        kol_id: 43,
+        status: 'ready',
+        profile_result: '新人格档案',
+        plan_result: '新内容规划',
+        sync_result: { persona: 'auto_written', content_plan: 'unchanged' },
+        pending_overwrites: [],
+      })
+      .mockResolvedValueOnce({
+        id: 88,
+        kol_id: 43,
+        status: 'ready',
+        profile_result: '新人格档案',
+        plan_result: '新内容规划',
+        sync_result: { persona: 'pending', content_plan: 'kept' },
+        pending_overwrites: [],
+      });
+    const firstView = renderPage();
+    await selectKolAndUpload(user);
+    await user.click(screen.getByRole('button', { name: '下一步' }));
+    await user.click(screen.getByRole('button', { name: '跳过，直接生成' }));
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      '档案同步完成：人格档案 已自动写入；内容规划 未变化',
+    );
+    expect(screen.queryByText(/auto_written|unchanged/)).not.toBeInTheDocument();
+    firstView.unmount();
+
+    renderPage();
+    await selectKolAndUpload(user);
+    await user.click(screen.getByRole('button', { name: '下一步' }));
+    await user.click(screen.getByRole('button', { name: '跳过，直接生成' }));
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      '档案同步完成：人格档案 待确认；内容规划 已保留',
+    );
+    expect(screen.queryByText(/pending|kept/)).not.toBeInTheDocument();
+  });
+
   it('重新开始后丢弃旧报告详情的迟到响应，并只向新报告提交同步决定', async () => {
     const user = userEvent.setup();
     let resolveReport88: ((value: Record<string, unknown>) => void) | undefined;
@@ -416,6 +459,38 @@ describe('PersonaPage 正式达人绑定', () => {
       persona: 'keep',
       content_plan: 'overwrite',
     }));
+  });
+
+  it('提交字段决定后，使用接口返回的逐字段动作显示同步结果', async () => {
+    const user = userEvent.setup();
+    mockGetPersonaReportDetail.mockResolvedValueOnce({
+      id: 88,
+      kol_id: 43,
+      status: 'ready',
+      profile_result: '新人格档案',
+      plan_result: '新内容规划',
+      sync_result: { persona: 'pending', content_plan: 'pending' },
+      pending_overwrites: [
+        { field: 'persona', current_summary: '旧人格档案', report_summary: '新人格档案' },
+        { field: 'content_plan', current_summary: '旧内容规划', report_summary: '新内容规划' },
+      ],
+    });
+    mockSyncPersonaReportDecisions.mockResolvedValueOnce({
+      report_id: 88,
+      fields: { persona: 'overwritten', content_plan: 'kept' },
+    });
+    renderPage();
+    await selectKolAndUpload(user);
+    await user.click(screen.getByRole('button', { name: '下一步' }));
+    await user.click(screen.getByRole('button', { name: '跳过，直接生成' }));
+
+    const dialog = await screen.findByRole('dialog', { name: '确认同步人格定位结果' });
+    await user.click(within(dialog).getByRole('button', { name: '确认同步' }));
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      '档案同步完成：人格档案 已覆盖；内容规划 已保留',
+    );
+    expect(screen.queryByText(/overwritten|kept|档案同步决定已提交/)).not.toBeInTheDocument();
   });
 
   it('关闭覆盖弹窗也为所有待处理字段提交 keep', async () => {

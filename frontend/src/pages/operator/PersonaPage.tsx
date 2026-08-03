@@ -4,6 +4,7 @@ import type {
   PersonaKol,
   PersonaKolIntake,
   PersonaPendingOverwrite,
+  PersonaSyncAction,
   PersonaStep,
   PersonaSyncDecision,
   PersonaSyncField,
@@ -19,6 +20,30 @@ import {
   getPersonaKols, getPersonaKolIntake,
   getPersonaReports, getPersonaReportDetail, syncPersonaReportDecisions, deletePersonaReport,
 } from '../../api/persona';
+
+const PERSONA_SYNC_FIELDS: PersonaSyncField[] = ['persona', 'content_plan'];
+const PERSONA_SYNC_FIELD_LABELS: Record<PersonaSyncField, string> = {
+  persona: '人格档案',
+  content_plan: '内容规划',
+};
+const PERSONA_SYNC_ACTION_LABELS: Record<PersonaSyncAction, string> = {
+  auto_written: '已自动写入',
+  overwritten: '已覆盖',
+  kept: '已保留',
+  unchanged: '未变化',
+  pending: '待确认',
+};
+
+function formatPersonaSyncFeedback(
+  fields: Partial<Record<PersonaSyncField, PersonaSyncAction>> | null | undefined,
+): string {
+  const summaries = PERSONA_SYNC_FIELDS.flatMap(field => {
+    const action = fields?.[field];
+    if (!action) return [];
+    return [`${PERSONA_SYNC_FIELD_LABELS[field]} ${PERSONA_SYNC_ACTION_LABELS[action] ?? '结果未知'}`];
+  });
+  return summaries.length > 0 ? `档案同步完成：${summaries.join('；')}` : '';
+}
 
 export default function PersonaPage() {
   // ── 步骤 ──
@@ -315,10 +340,10 @@ export default function PersonaPage() {
       setSyncReportId(null);
       setPendingOverwrites([]);
       setSyncDecisions({});
-      const actions = Object.entries(detail.sync_result ?? {});
-      setSyncFeedback(actions.length > 0
-        ? `档案同步完成：${actions.map(([field, action]) => `${field === 'persona' ? '人格档案' : '内容规划'} ${action}`).join('；')}`
-        : '报告已生成，正式档案无需覆盖确认');
+      setSyncFeedback(
+        formatPersonaSyncFeedback(detail.sync_result)
+        || '报告已生成，正式档案无需覆盖确认',
+      );
     } catch {
       if (requestId === reportDetailRequestRef.current) {
         setSyncFeedback('档案同步状态获取失败，请重试');
@@ -333,11 +358,11 @@ export default function PersonaPage() {
     setSyncSubmitting(true);
     setSyncError('');
     try {
-      await syncPersonaReportDecisions(targetReportId, decisions);
+      const result = await syncPersonaReportDecisions(targetReportId, decisions);
       if (requestId !== syncSubmitRequestRef.current) return;
       setPendingOverwrites([]);
       setSyncReportId(null);
-      setSyncFeedback('档案同步决定已提交');
+      setSyncFeedback(formatPersonaSyncFeedback(result.fields));
     } catch {
       if (requestId === syncSubmitRequestRef.current) {
         setSyncError('档案同步失败，请重试');
