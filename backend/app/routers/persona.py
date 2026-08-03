@@ -14,6 +14,7 @@ app/routers/persona.py
   DELETE /api/persona/reports/{id}               — 删除报告
 """
 import json
+import logging
 import math
 import re
 from datetime import datetime, timezone
@@ -47,8 +48,17 @@ from app.services.persona_docx import (
     generate_persona_docx,
     generate_questionnaire_template,
 )
+from app.services.persona_profile_sync import (
+    FACT_FIELDS,
+    POSITIONING_FIELDS,
+    build_grounded_fact_messages,
+    decide_initial_positioning_sync,
+    parse_grounded_fact_candidates,
+    resolve_positioning_decisions,
+)
 
 router = APIRouter(tags=["persona"])
+logger = logging.getLogger(__name__)
 
 _DEFAULT_MODEL = "claude-sonnet-4-6"
 _DEFAULT_PROVIDER = "yunwu"
@@ -207,6 +217,10 @@ class OptimizeRequest(BaseModel):
 class ExportWordRequest(BaseModel):
     report_id: int
     type: str  # "profile" or "plan"
+
+
+class SyncDecisionsRequest(BaseModel):
+    decisions: dict[str, str]
 
 
 # ── 1. POST /api/persona/fetch-douyin ─────────────────────────────
@@ -380,13 +394,183 @@ def _build_user_message(body: GenerateRequest) -> str:
     return "\n\n".join(parts)
 
 
+def _positioning_values(report: PersonaReport) -> dict[str, str | None]:
+    return {"persona": report.profile_result, "content_plan": report.plan_result}
+
+
+def _current_positioning(kol: Kol) -> dict[str, str | None]:
+    return {field: getattr(kol, field) for field in POSITIONING_FIELDS}
+
+
+def _summary(value: str | None, limit: int = 160) -> str:
+    compact = " ".join((value or "").split())
+    return compact if len(compact) <= limit else f"{compact[:limit]}…"
+
+
+async def _extract_grounded_facts(
+    profile_result: str,
+    current_user: User,
+) -> dict[str, str]:
+    async with AsyncSessionLocal() as db:
+        config = await _get_persona_config(db)
+        if config.ai_model_id is not None:
+            ai_model = await _get_ai_model(db, config.ai_model_id)
+            model_id = ai_model.model_id
+            provider = ai_model.provider or _DEFAULT_PROVIDER
+        else:
+            model_id = _DEFAULT_MODEL
+            provider = _DEFAULT_PROVIDER
+        raw_json = await yunwu_adapter.chat(
+            messages=build_grounded_fact_messages(profile_result),
+            db=db,
+            model_id=model_id,
+            provider=provider,
+            user_id=current_user.id,
+            feature="persona_fact_extraction",
+            temperature=0,
+            max_tokens=3000,
+            extra_body={"response_format": {"type": "json_object"}},
+        )
+    return parse_grounded_fact_candidates(profile_result, raw_json)
+
+
+async def _active_sync_subject(
+    db: AsyncSession, report_id: int,
+) -> tuple[PersonaReport, Kol] | None:
+    report = (await db.execute(
+        select(PersonaReport).where(PersonaReport.id == report_id)
+    )).scalar_one_or_none()
+    if report is None or report.kol_id is None:
+        return None
+    kol = (await db.execute(
+        select(Kol).where(Kol.id == report.kol_id, Kol.deleted_at.is_(None))
+        .with_for_update()
+    )).scalar_one_or_none()
+    return (report, kol) if kol is not None else None
+
+
+async def _sync_initial_positioning(
+    report_id: int,
+    current_user: User,
+    request: Request | None,
+) -> dict[str, str] | None:
+    async with AsyncSessionLocal() as db:
+        subject = await _active_sync_subject(db, report_id)
+        if subject is None:
+            return None
+        report, kol = subject
+        generated = _positioning_values(report)
+        actions = decide_initial_positioning_sync(_current_positioning(kol), generated)
+        now = datetime.now(timezone.utc)
+        for field, action in actions.items():
+            if action == "auto_written":
+                setattr(kol, field, generated[field])
+                kol.updated_at = now
+        db.add(OperationLog(
+            user_id=current_user.id,
+            username=current_user.username,
+            role=current_user.role,
+            action="persona_profile_sync",
+            target_type="persona_report",
+            target_id=report_id,
+            detail={"kol_id": kol.id, "fields": actions},
+            ip=_get_ip(request),
+            user_agent=request.headers.get("user-agent") if request else None,
+        ))
+        await db.commit()
+        return actions
+
+
+async def _fill_empty_facts(
+    report_id: int,
+    facts: dict[str, str],
+    current_user: User,
+    request: Request | None,
+) -> list[str]:
+    async with AsyncSessionLocal() as db:
+        subject = await _active_sync_subject(db, report_id)
+        if subject is None:
+            return []
+        _report, kol = subject
+        filled_fields = [
+            field for field in FACT_FIELDS
+            if facts.get(field) and not (getattr(kol, field) or "").strip()
+        ]
+        if not filled_fields:
+            return []
+        for field in filled_fields:
+            setattr(kol, field, facts[field])
+        kol.updated_at = datetime.now(timezone.utc)
+        db.add(OperationLog(
+            user_id=current_user.id,
+            username=current_user.username,
+            role=current_user.role,
+            action="fill_kol_persona_facts",
+            target_type="persona_report",
+            target_id=report_id,
+            detail={"kol_id": kol.id, "report_id": report_id, "fields": filled_fields},
+            ip=_get_ip(request),
+            user_agent=request.headers.get("user-agent") if request else None,
+        ))
+        await db.commit()
+        return filled_fields
+
+
+async def _record_fact_sync_failure(
+    report_id: int,
+    current_user: User,
+    request: Request | None,
+) -> None:
+    async with AsyncSessionLocal() as db:
+        subject = await _active_sync_subject(db, report_id)
+        if subject is None:
+            return
+        _report, kol = subject
+        db.add(OperationLog(
+            user_id=current_user.id,
+            username=current_user.username,
+            role=current_user.role,
+            action="persona_fact_sync_failed",
+            target_type="persona_report",
+            target_id=report_id,
+            detail={"kol_id": kol.id, "status": "failed"},
+            ip=_get_ip(request),
+            user_agent=request.headers.get("user-agent") if request else None,
+        ))
+        await db.commit()
+
+
+async def _record_positioning_sync_failure(
+    report_id: int,
+    current_user: User,
+    request: Request | None,
+) -> None:
+    async with AsyncSessionLocal() as db:
+        subject = await _active_sync_subject(db, report_id)
+        if subject is None:
+            return
+        _report, kol = subject
+        db.add(OperationLog(
+            user_id=current_user.id,
+            username=current_user.username,
+            role=current_user.role,
+            action="persona_profile_sync_failed",
+            target_type="persona_report",
+            target_id=report_id,
+            detail={"kol_id": kol.id, "status": "failed"},
+            ip=_get_ip(request),
+            user_agent=request.headers.get("user-agent") if request else None,
+        ))
+        await db.commit()
+
+
 async def _finalize_report(
     report_id: int,
     raw_output: str,
     current_user: User,
     request: Request | None,
 ) -> None:
-    """流完成后：拆分结果、生成 Word、双写 Output、写日志。"""
+    """先保存报告历史和 Output，再独立同步正式档案。"""
     async with AsyncSessionLocal() as db:
         report = (await db.execute(
             select(PersonaReport).where(PersonaReport.id == report_id)
@@ -449,6 +633,31 @@ async def _finalize_report(
             report.status = "failed"
             report.updated_at = datetime.now(timezone.utc)
             await db.commit()
+            return
+
+    try:
+        await _sync_initial_positioning(report_id, current_user, request)
+    except Exception:
+        logger.exception("Persona positioning sync failed after report finalization")
+        try:
+            await _record_positioning_sync_failure(report_id, current_user, request)
+        except Exception:
+            logger.exception("Failed to record persona positioning sync failure")
+    try:
+        async with AsyncSessionLocal() as db:
+            subject = await _active_sync_subject(db, report_id)
+            if subject is None:
+                return
+            report, _kol = subject
+            profile_result = report.profile_result or ""
+        facts = await _extract_grounded_facts(profile_result, current_user)
+        await _fill_empty_facts(report_id, facts, current_user, request)
+    except Exception:
+        logger.exception("Persona fact extraction or fill failed")
+        try:
+            await _record_fact_sync_failure(report_id, current_user, request)
+        except Exception:
+            logger.exception("Failed to record persona fact sync failure")
 
 
 def _extract_influencer_name(profile_text: str) -> str | None:
@@ -766,6 +975,37 @@ async def list_reports(
 
 # ── 9. GET /api/persona/reports/{id} ──────────────────────────────
 
+async def _report_sync_result(
+    db: AsyncSession, report: PersonaReport,
+) -> tuple[dict[str, str], list[dict[str, str]]]:
+    latest_log = (await db.execute(
+        select(OperationLog)
+        .where(OperationLog.target_type == "persona_report")
+        .where(OperationLog.target_id == report.id)
+        .where(OperationLog.action.in_(("persona_profile_sync", "persona_sync_decisions")))
+        .order_by(OperationLog.created_at.desc(), OperationLog.id.desc())
+        .limit(1)
+    )).scalar_one_or_none()
+    logged_fields = (latest_log.detail or {}).get("fields") if latest_log else None
+
+    if report.kol_id is None:
+        return logged_fields or {}, []
+    kol = (await db.execute(
+        select(Kol).where(Kol.id == report.kol_id, Kol.deleted_at.is_(None))
+    )).scalar_one_or_none()
+    if kol is None:
+        return logged_fields or {}, []
+    generated = _positioning_values(report)
+    fields = logged_fields or decide_initial_positioning_sync(
+        _current_positioning(kol), generated
+    )
+    pending = [{
+        "field": field,
+        "current_summary": _summary(getattr(kol, field)),
+        "report_summary": _summary(generated[field]),
+    } for field in POSITIONING_FIELDS if fields.get(field) == "pending"]
+    return fields, pending
+
 @router.get("/api/persona/reports/{report_id}")
 async def get_report_detail(
     report_id: int,
@@ -780,6 +1020,7 @@ async def get_report_detail(
                 detail={"code": "RESOURCE_NOT_FOUND", "message": "报告不存在"},
             )
 
+        sync_result, pending_overwrites = await _report_sync_result(db, report)
         return success_response(data={
             "id": report.id,
             "kol_id": report.kol_id,
@@ -792,7 +1033,86 @@ async def get_report_detail(
             "raw_output": report.raw_output,
             "created_at": report.created_at.isoformat() if report.created_at else None,
             "generated_at": report.generated_at.isoformat() if report.generated_at else None,
+            "sync_result": sync_result,
+            "pending_overwrites": pending_overwrites,
         })
+
+
+@router.post("/api/persona/reports/{report_id}/sync-decisions")
+async def submit_sync_decisions(
+    report_id: int,
+    body: SyncDecisionsRequest,
+    current_user: User = Depends(require_operator),
+    request: Request = None,
+):
+    if any(
+        field not in POSITIONING_FIELDS or decision not in ("keep", "overwrite")
+        for field, decision in body.decisions.items()
+    ):
+        return error_response(ErrorCode.VALIDATION_ERROR, "覆盖决定字段或动作无效")
+
+    async with AsyncSessionLocal() as db:
+        result = await _get_own_report(report_id, current_user, db)
+        report = result.scalar_one_or_none()
+        if report is None:
+            raise HTTPException(
+                status_code=404,
+                detail={"code": "RESOURCE_NOT_FOUND", "message": "报告不存在"},
+            )
+        if report.status != "ready" or report.kol_id is None:
+            return error_response(ErrorCode.VALIDATION_ERROR, "报告尚未完成或未关联达人")
+
+        kol = (await db.execute(
+            select(Kol).where(Kol.id == report.kol_id, Kol.deleted_at.is_(None))
+        )).scalar_one_or_none()
+        if kol is None:
+            return error_response(ErrorCode.RESOURCE_NOT_FOUND, "达人不存在")
+        generated = _positioning_values(report)
+        actions = resolve_positioning_decisions(
+            _current_positioning(kol), generated, body.decisions
+        )
+        updates = {
+            field: generated[field]
+            for field, action in actions.items()
+            if action in ("auto_written", "overwritten")
+        }
+
+        previous_log = (await db.execute(
+            select(OperationLog)
+            .where(OperationLog.action == "persona_sync_decisions")
+            .where(OperationLog.target_id == report_id)
+            .order_by(OperationLog.created_at.desc(), OperationLog.id.desc())
+            .limit(1)
+        )).scalar_one_or_none()
+
+        # 在实际写入和日志落库前再次读取未删除正式达人。
+        kol = (await db.execute(
+            select(Kol).where(Kol.id == report.kol_id, Kol.deleted_at.is_(None))
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        )).scalar_one_or_none()
+        if kol is None:
+            return error_response(ErrorCode.RESOURCE_NOT_FOUND, "达人不存在")
+        if updates:
+            for field, value in updates.items():
+                setattr(kol, field, value)
+            kol.updated_at = datetime.now(timezone.utc)
+
+        if updates or previous_log is None:
+            db.add(OperationLog(
+                user_id=current_user.id,
+                username=current_user.username,
+                role=current_user.role,
+                action="persona_sync_decisions",
+                target_type="persona_report",
+                target_id=report_id,
+                detail={"kol_id": kol.id, "fields": actions},
+                ip=_get_ip(request),
+                user_agent=request.headers.get("user-agent") if request else None,
+            ))
+            await db.commit()
+
+        return success_response(data={"report_id": report_id, "fields": actions})
 
 
 # ── 10. DELETE /api/persona/reports/{id} ──────────────────────────

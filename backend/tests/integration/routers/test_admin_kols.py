@@ -22,6 +22,19 @@ async def _cleanup_kols(test_session):
 
 
 class TestCreateKol:
+    async def test_create_rejects_positioning_fields(
+        self, test_client, admin_headers, test_session
+    ):
+        await _cleanup_kols(test_session)
+
+        response = await test_client.post(
+            "/api/admin/kols",
+            json={"name": "旧入口达人", "persona": "不应从管理端写入"},
+            headers=admin_headers,
+        )
+
+        assert response.status_code == 422
+
     async def test_create_success(self, test_client, admin_headers, test_session):
         await _cleanup_kols(test_session)
         resp = await test_client.post(
@@ -158,3 +171,24 @@ class TestCreateKol:
             headers=operator_headers,
         )
         assert resp.status_code == 403
+
+
+class TestUpdateKol:
+    async def test_update_rejects_positioning_fields(
+        self, test_client, admin_headers, test_session
+    ):
+        await _cleanup_kols(test_session)
+        created = await test_client.post(
+            "/api/admin/kols",
+            json={"name": "管理端只读定位达人"},
+            headers=admin_headers,
+        )
+        kol_id = created.json()["data"]["id"]
+
+        response = await test_client.patch(
+            f"/api/admin/kols/{kol_id}",
+            json={"content_plan": "不应从管理端写入"},
+            headers=admin_headers,
+        )
+
+        assert response.status_code == 422

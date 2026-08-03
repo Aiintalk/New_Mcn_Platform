@@ -5,7 +5,7 @@ Covers:
 - Auth (2 scenarios: operator OK / no token)
 - GET /kols (empty + with data)
 - GET /kols/{id} (not found + with data)
-- PUT /kols/{id}/profile (update persona + content_plan + writes OperationLog)
+- legacy PUT /kols/{id}/profile is removed while GET summaries stay read-only
 - POST /kols/{id}/references (create + invalid type)
 - DELETE /kols/{id}/references/{id} (delete + not found)
 - GET /kols/{id}/intake (no intake data)
@@ -210,12 +210,14 @@ class TestGetKolDetail:
 
 
 # ---------------------------------------------------------------------------
-# PUT /kols/{kol_id}/profile — 更新人格档案
+# PUT /kols/{kol_id}/profile — 旧正式写入口已移除
 # ---------------------------------------------------------------------------
 
-class TestUpdateProfile:
+class TestLegacyProfileWriteRemoved:
     @pytest.mark.asyncio
-    async def test_update_persona(self, test_client, operator_headers, test_session):
+    async def test_profile_put_route_no_longer_exists(
+        self, test_client, operator_headers, test_session
+    ):
         await test_session.execute(text(
             "INSERT INTO kols (name, status) VALUES ('ProfileTestKol', 'signed')"
         ))
@@ -230,32 +232,7 @@ class TestUpdateProfile:
             headers=operator_headers,
             json={"persona": "更新后的soul.md"},
         )
-        body = resp.json()
-        assert body["success"] is True
-        assert "persona" in body["data"]["updated_fields"]
-
-    @pytest.mark.asyncio
-    async def test_update_writes_operation_log(self, test_client, operator_headers, test_session):
-        await test_session.execute(text(
-            "INSERT INTO kols (name, status) VALUES ('LogTestKol', 'signed')"
-        ))
-        await test_session.commit()
-        result = await test_session.execute(text(
-            "SELECT id FROM kols WHERE name = 'LogTestKol'"
-        ))
-        kol_id = result.scalar()
-
-        await test_client.put(
-            f"/api/tools/material-library/kols/{kol_id}/profile",
-            headers=operator_headers,
-            json={"content_plan": "更新内容规划"},
-        )
-
-        log_count = await test_session.execute(text(
-            "SELECT COUNT(*) FROM operation_logs "
-            "WHERE action = 'material_library_update_profile'"
-        ))
-        assert int(log_count.scalar()) >= 1
+        assert resp.status_code in (404, 405)
 
 
 # ---------------------------------------------------------------------------
