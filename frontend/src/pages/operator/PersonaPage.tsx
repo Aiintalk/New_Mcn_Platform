@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { message } from 'antd';
+import { Button, Modal, message } from 'antd';
 import type {
   PersonaKol,
   PersonaKolIntake,
@@ -37,10 +37,13 @@ export default function PersonaPage() {
   // 正式达人及其关联入驻资料
   const [personaKols, setPersonaKols] = useState<PersonaKol[]>([]);
   const [kolKeyword, setKolKeyword] = useState('');
+  const [kolPage, setKolPage] = useState(1);
+  const [kolTotalPages, setKolTotalPages] = useState(1);
   const [kolListLoading, setKolListLoading] = useState(false);
   const [kolListError, setKolListError] = useState('');
   const kolListRequestRef = useRef(0);
   const [selectedKolId, setSelectedKolId] = useState<number | null>(null);
+  const [selectedKol, setSelectedKol] = useState<PersonaKol | null>(null);
   const [kolIntake, setKolIntake] = useState<PersonaKolIntake | null>(null);
   const [kolIntakeLoading, setKolIntakeLoading] = useState(false);
   const [kolIntakeError, setKolIntakeError] = useState('');
@@ -58,9 +61,12 @@ export default function PersonaPage() {
   const [exporting, setExporting] = useState(false);
   const [reportId, setReportId] = useState<number | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const reportDetailRequestRef = useRef(0);
   const [pendingOverwrites, setPendingOverwrites] = useState<PersonaPendingOverwrite[]>([]);
+  const [syncReportId, setSyncReportId] = useState<number | null>(null);
   const [syncDecisions, setSyncDecisions] = useState<Partial<Record<PersonaSyncField, PersonaSyncDecision>>>({});
   const [syncSubmitting, setSyncSubmitting] = useState(false);
+  const syncSubmitRequestRef = useRef(0);
   const [syncError, setSyncError] = useState('');
   const [syncFeedback, setSyncFeedback] = useState('');
 
@@ -77,17 +83,21 @@ export default function PersonaPage() {
   const [historyList, setHistoryList] = useState<PersonaReport[]>([]);
 
   // ── 加载正式达人列表 ──
-  const loadPersonaKols = useCallback(async (keyword = '') => {
+  const loadPersonaKols = useCallback(async (keyword = '', page = 1) => {
     const requestId = ++kolListRequestRef.current;
     setKolListLoading(true);
     setKolListError('');
     try {
       const result = await getPersonaKols({
-        page: 1,
+        page,
         page_size: 20,
         keyword: keyword.trim() || undefined,
       });
-      if (requestId === kolListRequestRef.current) setPersonaKols(result.items);
+      if (requestId === kolListRequestRef.current) {
+        setPersonaKols(result.items);
+        setKolPage(result.pagination.page);
+        setKolTotalPages(Math.max(result.pagination.total_pages, 1));
+      }
     } catch {
       if (requestId === kolListRequestRef.current) {
         setKolListError('达人列表加载失败，请重试');
@@ -183,6 +193,9 @@ export default function PersonaPage() {
   function handleSelectKol(value: string) {
     const nextKolId = value ? Number(value) : null;
     setSelectedKolId(nextKolId);
+    setSelectedKol(nextKolId === null
+      ? null
+      : personaKols.find(item => item.id === nextKolId) ?? selectedKol);
     setKolIntake(null);
     setKolIntakeError('');
     setInfluencerFiles(prev => prev.filter(file => file.source !== 'intake'));
@@ -191,7 +204,7 @@ export default function PersonaPage() {
   }
 
   function handleImportKol() {
-    const kol = personaKols.find(item => item.id === selectedKolId);
+    const kol = selectedKol;
     if (!kol || !kolIntake || selectedKolId === null) return;
     const virtualFile: UploadedFile = {
       name: `关联入驻资料_${kol.name}`,
@@ -232,6 +245,14 @@ export default function PersonaPage() {
       message.error('请上传达人资料文档或从 KOL 入驻导入');
       return;
     }
+    reportDetailRequestRef.current += 1;
+    syncSubmitRequestRef.current += 1;
+    setPendingOverwrites([]);
+    setSyncReportId(null);
+    setSyncDecisions({});
+    setSyncSubmitting(false);
+    setSyncError('');
+    setSyncFeedback('');
     setLoading(true);
     setProfileResult('');
     setPlanResult('');
@@ -277,38 +298,52 @@ export default function PersonaPage() {
   }
 
   async function loadReportSync(id: number) {
+    const requestId = ++reportDetailRequestRef.current;
     setSyncError('');
     setSyncFeedback('');
     try {
       const detail = await getPersonaReportDetail(id);
+      if (requestId !== reportDetailRequestRef.current) return;
       if (detail.pending_overwrites.length > 0) {
+        setSyncReportId(id);
         setPendingOverwrites(detail.pending_overwrites);
         setSyncDecisions(Object.fromEntries(
           detail.pending_overwrites.map(item => [item.field, 'keep']),
         ) as Partial<Record<PersonaSyncField, PersonaSyncDecision>>);
         return;
       }
+      setSyncReportId(null);
+      setPendingOverwrites([]);
+      setSyncDecisions({});
       const actions = Object.entries(detail.sync_result ?? {});
       setSyncFeedback(actions.length > 0
         ? `档案同步完成：${actions.map(([field, action]) => `${field === 'persona' ? '人格档案' : '内容规划'} ${action}`).join('；')}`
         : '报告已生成，正式档案无需覆盖确认');
     } catch {
-      setSyncFeedback('档案同步状态获取失败，请重试');
+      if (requestId === reportDetailRequestRef.current) {
+        setSyncFeedback('档案同步状态获取失败，请重试');
+      }
     }
   }
 
   async function submitSyncDecisions(decisions: Partial<Record<PersonaSyncField, PersonaSyncDecision>>) {
-    if (reportId === null) return;
+    if (syncReportId === null) return;
+    const targetReportId = syncReportId;
+    const requestId = ++syncSubmitRequestRef.current;
     setSyncSubmitting(true);
     setSyncError('');
     try {
-      await syncPersonaReportDecisions(reportId, decisions);
+      await syncPersonaReportDecisions(targetReportId, decisions);
+      if (requestId !== syncSubmitRequestRef.current) return;
       setPendingOverwrites([]);
+      setSyncReportId(null);
       setSyncFeedback('档案同步决定已提交');
     } catch {
-      setSyncError('档案同步失败，请重试');
+      if (requestId === syncSubmitRequestRef.current) {
+        setSyncError('档案同步失败，请重试');
+      }
     } finally {
-      setSyncSubmitting(false);
+      if (requestId === syncSubmitRequestRef.current) setSyncSubmitting(false);
     }
   }
 
@@ -316,6 +351,7 @@ export default function PersonaPage() {
     const keepAll = Object.fromEntries(
       pendingOverwrites.map(item => [item.field, 'keep']),
     ) as Partial<Record<PersonaSyncField, PersonaSyncDecision>>;
+    setSyncDecisions(keepAll);
     void submitSyncDecisions(keepAll);
   }
 
@@ -404,17 +440,19 @@ export default function PersonaPage() {
   function handleReset() {
     abortRef.current?.abort();
     optimizeAbortRef.current?.abort();
+    reportDetailRequestRef.current += 1;
+    syncSubmitRequestRef.current += 1;
     setStep(1);
     setDouyinId(''); setFetchDyResult(null); setFetchDyError('');
     setTop10Content(''); setRecent30Content('');
     setInfluencerFiles([]); setSupplementNotes(''); setSupplementFiles([]);
-    setSelectedKolId(null);
+    setSelectedKolId(null); setSelectedKol(null);
     kolIntakeRequestRef.current += 1;
     setKolIntake(null); setKolIntakeError('');
     setBenchmarkProfileFiles([]); setBenchmarkPlanFiles([]);
     setProfileResult(''); setPlanResult('');
     setReportId(null); setLoading(false);
-    setPendingOverwrites([]); setSyncDecisions({}); setSyncError(''); setSyncFeedback('');
+    setPendingOverwrites([]); setSyncReportId(null); setSyncDecisions({}); setSyncSubmitting(false); setSyncError(''); setSyncFeedback('');
     setOptimizeOpen(false); setOptimizeMsgs([]);
   }
 
@@ -423,6 +461,9 @@ export default function PersonaPage() {
   const hasParsedDouyin = !douyinId.trim() || !!fetchDyResult;
   const canGoStep2 = selectedKolId !== null && hasInfluencerData && hasParsedDouyin;
   const hasBenchmarkData = benchmarkProfileFiles.some(f => f.status === 'done') || benchmarkPlanFiles.some(f => f.status === 'done');
+  const selectablePersonaKols = selectedKol && !personaKols.some(kol => kol.id === selectedKol.id)
+    ? [selectedKol, ...personaKols]
+    : personaKols;
 
   // ── 文件上传区组件 ──
   function FileUploadArea({ files, setter, ariaLabel, accept = '.docx,.pdf,.txt,.md' }: {
@@ -519,13 +560,14 @@ export default function PersonaPage() {
                 onChange={event => {
                   const keyword = event.target.value;
                   setKolKeyword(keyword);
-                  void loadPersonaKols(keyword);
+                  setKolPage(1);
+                  void loadPersonaKols(keyword, 1);
                 }}
               />
               {kolListError ? (
                 <div className="persona-load-error" role="alert">
                   <span>{kolListError}</span>
-                  <button className="btn btn-ghost btn-sm" onClick={() => void loadPersonaKols(kolKeyword)}>重试加载达人</button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => void loadPersonaKols(kolKeyword, kolPage)}>重试加载达人</button>
                 </div>
               ) : (
                 <>
@@ -539,12 +581,30 @@ export default function PersonaPage() {
                     onChange={event => handleSelectKol(event.target.value)}
                   >
                     <option value="">{kolListLoading ? '达人加载中...' : '请选择正式达人'}</option>
-                    {personaKols.map(kol => (
+                    {selectablePersonaKols.map(kol => (
                       <option key={kol.id} value={kol.id}>
                         {kol.name} · {kol.account_name || '未填写账号'} · {kol.douyin_id || '未填写抖音号'} · 档案完整度 {kol.profile_filled_count}/{kol.profile_total}
                       </option>
                     ))}
                   </select>
+                  <div className="persona-kol-pagination" aria-label="达人列表分页">
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      disabled={kolListLoading || kolPage <= 1}
+                      onClick={() => void loadPersonaKols(kolKeyword, kolPage - 1)}
+                    >上一页</button>
+                    <span>第 {kolPage} / {kolTotalPages} 页</span>
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      disabled={kolListLoading || kolPage >= kolTotalPages}
+                      onClick={() => void loadPersonaKols(kolKeyword, kolPage + 1)}
+                    >下一页</button>
+                  </div>
+                  {selectedKol && (
+                    <div className="persona-selected-kol">
+                      当前已选：{selectedKol.name} · {selectedKol.account_name || '未填写账号'}
+                    </div>
+                  )}
                 </>
               )}
 
@@ -672,62 +732,62 @@ export default function PersonaPage() {
         </div>
       )}
 
-      {pendingOverwrites.length > 0 && (
-        <div className="persona-sync-backdrop">
-          <section className="persona-sync-dialog" role="dialog" aria-modal="true" aria-labelledby="persona-sync-title">
-            <header className="persona-sync-header">
-              <div>
-                <h2 id="persona-sync-title">确认同步人格定位结果</h2>
-                <p>报告已生成，只需决定是否覆盖已有正式档案。每个字段默认保留原内容。</p>
-              </div>
-              <button className="btn btn-ghost btn-sm" aria-label="关闭弹窗并保留" disabled={syncSubmitting} onClick={handleCloseSyncDialog}>关闭并保留</button>
-            </header>
-            <div className="persona-sync-body">
-              {pendingOverwrites.map(item => {
-                const label = item.field === 'persona' ? '人格档案' : '内容规划';
-                return (
-                  <fieldset className="persona-sync-field" key={item.field}>
-                    <legend>{label}</legend>
-                    <div className="persona-sync-compare">
-                      <div><strong>当前正式内容</strong><p>{item.current_summary || '暂无摘要'}</p></div>
-                      <div><strong>本次报告内容</strong><p>{item.report_summary || '暂无摘要'}</p></div>
-                    </div>
-                    <div className="persona-sync-choices">
-                      <label>
-                        <input
-                          type="radio"
-                          name={`sync-${item.field}`}
-                          aria-label={`${label}：保留原内容`}
-                          checked={(syncDecisions[item.field] ?? 'keep') === 'keep'}
-                          onChange={() => setSyncDecisions(prev => ({ ...prev, [item.field]: 'keep' }))}
-                        />
-                        保留原内容
-                      </label>
-                      <label>
-                        <input
-                          type="radio"
-                          name={`sync-${item.field}`}
-                          aria-label={`${label}：覆盖为新报告`}
-                          checked={syncDecisions[item.field] === 'overwrite'}
-                          onChange={() => setSyncDecisions(prev => ({ ...prev, [item.field]: 'overwrite' }))}
-                        />
-                        覆盖为新报告
-                      </label>
-                    </div>
-                  </fieldset>
-                );
-              })}
-              {syncError && <div className="persona-load-error" role="alert">{syncError}</div>}
-            </div>
-            <footer className="persona-sync-actions">
-              <button className="btn btn-ghost" disabled={syncSubmitting} onClick={handleCloseSyncDialog}>关闭并保留</button>
-              <button className="btn btn-primary" disabled={syncSubmitting} onClick={() => void submitSyncDecisions(syncDecisions)}>
-                {syncSubmitting ? '提交中...' : '确认同步'}
-              </button>
-            </footer>
-          </section>
+      <Modal
+        open={pendingOverwrites.length > 0}
+        title="确认同步人格定位结果"
+        width={760}
+        closable={!syncSubmitting}
+        keyboard={!syncSubmitting}
+        maskClosable={!syncSubmitting}
+        onCancel={handleCloseSyncDialog}
+        footer={(
+          <>
+            <Button disabled={syncSubmitting} onClick={handleCloseSyncDialog}>关闭并保留</Button>
+            <Button type="primary" disabled={syncSubmitting} onClick={() => void submitSyncDecisions(syncDecisions)}>
+              {syncSubmitting ? '提交中...' : '确认同步'}
+            </Button>
+          </>
+        )}
+      >
+        <p className="persona-sync-intro">报告已生成，只需决定是否覆盖已有正式档案。每个字段默认保留原内容。</p>
+        <div className="persona-sync-body">
+          {pendingOverwrites.map(item => {
+            const label = item.field === 'persona' ? '人格档案' : '内容规划';
+            return (
+              <fieldset className="persona-sync-field" key={item.field}>
+                <legend>{label}</legend>
+                <div className="persona-sync-compare">
+                  <div><strong>当前正式内容</strong><p>{item.current_summary || '暂无摘要'}</p></div>
+                  <div><strong>本次报告内容</strong><p>{item.report_summary || '暂无摘要'}</p></div>
+                </div>
+                <div className="persona-sync-choices">
+                  <label>
+                    <input
+                      type="radio"
+                      name={`sync-${item.field}`}
+                      aria-label={`${label}：保留原内容`}
+                      checked={(syncDecisions[item.field] ?? 'keep') === 'keep'}
+                      onChange={() => setSyncDecisions(prev => ({ ...prev, [item.field]: 'keep' }))}
+                    />
+                    保留原内容
+                  </label>
+                  <label>
+                    <input
+                      type="radio"
+                      name={`sync-${item.field}`}
+                      aria-label={`${label}：覆盖为新报告`}
+                      checked={syncDecisions[item.field] === 'overwrite'}
+                      onChange={() => setSyncDecisions(prev => ({ ...prev, [item.field]: 'overwrite' }))}
+                    />
+                    覆盖为新报告
+                  </label>
+                </div>
+              </fieldset>
+            );
+          })}
+          {syncError && <div className="persona-load-error" role="alert">{syncError}</div>}
         </div>
-      )}
+      </Modal>
 
       {/* 优化对话 Overlay — 全局，不绑定 Step */}
       {optimizeOpen && (

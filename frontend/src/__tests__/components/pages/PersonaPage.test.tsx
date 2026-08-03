@@ -1,7 +1,17 @@
 import { App } from 'antd';
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const originalGetComputedStyle = window.getComputedStyle.bind(window);
+
+beforeAll(() => {
+  vi.spyOn(window, 'getComputedStyle').mockImplementation(element => originalGetComputedStyle(element));
+});
+
+afterAll(() => {
+  vi.restoreAllMocks();
+});
 
 vi.mock('antd', async () => {
   const actual = await vi.importActual<typeof import('antd')>('antd');
@@ -144,6 +154,85 @@ describe('PersonaPage 正式达人绑定', () => {
     expect(screen.getByRole('button', { name: '下一步' })).toBeDisabled();
   });
 
+  it('已选达人被新搜索结果排除后仍保持可见且可继续生成', async () => {
+    const user = userEvent.setup();
+    mockGetPersonaKols.mockImplementation(({ keyword }: { keyword?: string }) => Promise.resolve(
+      keyword
+        ? { ...formalKols, items: [formalKols.items[1]], pagination: { ...formalKols.pagination, total: 1 } }
+        : formalKols,
+    ));
+    renderPage();
+
+    await user.selectOptions(await screen.findByLabelText('目标达人（必填）'), '43');
+    await user.type(screen.getByPlaceholderText('搜索达人名称、账号或抖音号'), '慧敏');
+
+    await waitFor(() => expect(mockGetPersonaKols).toHaveBeenLastCalledWith({
+      page: 1,
+      page_size: 20,
+      keyword: '慧敏',
+    }));
+    expect(screen.getByLabelText('目标达人（必填）')).toHaveValue('43');
+    expect(screen.getByRole('option', { name: /mini兔兔.*兔兔日常.*6\/7/ })).toBeInTheDocument();
+    expect(screen.getByText(/当前已选：mini兔兔.*兔兔日常/)).toBeInTheDocument();
+
+    await user.upload(screen.getByLabelText('上传达人资料'), new File(['搜索后的材料'], 'after-search.txt', { type: 'text/plain' }));
+    await screen.findByText('after-search.txt');
+    await user.click(screen.getByRole('button', { name: '下一步' }));
+    await user.click(screen.getByRole('button', { name: '跳过，直接生成' }));
+    await waitFor(() => expect(mockGeneratePersona).toHaveBeenCalledWith(
+      expect.objectContaining({ kol_id: 43 }),
+      expect.any(AbortSignal),
+    ));
+  });
+
+  it('可翻到第二页选择第 21 位达人，搜索时重置回第一页', async () => {
+    const user = userEvent.setup();
+    const pageTwoKol = {
+      id: 77,
+      name: '第21位达人',
+      account_name: '第二页账号',
+      douyin_id: 'page21',
+      profile_filled_count: 5,
+      profile_total: 7,
+    };
+    mockGetPersonaKols.mockImplementation(({ page, keyword }: { page: number; keyword?: string }) => {
+      if (keyword) {
+        return Promise.resolve({
+          items: [formalKols.items[0]],
+          pagination: { page: 1, page_size: 20, total: 1, total_pages: 1 },
+        });
+      }
+      return Promise.resolve(page === 2
+        ? {
+            items: [pageTwoKol],
+            pagination: { page: 2, page_size: 20, total: 21, total_pages: 2 },
+          }
+        : {
+            ...formalKols,
+            pagination: { page: 1, page_size: 20, total: 21, total_pages: 2 },
+          });
+    });
+    renderPage();
+
+    await screen.findByRole('option', { name: /mini兔兔/ });
+    await user.click(screen.getByRole('button', { name: '下一页' }));
+    await waitFor(() => expect(mockGetPersonaKols).toHaveBeenLastCalledWith({
+      page: 2,
+      page_size: 20,
+      keyword: undefined,
+    }));
+    await user.selectOptions(await screen.findByLabelText('目标达人（必填）'), '77');
+    expect(screen.getByLabelText('目标达人（必填）')).toHaveValue('77');
+
+    await user.type(screen.getByPlaceholderText('搜索达人名称、账号或抖音号'), '兔兔');
+    await waitFor(() => expect(mockGetPersonaKols).toHaveBeenLastCalledWith({
+      page: 1,
+      page_size: 20,
+      keyword: '兔兔',
+    }));
+    expect(screen.getByText('第 1 / 1 页')).toBeInTheDocument();
+  });
+
   it('连续输入搜索词时丢弃较早关键词的迟到列表响应', async () => {
     const user = userEvent.setup();
     let resolveEarly: ((value: typeof formalKols) => void) | undefined;
@@ -239,6 +328,63 @@ describe('PersonaPage 正式达人绑定', () => {
     await waitFor(() => expect(mockGetPersonaReportDetail).toHaveBeenCalledWith(88));
   });
 
+  it('重新开始后丢弃旧报告详情的迟到响应，并只向新报告提交同步决定', async () => {
+    const user = userEvent.setup();
+    let resolveReport88: ((value: Record<string, unknown>) => void) | undefined;
+    let resolveReport99: ((value: Record<string, unknown>) => void) | undefined;
+    mockGeneratePersona
+      .mockResolvedValueOnce({ reader: doneReader(), reportId: 88 })
+      .mockResolvedValueOnce({ reader: doneReader(), reportId: 99 });
+    mockGetPersonaReportDetail.mockImplementation((id: number) => new Promise(resolve => {
+      if (id === 88) resolveReport88 = resolve;
+      if (id === 99) resolveReport99 = resolve;
+    }));
+    renderPage();
+
+    await selectKolAndUpload(user);
+    await user.click(screen.getByRole('button', { name: '下一步' }));
+    await user.click(screen.getByRole('button', { name: '跳过，直接生成' }));
+    await waitFor(() => expect(mockGetPersonaReportDetail).toHaveBeenCalledWith(88));
+    await user.click(screen.getByRole('button', { name: '重新开始' }));
+
+    await selectKolAndUpload(user);
+    await user.click(screen.getByRole('button', { name: '下一步' }));
+    await user.click(screen.getByRole('button', { name: '跳过，直接生成' }));
+    await waitFor(() => expect(mockGetPersonaReportDetail).toHaveBeenCalledWith(99));
+    await act(async () => resolveReport99?.({
+      id: 99,
+      kol_id: 43,
+      status: 'ready',
+      profile_result: '99 新人格档案',
+      plan_result: '99 新内容规划',
+      sync_result: { persona: 'pending' },
+      pending_overwrites: [
+        { field: 'persona', current_summary: '99 当前档案', report_summary: '99 新报告' },
+      ],
+    }));
+    const dialog = await screen.findByRole('dialog', { name: '确认同步人格定位结果' });
+    expect(within(dialog).getByText('99 新报告')).toBeInTheDocument();
+
+    await act(async () => resolveReport88?.({
+      id: 88,
+      kol_id: 43,
+      status: 'ready',
+      profile_result: '88 旧人格档案',
+      plan_result: '88 旧内容规划',
+      sync_result: { persona: 'pending' },
+      pending_overwrites: [
+        { field: 'persona', current_summary: '88 当前档案', report_summary: '88 迟到旧报告' },
+      ],
+    }));
+    expect(within(dialog).queryByText('88 迟到旧报告')).not.toBeInTheDocument();
+    expect(within(dialog).getByText('99 新报告')).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole('button', { name: '确认同步' }));
+    await waitFor(() => expect(mockSyncPersonaReportDecisions).toHaveBeenCalledWith(99, {
+      persona: 'keep',
+    }));
+  });
+
   it('一次弹窗内两个待覆盖字段独立选择，默认均为保留', async () => {
     const user = userEvent.setup();
     mockGetPersonaReportDetail.mockResolvedValueOnce({
@@ -296,6 +442,72 @@ describe('PersonaPage 正式达人绑定', () => {
     await waitFor(() => expect(mockSyncPersonaReportDecisions).toHaveBeenCalledWith(88, {
       persona: 'keep',
       content_plan: 'keep',
+    }));
+  });
+
+  it('关闭并保留提交失败后先显示全保留，重试不会恢复旧覆盖选择', async () => {
+    const user = userEvent.setup();
+    mockGetPersonaReportDetail.mockResolvedValueOnce({
+      id: 88,
+      kol_id: 43,
+      status: 'ready',
+      profile_result: '新人格档案',
+      plan_result: '新内容规划',
+      sync_result: { persona: 'pending', content_plan: 'pending' },
+      pending_overwrites: [
+        { field: 'persona', current_summary: '旧人格档案', report_summary: '新人格档案' },
+        { field: 'content_plan', current_summary: '旧内容规划', report_summary: '新内容规划' },
+      ],
+    });
+    mockSyncPersonaReportDecisions
+      .mockRejectedValueOnce(new Error('首次提交失败'))
+      .mockResolvedValueOnce({});
+    renderPage();
+    await selectKolAndUpload(user);
+    await user.click(screen.getByRole('button', { name: '下一步' }));
+    await user.click(screen.getByRole('button', { name: '跳过，直接生成' }));
+
+    const dialog = await screen.findByRole('dialog', { name: '确认同步人格定位结果' });
+    await user.click(within(dialog).getByRole('radio', { name: '人格档案：覆盖为新报告' }));
+    await user.click(within(dialog).getByRole('button', { name: '关闭并保留' }));
+
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('档案同步失败，请重试');
+    expect(within(dialog).getByRole('radio', { name: '人格档案：保留原内容' })).toBeChecked();
+    expect(within(dialog).getByRole('radio', { name: '内容规划：保留原内容' })).toBeChecked();
+    await user.click(within(dialog).getByRole('button', { name: '确认同步' }));
+
+    await waitFor(() => expect(mockSyncPersonaReportDecisions).toHaveBeenNthCalledWith(2, 88, {
+      persona: 'keep',
+      content_plan: 'keep',
+    }));
+  });
+
+  it('覆盖确认使用标准模态框，按 Escape 等同关闭并保留', async () => {
+    const user = userEvent.setup();
+    mockGetPersonaReportDetail.mockResolvedValueOnce({
+      id: 88,
+      kol_id: 43,
+      status: 'ready',
+      profile_result: '新人格档案',
+      plan_result: '新内容规划',
+      sync_result: { persona: 'pending' },
+      pending_overwrites: [
+        { field: 'persona', current_summary: '旧人格档案', report_summary: '新人格档案' },
+      ],
+    });
+    renderPage();
+    await selectKolAndUpload(user);
+    await user.click(screen.getByRole('button', { name: '下一步' }));
+    await user.click(screen.getByRole('button', { name: '跳过，直接生成' }));
+
+    const dialog = await screen.findByRole('dialog', { name: '确认同步人格定位结果' });
+    expect(dialog).toHaveClass('ant-modal');
+    const modalWrap = dialog.closest('.ant-modal-wrap');
+    expect(modalWrap).not.toBeNull();
+    fireEvent.keyDown(modalWrap as Element, { key: 'Escape', keyCode: 27 });
+
+    await waitFor(() => expect(mockSyncPersonaReportDecisions).toHaveBeenCalledWith(88, {
+      persona: 'keep',
     }));
   });
 });
