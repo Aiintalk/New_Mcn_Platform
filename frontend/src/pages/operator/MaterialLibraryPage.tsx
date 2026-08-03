@@ -1,14 +1,13 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Input, Tabs, Button, Modal, Form, Select, message, Spin, Popconfirm } from 'antd';
+import { useNavigate } from 'react-router-dom';
 import {
   getMaterialLibraryKols,
   materialLibraryKolItems,
   getMaterialLibraryKolDetail,
-  updateKolProfile,
   createKolReference,
   deleteKolReference,
   getKolIntake,
-  generateSoul,
 } from '../../api/materialLibrary';
 import type { KolListItem, KolDetail, KolReference, IntakeData } from '../../api/materialLibrary';
 
@@ -22,6 +21,7 @@ const REFERENCE_TYPES = [
 ];
 
 export default function MaterialLibraryPage() {
+  const navigate = useNavigate();
   const [kols, setKols] = useState<KolListItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
@@ -29,12 +29,6 @@ export default function MaterialLibraryPage() {
   const [detail, setDetail] = useState<KolDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('persona');
-
-  // persona / content_plan editing
-  const [personaText, setPersonaText] = useState('');
-  const [contentPlanText, setContentPlanText] = useState('');
-  const [savingProfile, setSavingProfile] = useState(false);
-  const [generating, setGenerating] = useState(false);
 
   // reference modal
   const [refModalOpen, setRefModalOpen] = useState(false);
@@ -68,8 +62,6 @@ export default function MaterialLibraryPage() {
     try {
       const d = await getMaterialLibraryKolDetail(kolId);
       setDetail(d);
-      setPersonaText(d.persona);
-      setContentPlanText(d.content_plan);
     } catch {
       message.error('加载详情失败');
     } finally {
@@ -83,64 +75,6 @@ export default function MaterialLibraryPage() {
       setIntake(null);
     }
   }, [selectedKolId, loadDetail]);
-
-  // ---- profile save ----
-  async function handleSavePersona() {
-    if (!selectedKolId) return;
-    setSavingProfile(true);
-    try {
-      await updateKolProfile(selectedKolId, { persona: personaText });
-      message.success('人格档案已保存');
-      loadKols();
-    } catch (err: unknown) {
-      message.error(err instanceof Error ? err.message : '保存失败');
-    } finally {
-      setSavingProfile(false);
-    }
-  }
-
-  async function handleSaveContentPlan() {
-    if (!selectedKolId) return;
-    setSavingProfile(true);
-    try {
-      await updateKolProfile(selectedKolId, { content_plan: contentPlanText });
-      message.success('内容规划已保存');
-      loadKols();
-    } catch (err: unknown) {
-      message.error(err instanceof Error ? err.message : '保存失败');
-    } finally {
-      setSavingProfile(false);
-    }
-  }
-
-  // ---- generate soul ----
-  async function handleGenerateSoul() {
-    if (!selectedKolId) return;
-    if (personaText.trim()) {
-      Modal.confirm({
-        title: '确认覆盖',
-        content: '当前已有人格档案内容，AI 生成的初稿将覆盖编辑器中的内容（不会自动保存，仍需手动点保存）。是否继续？',
-        onOk: doGenerate,
-      });
-    } else {
-      doGenerate();
-    }
-  }
-
-  async function doGenerate() {
-    if (!selectedKolId) return;
-    setGenerating(true);
-    try {
-      const result = await generateSoul(selectedKolId);
-      setPersonaText(result.soul_md);
-      setActiveTab('persona');
-      message.success('人格档案初稿已生成，请检查后保存');
-    } catch (err: unknown) {
-      message.error(err instanceof Error ? err.message : '生成失败');
-    } finally {
-      setGenerating(false);
-    }
-  }
 
   // ---- reference CRUD ----
   async function handleAddReference() {
@@ -239,27 +173,13 @@ export default function MaterialLibraryPage() {
     <div style={{ padding: '16px' }}>
       <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span style={{ fontWeight: 600 }}>人格档案（soul.md）</span>
-        <div>
-          <Button
-            onClick={handleGenerateSoul}
-            loading={generating}
-            style={{ marginRight: 8 }}
-            disabled={!detail?.name}
-          >
-            从入驻问卷生成
-          </Button>
-          <Button type="primary" onClick={handleSavePersona} loading={savingProfile}>
-            保存
-          </Button>
-        </div>
+        <button className="btn btn-primary btn-sm" onClick={() => selectedKolId && navigate(`/kol-workspace/${selectedKolId}`)}>
+          前往红人工作台编辑
+        </button>
       </div>
-      <Input.TextArea
-        value={personaText}
-        onChange={e => setPersonaText(e.target.value)}
-        rows={24}
-        placeholder="暂无人格档案。可手动编辑，或点击「从入驻问卷生成」使用 AI 生成初稿。"
-        style={{ fontFamily: 'var(--font-mono)', fontSize: 13 }}
-      />
+      <div style={{ minHeight: 'var(--sp-8)', padding: 'var(--sp-4)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', background: 'var(--bg-muted)', color: detail?.persona?.trim() ? 'var(--gray-700)' : 'var(--gray-400)', whiteSpace: 'pre-wrap' }}>
+        {detail?.persona?.trim() || '暂无人格档案'}
+      </div>
     </div>
   );
 
@@ -267,15 +187,13 @@ export default function MaterialLibraryPage() {
     <div style={{ padding: '16px' }}>
       <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span style={{ fontWeight: 600 }}>内容规划（content-plan.md）</span>
-        <Button type="primary" onClick={handleSaveContentPlan} loading={savingProfile}>保存</Button>
+        <button className="btn btn-primary btn-sm" onClick={() => selectedKolId && navigate(`/kol-workspace/${selectedKolId}`)}>
+          前往红人工作台编辑
+        </button>
       </div>
-      <Input.TextArea
-        value={contentPlanText}
-        onChange={e => setContentPlanText(e.target.value)}
-        rows={24}
-        placeholder="暂无内容规划"
-        style={{ fontFamily: 'var(--font-mono)', fontSize: 13 }}
-      />
+      <div style={{ minHeight: 'var(--sp-8)', padding: 'var(--sp-4)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', background: 'var(--bg-muted)', color: detail?.content_plan?.trim() ? 'var(--gray-700)' : 'var(--gray-400)', whiteSpace: 'pre-wrap' }}>
+        {detail?.content_plan?.trim() || '暂无内容规划'}
+      </div>
     </div>
   );
 

@@ -200,10 +200,6 @@ export default function KolsPage() {
   const [detail, setDetail] = useState<KolDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [fetchLoading, setFetchLoading] = useState(false);
-  const [personaSaving, setPersonaSaving] = useState(false);
-  const [personaValue, setPersonaValue] = useState('');
-  const [contentPlanSaving, setContentPlanSaving] = useState(false);
-  const [contentPlanValue, setContentPlanValue] = useState('');
 
   const load = useCallback(() => {
     setLoading(true);
@@ -222,8 +218,6 @@ export default function KolsPage() {
     try {
       const d = await getKol(id);
       setDetail(d);
-      setPersonaValue(d.persona ?? '');
-      setContentPlanValue(d.content_plan ?? '');
     } catch {
       message.error('加载详情失败');
     } finally {
@@ -238,41 +232,11 @@ export default function KolsPage() {
       await fetchTikhub(detailId);
       const d = await getKol(detailId);
       setDetail(d);
-      setPersonaValue(d.persona ?? '');
-      setContentPlanValue(d.content_plan ?? '');
       message.success('抓取成功');
     } catch {
       message.error('抓取失败');
     } finally {
       setFetchLoading(false);
-    }
-  }
-
-  async function handleSavePersona() {
-    if (!detailId) return;
-    setPersonaSaving(true);
-    try {
-      await updateKol(detailId, { persona: personaValue });
-      message.success('人格档案已保存');
-      if (detail) setDetail({ ...detail, persona: personaValue });
-    } catch {
-      message.error('保存失败');
-    } finally {
-      setPersonaSaving(false);
-    }
-  }
-
-  async function handleSaveContentPlan() {
-    if (!detailId) return;
-    setContentPlanSaving(true);
-    try {
-      await updateKol(detailId, { content_plan: contentPlanValue });
-      message.success('内容规划已保存');
-      if (detail) setDetail({ ...detail, content_plan: contentPlanValue });
-    } catch {
-      message.error('保存失败');
-    } finally {
-      setContentPlanSaving(false);
     }
   }
 
@@ -428,7 +392,7 @@ export default function KolsPage() {
                             name: k.name, platform: k.platform,
                             douyin_id: k.douyin_id, sec_uid: k.sec_uid,
                             owner: k.owner,
-                            persona: k.persona, style_note: k.style_note,
+                            style_note: k.style_note,
                           });
                         }}
                       >
@@ -521,12 +485,6 @@ export default function KolsPage() {
           <Form.Item label="抖音号" name="douyin_id"><Input /></Form.Item>
           <Form.Item label="安全ID (sec_uid)" name="sec_uid"><Input /></Form.Item>
           <Form.Item label="负责人" name="owner"><Input /></Form.Item>
-          <Form.Item label="人格档案" name="persona">
-            <Input.TextArea rows={3} placeholder="请输入人格档案" />
-          </Form.Item>
-          <Form.Item label="内容规划" name="content_plan">
-            <Input.TextArea rows={3} placeholder="请输入内容规划" />
-          </Form.Item>
           <Form.Item label="风格备注" name="style_note">
             <Input.TextArea rows={2} placeholder="请输入风格备注" />
           </Form.Item>
@@ -591,36 +549,21 @@ export default function KolsPage() {
                     </div>
                     <div style={{ marginBottom: 16 }}>
                       <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--gray-700)', marginBottom: 8 }}>人格档案</div>
-                      <Input.TextArea
-                        rows={5}
-                        value={personaValue}
-                        onChange={e => setPersonaValue(e.target.value)}
-                        placeholder="暂无人格档案，输入后点击保存"
-                      />
-                      <button
-                        className="btn btn-primary btn-sm"
-                        style={{ marginTop: 8 }}
-                        disabled={personaSaving}
-                        onClick={handleSavePersona}
-                      >
-                        {personaSaving ? '保存中...' : '保存人格档案'}
-                      </button>
+                      <div style={{ padding: 'var(--sp-3)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', background: 'var(--bg-muted)', color: detail.persona?.trim() ? 'var(--gray-700)' : 'var(--gray-400)', whiteSpace: 'pre-wrap' }}>
+                        {detail.persona?.trim() || '暂无人格档案'}
+                      </div>
                     </div>
                     <div>
                       <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--gray-700)', marginBottom: 8 }}>内容规划</div>
-                      <Input.TextArea
-                        rows={5}
-                        value={contentPlanValue}
-                        onChange={e => setContentPlanValue(e.target.value)}
-                        placeholder="暂无内容规划，输入后点击保存"
-                      />
+                      <div style={{ padding: 'var(--sp-3)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', background: 'var(--bg-muted)', color: detail.content_plan?.trim() ? 'var(--gray-700)' : 'var(--gray-400)', whiteSpace: 'pre-wrap' }}>
+                        {detail.content_plan?.trim() || '暂无内容规划'}
+                      </div>
                       <button
                         className="btn btn-primary btn-sm"
-                        style={{ marginTop: 8 }}
-                        disabled={contentPlanSaving}
-                        onClick={handleSaveContentPlan}
+                        style={{ marginTop: 'var(--sp-3)' }}
+                        onClick={() => navigate(`/kol-workspace/${detail.id}`)}
                       >
-                        {contentPlanSaving ? '保存中...' : '保存内容规划'}
+                        前往红人工作台编辑
                       </button>
                     </div>
                   </div>

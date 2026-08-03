@@ -39,14 +39,36 @@ export interface WorkspaceDashboardData {
 }
 
 // 人物档案
+export type PersonaField =
+  | 'persona'
+  | 'content_plan'
+  | 'background'
+  | 'experience'
+  | 'relationships'
+  | 'unique_story'
+  | 'extra_notes';
+
 export interface PersonaDetails {
   kol_id: number;
+  persona: string | null;
+  content_plan: string | null;
   background: string | null;
   experience: string | null;
   relationships: string | null;
   unique_story: string | null;
   extra_notes: string | null;
+  filled_count: number;
+  total_count: 7;
   updated_at: string | null;
+}
+
+export type PersonaDetailsUpdate = Partial<Record<PersonaField, string>>;
+
+export interface FillEmptyPersonaFactsResult {
+  kol_id: number;
+  report_id: number;
+  filled_fields: PersonaField[];
+  preserved_fields: PersonaField[];
 }
 
 // 工作台 Tab 枚举

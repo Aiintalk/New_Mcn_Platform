@@ -105,9 +105,6 @@ export const getMaterialLibraryKols = (search?: string) =>
 export const getMaterialLibraryKolDetail = (kolId: number) =>
   get<KolDetail>(`/api/tools/material-library/kols/${kolId}`);
 
-export const updateKolProfile = (kolId: number, data: { persona?: string; content_plan?: string }) =>
-  put(`/api/tools/material-library/kols/${kolId}/profile`, data);
-
 export const createKolReference = (
   kolId: number,
   data: {
