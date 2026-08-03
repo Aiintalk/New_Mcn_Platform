@@ -33,6 +33,9 @@ export interface PersonaReportDetail extends PersonaReport {
   generated_at: string | null;
   sync_result: Record<PersonaSyncField, PersonaSyncAction>;
   pending_overwrites: PersonaPendingOverwrite[];
+  failure_reason?: 'kol_deleted' | 'generation_failed' | null;
+  positioning_sync_failed?: boolean;
+  fact_sync_failed?: boolean;
 }
 
 export interface PersonaKol {

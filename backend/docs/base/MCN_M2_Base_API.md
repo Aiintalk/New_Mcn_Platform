@@ -657,7 +657,7 @@ Response.data：
 
 ### GET `/api/persona/reports/{id}` — 报告详情与同步状态
 
-除历史字段外返回 `kol_id`、`sync_result` 和 `pending_overwrites`。`pending_overwrites` 每项包含字段名、现有摘要和新报告摘要；不返回其他运营的报告。
+除历史字段外返回 `kol_id`、`sync_result`、`pending_overwrites`、`failure_reason`、`positioning_sync_failed` 和 `fact_sync_failed`。`pending_overwrites` 每项包含字段名、现有摘要和新报告摘要；`failure_reason` 仅在生成失败时返回 `kol_deleted` 或 `generation_failed`，两个同步失败布尔值分别表示定位字段同步和五项事实补全失败；不返回其他运营的报告。
 
 ### POST `/api/persona/reports/{id}/sync-decisions` — 字段级覆盖决定
 

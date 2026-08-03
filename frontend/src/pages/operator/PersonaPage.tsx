@@ -329,26 +329,54 @@ export default function PersonaPage() {
     try {
       const detail = await getPersonaReportDetail(id);
       if (requestId !== reportDetailRequestRef.current) return;
-      if (detail.pending_overwrites.length > 0) {
-        setSyncReportId(id);
-        setPendingOverwrites(detail.pending_overwrites);
-        setSyncDecisions(Object.fromEntries(
-          detail.pending_overwrites.map(item => [item.field, 'keep']),
-        ) as Partial<Record<PersonaSyncField, PersonaSyncDecision>>);
-        return;
-      }
-      setSyncReportId(null);
-      setPendingOverwrites([]);
-      setSyncDecisions({});
-      setSyncFeedback(
-        formatPersonaSyncFeedback(detail.sync_result)
-        || '报告已生成，正式档案无需覆盖确认',
-      );
+      applyReportSyncDetail(id, detail);
     } catch {
       if (requestId === reportDetailRequestRef.current) {
         setSyncFeedback('档案同步状态获取失败，请重试');
       }
     }
+  }
+
+  function applyReportSyncDetail(id: number, detail: PersonaReportDetail) {
+    if (detail.status === 'failed') {
+      setSyncReportId(null);
+      setPendingOverwrites([]);
+      setSyncDecisions({});
+      setProfileResult('');
+      setPlanResult('');
+      setSyncFeedback(
+        detail.failure_reason === 'kol_deleted'
+          ? '对应红人已不存在，本次结果未写入'
+          : '报告生成失败，请重试',
+      );
+      return;
+    }
+
+    const failureMessages = [
+      detail.positioning_sync_failed
+        ? '报告已生成，档案同步失败，请稍后重试'
+        : '',
+      detail.fact_sync_failed
+        ? '报告已生成，人物素材未能自动补全'
+        : '',
+    ].filter(Boolean);
+    if (detail.pending_overwrites.length > 0) {
+      setSyncReportId(id);
+      setPendingOverwrites(detail.pending_overwrites);
+      setSyncDecisions(Object.fromEntries(
+        detail.pending_overwrites.map(item => [item.field, 'keep']),
+      ) as Partial<Record<PersonaSyncField, PersonaSyncDecision>>);
+      setSyncFeedback(failureMessages.join('；'));
+      return;
+    }
+    setSyncReportId(null);
+    setPendingOverwrites([]);
+    setSyncDecisions({});
+    setSyncFeedback(
+      failureMessages.join('；')
+      || formatPersonaSyncFeedback(detail.sync_result)
+      || '报告已生成，正式档案无需覆盖确认',
+    );
   }
 
   async function submitSyncDecisions(decisions: Partial<Record<PersonaSyncField, PersonaSyncDecision>>) {
@@ -442,13 +470,16 @@ export default function PersonaPage() {
   }
 
   async function loadHistoryDetail(id: number) {
+    const requestId = ++reportDetailRequestRef.current;
     try {
       const detail: PersonaReportDetail = await getPersonaReportDetail(id);
-      if (detail.profile_result) setProfileResult(detail.profile_result);
-      if (detail.plan_result) setPlanResult(detail.plan_result);
+      if (requestId !== reportDetailRequestRef.current) return;
+      setProfileResult(detail.profile_result || '');
+      setPlanResult(detail.plan_result || '');
       setReportId(id);
       setHistoryOpen(false);
       setStep(3);
+      applyReportSyncDetail(id, detail);
       message.success('已加载历史报告');
     } catch { message.error('加载详情失败'); }
   }

@@ -1,6 +1,6 @@
 """人格定位只使用正式达人编号，并按运营隔离入驻资料。"""
 from datetime import datetime, timedelta, timezone
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from sqlalchemy import func, select
@@ -251,6 +251,42 @@ class TestFormalKolIdentity:
             f"/api/persona/reports/{report_id}", headers=operator_headers,
         )
         assert detail_response.json()["data"]["kol_id"] == formal_kol.id
+
+    @pytest.mark.asyncio
+    async def test_partial_stream_error_finalizes_as_failed_generation(
+        self, test_client, operator_headers, test_session,
+    ):
+        formal_kol = Kol(name="流式中断目标")
+        config = (await test_session.execute(
+            select(KolIntakeConfig).where(
+                KolIntakeConfig.config_key == "persona_generation"
+            )
+        )).scalar_one_or_none()
+        if config is None:
+            test_session.add(KolIntakeConfig(
+                config_key="persona_generation", system_prompt="生成"
+            ))
+        test_session.add(formal_kol)
+        await test_session.commit()
+
+        async def interrupted_stream(**_kwargs):
+            yield "不完整报告"
+            raise RuntimeError("模型流中断")
+
+        finalize_spy = AsyncMock()
+        with patch(
+            "app.routers.persona.yunwu_adapter.chat_stream", interrupted_stream
+        ), patch(
+            "app.routers.persona._finalize_report", finalize_spy
+        ), pytest.raises(Exception):
+            await test_client.post(
+                "/api/persona/generate",
+                headers=operator_headers,
+                json={"kol_id": formal_kol.id, "influencer_info": "资料"},
+            )
+
+        assert finalize_spy.await_count == 1
+        assert finalize_spy.await_args.kwargs["generation_succeeded"] is False
 
     @pytest.mark.asyncio
     async def test_generate_rejects_missing_or_deleted_kol_without_creating_records(

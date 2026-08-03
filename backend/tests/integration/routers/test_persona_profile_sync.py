@@ -148,7 +148,10 @@ async def test_finalize_auto_writes_empty_positioning_and_only_empty_grounded_fa
     assert kol.extra_notes == "报告其他补充"
 
     output = (await test_session.execute(
-        select(Output).where(Output.tool_code == "persona-positioning")
+        select(Output).where(
+            Output.tool_code == "persona-positioning",
+            Output.content_json["report_id"].astext == str(report_id),
+        )
     )).scalar_one()
     assert output.content_json["kol_id"] == kol_id
 
@@ -364,10 +367,9 @@ async def test_empty_decisions_model_modal_close_as_keep(
     assert kol.content_plan == "人工规划"
 
 
-async def test_deleted_kol_after_generation_keeps_ready_report_and_output_without_profile_writes(
-    test_session, operator_user
+async def test_deleted_kol_after_generation_keeps_failed_report_without_output_or_profile_writes(
+    test_client, operator_headers, test_session, operator_user
 ):
-    operator_id = operator_user.id
     kol_id, report_id = await _make_report(test_session, operator_user)
     kol = await test_session.get(Kol, kol_id)
     kol.deleted_at = func.now()
@@ -377,11 +379,21 @@ async def test_deleted_kol_after_generation_keeps_ready_report_and_output_withou
 
     test_session.expire_all()
     report = await test_session.get(PersonaReport, report_id)
-    assert report.status == "ready"
+    assert report.status == "failed"
+    assert report.profile_result is None
+    assert report.plan_result is None
+    assert report.raw_output is None
+    assert report.profile_docx_path is None
+    assert report.plan_docx_path is None
     output_count = (await test_session.execute(
-        select(func.count()).select_from(Output).where(Output.created_by == operator_id)
+        select(func.count()).select_from(Output).where(
+            Output.content_json["report_id"].astext == str(report_id)
+        )
     )).scalar_one()
-    assert output_count == 1
+    assert output_count == 0
+    kol = await test_session.get(Kol, kol_id)
+    assert kol.persona is None
+    assert kol.content_plan is None
     sync_log_count = (await test_session.execute(
         select(func.count()).select_from(OperationLog).where(
             OperationLog.action.in_(("persona_profile_sync", "fill_kol_persona_facts")),
@@ -389,10 +401,46 @@ async def test_deleted_kol_after_generation_keeps_ready_report_and_output_withou
         )
     )).scalar_one()
     assert sync_log_count == 0
+    response = await test_client.get(
+        f"/api/persona/reports/{report_id}", headers=operator_headers
+    )
+    assert response.json()["data"]["failure_reason"] == "kol_deleted"
+
+
+async def test_interrupted_generation_never_archives_partial_output_or_syncs_profile(
+    test_client, operator_headers, test_session, operator_user
+):
+    kol_id, report_id = await _make_report(test_session, operator_user)
+    with patch("app.routers.persona.generate_persona_docx", return_value="/tmp/report.docx"):
+        await _finalize_report(
+            report_id,
+            "# 同步测试达人 · 人格档案\n不完整内容",
+            operator_user,
+            _request(),
+            generation_succeeded=False,
+        )
+
+    test_session.expire_all()
+    report = await test_session.get(PersonaReport, report_id)
+    kol = await test_session.get(Kol, kol_id)
+    assert report.status == "failed"
+    assert report.raw_output is None
+    assert kol.persona is None
+    assert kol.content_plan is None
+    output_count = (await test_session.execute(
+        select(func.count()).select_from(Output).where(
+            Output.content_json["report_id"].astext == str(report_id)
+        )
+    )).scalar_one()
+    assert output_count == 0
+    response = await test_client.get(
+        f"/api/persona/reports/{report_id}", headers=operator_headers
+    )
+    assert response.json()["data"]["failure_reason"] == "generation_failed"
 
 
 async def test_fact_extraction_failure_does_not_change_ready_report_or_positioning_sync(
-    test_session, operator_user
+    test_client, operator_headers, test_session, operator_user
 ):
     kol_id, report_id = await _make_report(test_session, operator_user)
     request = MagicMock()
@@ -422,10 +470,16 @@ async def test_fact_extraction_failure_does_not_change_ready_report_or_positioni
         )
     )).scalar_one()
     assert failure_log.detail == {"kol_id": kol_id, "status": "failed"}
+    response = await test_client.get(
+        f"/api/persona/reports/{report_id}", headers=operator_headers
+    )
+    data = response.json()["data"]
+    assert data["fact_sync_failed"] is True
+    assert data["positioning_sync_failed"] is False
 
 
 async def test_positioning_sync_failure_does_not_undo_ready_report_history(
-    test_session, operator_user
+    test_client, operator_headers, test_session, operator_user
 ):
     _kol_id, report_id = await _make_report(test_session, operator_user)
     request = MagicMock()
@@ -451,6 +505,14 @@ async def test_positioning_sync_failure_does_not_undo_ready_report_history(
     report = await test_session.get(PersonaReport, report_id)
     assert report.status == "ready"
     assert report.profile_result == "报告人格"
+    response = await test_client.get(
+        f"/api/persona/reports/{report_id}", headers=operator_headers
+    )
+    data = response.json()["data"]
+    assert data["positioning_sync_failed"] is True
+    assert data["fact_sync_failed"] is False
+    assert data["sync_result"] == {}
+    assert data["pending_overwrites"] == []
 
 
 async def test_sync_decisions_cannot_read_or_write_another_operators_report(

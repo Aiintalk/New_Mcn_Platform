@@ -356,6 +356,7 @@ async def generate(
 
     async def stream_generator():
         full_text = ""
+        generation_succeeded = False
         try:
             async with AsyncSessionLocal() as db:
                 async for chunk in yunwu_adapter.chat_stream(
@@ -369,9 +370,16 @@ async def generate(
                 ):
                     full_text += chunk
                     yield chunk
+            generation_succeeded = True
         finally:
             # 流完成后后台存档（此处已在 generator 的 finally 中，不算 background task）
-            await _finalize_report(report_id, full_text, current_user, request)
+            await _finalize_report(
+                report_id,
+                full_text,
+                current_user,
+                request,
+                generation_succeeded=generation_succeeded,
+            )
 
     return StreamingResponse(
         stream_generator(),
@@ -564,11 +572,42 @@ async def _record_positioning_sync_failure(
         await db.commit()
 
 
+async def _mark_generation_failed(
+    db: AsyncSession,
+    report: PersonaReport,
+    current_user: User,
+    request: Request | None,
+    reason: str,
+) -> None:
+    report.profile_result = None
+    report.plan_result = None
+    report.raw_output = None
+    report.profile_docx_path = None
+    report.plan_docx_path = None
+    report.generated_at = None
+    report.status = "failed"
+    report.updated_at = datetime.now(timezone.utc)
+    db.add(OperationLog(
+        user_id=current_user.id,
+        username=current_user.username,
+        role=current_user.role,
+        action="persona_generation_failed",
+        target_type="persona_report",
+        target_id=report.id,
+        detail={"kol_id": report.kol_id, "reason": reason},
+        ip=_get_ip(request),
+        user_agent=request.headers.get("user-agent") if request else None,
+    ))
+    await db.commit()
+
+
 async def _finalize_report(
     report_id: int,
     raw_output: str,
     current_user: User,
     request: Request | None,
+    *,
+    generation_succeeded: bool = True,
 ) -> None:
     """先保存报告历史和 Output，再独立同步正式档案。"""
     async with AsyncSessionLocal() as db:
@@ -579,11 +618,24 @@ async def _finalize_report(
             return
 
         try:
-            # 空内容 → 标记失败（可能是前端断连导致流中断）
-            if not raw_output.strip():
-                report.status = "failed"
-                report.updated_at = datetime.now(timezone.utc)
-                await db.commit()
+            kol = None
+            if report.kol_id is not None:
+                kol = (await db.execute(
+                    select(Kol)
+                    .where(Kol.id == report.kol_id, Kol.deleted_at.is_(None))
+                    .with_for_update()
+                )).scalar_one_or_none()
+            if kol is None:
+                await _mark_generation_failed(
+                    db, report, current_user, request, "kol_deleted"
+                )
+                return
+
+            # 部分流、客户端断连或空内容都不能进入正式归档和档案同步。
+            if not generation_succeeded or not raw_output.strip():
+                await _mark_generation_failed(
+                    db, report, current_user, request, "generation_failed"
+                )
                 return
 
             # 拆分
@@ -630,9 +682,12 @@ async def _finalize_report(
             await db.commit()
 
         except Exception:
-            report.status = "failed"
-            report.updated_at = datetime.now(timezone.utc)
-            await db.commit()
+            await db.rollback()
+            report = await db.get(PersonaReport, report_id)
+            if report is not None:
+                await _mark_generation_failed(
+                    db, report, current_user, request, "generation_failed"
+                )
             return
 
     try:
@@ -976,8 +1031,13 @@ async def list_reports(
 # ── 9. GET /api/persona/reports/{id} ──────────────────────────────
 
 async def _report_sync_result(
-    db: AsyncSession, report: PersonaReport,
+    db: AsyncSession,
+    report: PersonaReport,
+    *,
+    positioning_sync_failed: bool,
 ) -> tuple[dict[str, str], list[dict[str, str]]]:
+    if positioning_sync_failed:
+        return {}, []
     latest_log = (await db.execute(
         select(OperationLog)
         .where(OperationLog.target_type == "persona_report")
@@ -1006,6 +1066,35 @@ async def _report_sync_result(
     } for field in POSITIONING_FIELDS if fields.get(field) == "pending"]
     return fields, pending
 
+
+async def _report_failure_state(
+    db: AsyncSession, report_id: int,
+) -> tuple[str | None, bool, bool]:
+    logs = (await db.execute(
+        select(OperationLog)
+        .where(OperationLog.target_type == "persona_report")
+        .where(OperationLog.target_id == report_id)
+        .where(OperationLog.action.in_((
+            "persona_generation_failed",
+            "persona_profile_sync_failed",
+            "persona_fact_sync_failed",
+        )))
+        .order_by(OperationLog.created_at.desc(), OperationLog.id.desc())
+    )).scalars().all()
+    actions = {log.action for log in logs}
+    generation_failure = next(
+        (log for log in logs if log.action == "persona_generation_failed"), None
+    )
+    failure_reason = (
+        (generation_failure.detail or {}).get("reason")
+        if generation_failure else None
+    )
+    return (
+        failure_reason,
+        "persona_profile_sync_failed" in actions,
+        "persona_fact_sync_failed" in actions,
+    )
+
 @router.get("/api/persona/reports/{report_id}")
 async def get_report_detail(
     report_id: int,
@@ -1020,7 +1109,16 @@ async def get_report_detail(
                 detail={"code": "RESOURCE_NOT_FOUND", "message": "报告不存在"},
             )
 
-        sync_result, pending_overwrites = await _report_sync_result(db, report)
+        (
+            failure_reason,
+            positioning_sync_failed,
+            fact_sync_failed,
+        ) = await _report_failure_state(db, report.id)
+        sync_result, pending_overwrites = await _report_sync_result(
+            db,
+            report,
+            positioning_sync_failed=positioning_sync_failed,
+        )
         return success_response(data={
             "id": report.id,
             "kol_id": report.kol_id,
@@ -1035,6 +1133,9 @@ async def get_report_detail(
             "generated_at": report.generated_at.isoformat() if report.generated_at else None,
             "sync_result": sync_result,
             "pending_overwrites": pending_overwrites,
+            "failure_reason": failure_reason,
+            "positioning_sync_failed": positioning_sync_failed,
+            "fact_sync_failed": fact_sync_failed,
         })
 
 

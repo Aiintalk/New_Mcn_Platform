@@ -23,6 +23,7 @@ const {
   mockGetPersonaKolIntake,
   mockParseFile,
   mockGeneratePersona,
+  mockGetPersonaReports,
   mockGetPersonaReportDetail,
   mockSyncPersonaReportDecisions,
 } = vi.hoisted(() => ({
@@ -30,6 +31,7 @@ const {
   mockGetPersonaKolIntake: vi.fn(),
   mockParseFile: vi.fn(),
   mockGeneratePersona: vi.fn(),
+  mockGetPersonaReports: vi.fn(),
   mockGetPersonaReportDetail: vi.fn(),
   mockSyncPersonaReportDecisions: vi.fn(),
 }));
@@ -44,7 +46,7 @@ vi.mock('../../../api/persona', () => ({
   getKolSubmissions: vi.fn().mockResolvedValue([]),
   getPersonaKols: mockGetPersonaKols,
   getPersonaKolIntake: mockGetPersonaKolIntake,
-  getPersonaReports: vi.fn().mockResolvedValue([]),
+  getPersonaReports: mockGetPersonaReports,
   getPersonaReportDetail: mockGetPersonaReportDetail,
   syncPersonaReportDecisions: mockSyncPersonaReportDecisions,
   deletePersonaReport: vi.fn(),
@@ -100,6 +102,7 @@ describe('PersonaPage 正式达人绑定', () => {
     mockGetPersonaKolIntake.mockResolvedValue(null);
     mockParseFile.mockResolvedValue({ text: '手工上传的访谈正文' });
     mockGeneratePersona.mockResolvedValue({ reader: doneReader(), reportId: 88 });
+    mockGetPersonaReports.mockResolvedValue([]);
     mockGetPersonaReportDetail.mockResolvedValue({
       id: 88,
       kol_id: 43,
@@ -369,6 +372,85 @@ describe('PersonaPage 正式达人绑定', () => {
       '档案同步完成：人格档案 待确认；内容规划 已保留',
     );
     expect(screen.queryByText(/pending|kept/)).not.toBeInTheDocument();
+  });
+
+  it('生成期间正式达人被删除时显示失败原因且不进入覆盖确认', async () => {
+    const user = userEvent.setup();
+    mockGetPersonaReportDetail.mockResolvedValueOnce({
+      id: 88,
+      kol_id: 43,
+      status: 'failed',
+      failure_reason: 'kol_deleted',
+      profile_result: null,
+      plan_result: null,
+      sync_result: {},
+      pending_overwrites: [],
+    });
+    renderPage();
+    await selectKolAndUpload(user);
+    await user.click(screen.getByRole('button', { name: '下一步' }));
+    await user.click(screen.getByRole('button', { name: '跳过，直接生成' }));
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      '对应红人已不存在，本次结果未写入',
+    );
+    expect(screen.queryByRole('dialog', { name: '确认同步人格定位结果' })).not.toBeInTheDocument();
+  });
+
+  it('定位同步或事实补全失败时显示真实失败提示，不伪报自动写入成功', async () => {
+    const user = userEvent.setup();
+    mockGetPersonaReportDetail.mockResolvedValueOnce({
+      id: 88,
+      kol_id: 43,
+      status: 'ready',
+      profile_result: '新人格档案',
+      plan_result: '新内容规划',
+      sync_result: { persona: 'auto_written', content_plan: 'auto_written' },
+      pending_overwrites: [],
+      positioning_sync_failed: true,
+      fact_sync_failed: true,
+    });
+    renderPage();
+    await selectKolAndUpload(user);
+    await user.click(screen.getByRole('button', { name: '下一步' }));
+    await user.click(screen.getByRole('button', { name: '跳过，直接生成' }));
+
+    const status = await screen.findByRole('status');
+    expect(status).toHaveTextContent('报告已生成，档案同步失败，请稍后重试');
+    expect(status).toHaveTextContent('报告已生成，人物素材未能自动补全');
+    expect(status).not.toHaveTextContent('已自动写入');
+  });
+
+  it('从历史重新打开报告时恢复逐字段覆盖确认，且默认保留', async () => {
+    const user = userEvent.setup();
+    mockGetPersonaReports.mockResolvedValueOnce([{
+      id: 77,
+      kol_id: 43,
+      influencer_name: '历史达人',
+      douyin_nickname: null,
+      status: 'ready',
+      created_at: '2026-08-03T09:00:00+08:00',
+    }]);
+    mockGetPersonaReportDetail.mockResolvedValueOnce({
+      id: 77,
+      kol_id: 43,
+      status: 'ready',
+      profile_result: '历史新人格',
+      plan_result: '历史新规划',
+      sync_result: { persona: 'pending', content_plan: 'pending' },
+      pending_overwrites: [
+        { field: 'persona', current_summary: '当前人格', report_summary: '历史新人格' },
+        { field: 'content_plan', current_summary: '当前规划', report_summary: '历史新规划' },
+      ],
+    });
+    renderPage();
+    await user.click(screen.getByRole('button', { name: '历史记录' }));
+    await user.click(await screen.findByText('历史达人'));
+
+    const dialog = await screen.findByRole('dialog', { name: '确认同步人格定位结果' });
+    expect(within(dialog).getByRole('radio', { name: '人格档案：保留原内容' })).toBeChecked();
+    expect(within(dialog).getByRole('radio', { name: '内容规划：保留原内容' })).toBeChecked();
+    expect(screen.getAllByText('历史新人格')).toHaveLength(2);
   });
 
   it('重新开始后丢弃旧报告详情的迟到响应，并只向新报告提交同步决定', async () => {
