@@ -11,7 +11,7 @@ import {
   getPersonaDetails,
   updatePersonaDetails,
 } from '../../../api/kolWorkspace';
-import type { PersonaDetails, PersonaField } from '../../../types/kolWorkspace';
+import type { PersonaDetails, PersonaDetailsUpdate, PersonaField } from '../../../types/kolWorkspace';
 
 interface WorkspacePersonaProps {
   kolId: number;
@@ -88,7 +88,8 @@ export default function WorkspacePersona({ kolId, kolName = '当前红人' }: Wo
   async function handleSave(field: PersonaField) {
     setSaving(true);
     try {
-      setDetails(await updatePersonaDetails(kolId, { [field]: editValue }));
+      const update = { [field]: editValue } as unknown as PersonaDetailsUpdate;
+      setDetails(await updatePersonaDetails(kolId, update));
       handleCancel();
       message.success(`${FIELD_LABELS[field]}已保存`);
     } catch (err: unknown) {
@@ -106,10 +107,7 @@ export default function WorkspacePersona({ kolId, kolName = '当前红人' }: Wo
       const filled = result.filled_fields.length > 0
         ? `已补全：${fieldNames(result.filled_fields)}`
         : '本次没有可补全字段';
-      const preserved = result.preserved_fields.length > 0
-        ? `；已保留：${fieldNames(result.preserved_fields)}`
-        : '';
-      setFillFeedback(`${filled}${preserved}`);
+      setFillFeedback(`${filled}；其他字段未改动`);
       await load();
     } catch (err: unknown) {
       message.error(err instanceof Error ? err.message : '补全失败');
@@ -177,7 +175,7 @@ export default function WorkspacePersona({ kolId, kolName = '当前红人' }: Wo
                 <div style={{ flex: 1, minWidth: 0, whiteSpace: 'pre-wrap', color: isFilled ? 'var(--gray-700)' : 'var(--gray-400)' }}>
                   {isFilled ? value : '暂未填写'}
                 </div>
-                <button className="btn btn-ghost btn-sm" onClick={() => handleEdit(field.key)} style={{ flexShrink: 0 }}>
+                <button className="btn btn-ghost btn-sm" onClick={() => handleEdit(field.key)} disabled={saving} style={{ flexShrink: 0 }}>
                   编辑
                 </button>
               </div>

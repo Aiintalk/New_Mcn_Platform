@@ -173,7 +173,7 @@ export default function MaterialLibraryPage() {
     <div style={{ padding: '16px' }}>
       <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span style={{ fontWeight: 600 }}>人格档案（soul.md）</span>
-        <button className="btn btn-primary btn-sm" onClick={() => selectedKolId && navigate(`/kol-workspace/${selectedKolId}`)}>
+        <button className="btn btn-primary btn-sm" onClick={() => selectedKolId && navigate(`/kol-workspace/${selectedKolId}?tab=persona`)}>
           前往红人工作台编辑
         </button>
       </div>
@@ -187,7 +187,7 @@ export default function MaterialLibraryPage() {
     <div style={{ padding: '16px' }}>
       <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span style={{ fontWeight: 600 }}>内容规划（content-plan.md）</span>
-        <button className="btn btn-primary btn-sm" onClick={() => selectedKolId && navigate(`/kol-workspace/${selectedKolId}`)}>
+        <button className="btn btn-primary btn-sm" onClick={() => selectedKolId && navigate(`/kol-workspace/${selectedKolId}?tab=persona`)}>
           前往红人工作台编辑
         </button>
       </div>

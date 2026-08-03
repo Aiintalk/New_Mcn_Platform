@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from 'antd';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useParams, useSearchParams } from 'react-router-dom';
 
 const mockGetKols = vi.fn();
 const mockGetKol = vi.fn();
@@ -22,6 +22,14 @@ import KolsPage from '../../../pages/admin/KolsPage';
 
 const jsdomGetComputedStyle = window.getComputedStyle;
 vi.spyOn(window, 'getComputedStyle').mockImplementation((element) => jsdomGetComputedStyle(element));
+
+function WorkspacePersonaTabProbe() {
+  const { kolId } = useParams();
+  const [searchParams] = useSearchParams();
+  return searchParams.get('tab') === 'persona'
+    ? <div>{kolId} 号红人的人物档案标签已激活</div>
+    : <div>人物档案标签未激活</div>;
+}
 
 const sampleKol = {
   id: 43,
@@ -50,7 +58,7 @@ function renderPage() {
       >
         <Routes>
           <Route path="/admin/kols" element={<KolsPage />} />
-          <Route path="/kol-workspace/:kolId" element={<div>统一人物档案工作台</div>} />
+          <Route path="/kol-workspace/:kolId" element={<WorkspacePersonaTabProbe />} />
         </Routes>
       </MemoryRouter>
     </App>,
@@ -100,6 +108,6 @@ describe('KolsPage profile entry closure', () => {
     expect(screen.queryByRole('button', { name: '保存内容规划' })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: '前往红人工作台编辑' }));
-    expect(await screen.findByText('统一人物档案工作台')).toBeInTheDocument();
+    expect(await screen.findByText('43 号红人的人物档案标签已激活')).toBeInTheDocument();
   });
 });

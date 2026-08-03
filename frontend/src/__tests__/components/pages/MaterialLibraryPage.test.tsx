@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { App } from 'antd';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useParams, useSearchParams } from 'react-router-dom';
 
 // Mock API — operator
 const mockGetKols = vi.fn();
@@ -36,6 +36,14 @@ import MaterialLibraryPage from '../../../pages/operator/MaterialLibraryPage';
 
 const jsdomGetComputedStyle = window.getComputedStyle;
 vi.spyOn(window, 'getComputedStyle').mockImplementation((element) => jsdomGetComputedStyle(element));
+
+function WorkspacePersonaTabProbe() {
+  const { kolId } = useParams();
+  const [searchParams] = useSearchParams();
+  return searchParams.get('tab') === 'persona'
+    ? <div>{kolId} 号红人的人物档案标签已激活</div>
+    : <div>人物档案标签未激活</div>;
+}
 
 const sampleKols = [
   {
@@ -93,7 +101,7 @@ function renderWithApp(ui: React.ReactElement) {
       >
         <Routes>
           <Route path="/" element={ui} />
-          <Route path="/kol-workspace/:kolId" element={<div>已进入统一人物档案工作台</div>} />
+          <Route path="/kol-workspace/:kolId" element={<WorkspacePersonaTabProbe />} />
         </Routes>
       </MemoryRouter>
     </App>,
@@ -180,7 +188,7 @@ describe('MaterialLibraryPage', () => {
     expect(screen.queryByRole('button', { name: /从入驻问卷生成/ })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: '前往红人工作台编辑' }));
-    expect(await screen.findByText('已进入统一人物档案工作台')).toBeInTheDocument();
+    expect(await screen.findByText('1 号红人的人物档案标签已激活')).toBeInTheDocument();
   });
 
   // Test 4: 切到内容规划 Tab
@@ -194,6 +202,9 @@ describe('MaterialLibraryPage', () => {
     await waitFor(() => {
       expect(screen.getByText('内容规划（content-plan.md）')).toBeInTheDocument();
     });
+
+    await user.click(screen.getByRole('button', { name: '前往红人工作台编辑' }));
+    expect(await screen.findByText('1 号红人的人物档案标签已激活')).toBeInTheDocument();
   });
 
   // Test 5: 切到参考素材 Tab，显示分组素材

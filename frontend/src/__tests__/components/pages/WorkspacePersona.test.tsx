@@ -33,6 +33,14 @@ function renderPersona() {
   return render(<App><WorkspacePersona kolId={1} kolName="测试红人" /></App>);
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
 describe('WorkspacePersona', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -92,6 +100,26 @@ describe('WorkspacePersona', () => {
     });
   });
 
+  it('保存未完成时禁止切换到其他字段，避免迟到响应清掉新输入', async () => {
+    const user = userEvent.setup();
+    const pendingSave = deferred<typeof sixOfSeven>();
+    mockUpdatePersonaDetails.mockReturnValueOnce(pendingSave.promise);
+    renderPersona();
+    await screen.findByText('测试红人人物档案');
+
+    await user.click(within(screen.getByTestId('persona-field-persona')).getByRole('button', { name: '编辑' }));
+    await user.click(screen.getByRole('button', { name: '保存' }));
+
+    const secondEdit = within(screen.getByTestId('persona-field-content_plan')).getByRole('button', { name: '编辑' });
+    expect(secondEdit).toBeDisabled();
+    await user.click(secondEdit);
+    expect(screen.getByRole('textbox', { name: '编辑人格档案' })).toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: '编辑内容规划' })).not.toBeInTheDocument();
+
+    pendingSave.resolve(sixOfSeven);
+    await waitFor(() => expect(screen.queryByRole('textbox')).not.toBeInTheDocument());
+  });
+
   it('补空只调用一次接口，并按返回字段反馈后刷新七字段', async () => {
     const user = userEvent.setup();
     mockGetPersonaDetails
@@ -104,8 +132,26 @@ describe('WorkspacePersona', () => {
     await waitFor(() => expect(mockFillEmptyPersonaFacts).toHaveBeenCalledTimes(1));
     expect(mockFillEmptyPersonaFacts).toHaveBeenCalledWith(1);
     expect(await screen.findByText(/已补全：其他补充/)).toBeInTheDocument();
-    expect(screen.getByText(/已保留：基本身份、真实经历、关系网、独家经历/)).toBeInTheDocument();
+    expect(screen.getByText(/其他字段未改动/)).toBeInTheDocument();
+    expect(screen.queryByText(/已保留/)).not.toBeInTheDocument();
     await waitFor(() => expect(mockGetPersonaDetails).toHaveBeenCalledTimes(2));
+  });
+
+  it('报告没有可补全内容时不把原本为空的字段说成已保留', async () => {
+    const user = userEvent.setup();
+    mockFillEmptyPersonaFacts.mockResolvedValueOnce({
+      kol_id: 1,
+      report_id: 88,
+      filled_fields: [],
+      preserved_fields: ['background', 'extra_notes'],
+    });
+    renderPersona();
+
+    await user.click(await screen.findByRole('button', { name: '从最新人格报告补全空字段' }));
+
+    expect(await screen.findByText(/本次没有可补全字段/)).toBeInTheDocument();
+    expect(screen.getByText(/其他字段未改动/)).toBeInTheDocument();
+    expect(screen.queryByText(/已保留|基本身份、其他补充/)).not.toBeInTheDocument();
   });
 
   it('1024 宽度下使用可收缩容器，字段行没有超出容器的固定宽度', async () => {

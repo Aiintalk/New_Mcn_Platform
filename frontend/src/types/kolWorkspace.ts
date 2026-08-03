@@ -62,7 +62,11 @@ export interface PersonaDetails {
   updated_at: string | null;
 }
 
-export type PersonaDetailsUpdate = Partial<Record<PersonaField, string>>;
+export type PersonaDetailsUpdate = {
+  [Field in PersonaField]:
+    { [Current in Field]: string }
+    & { [Other in Exclude<PersonaField, Field>]?: never }
+}[PersonaField];
 
 export interface FillEmptyPersonaFactsResult {
   kol_id: number;

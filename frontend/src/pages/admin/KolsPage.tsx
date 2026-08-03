@@ -561,7 +561,7 @@ export default function KolsPage() {
                       <button
                         className="btn btn-primary btn-sm"
                         style={{ marginTop: 'var(--sp-3)' }}
-                        onClick={() => navigate(`/kol-workspace/${detail.id}`)}
+                        onClick={() => navigate(`/kol-workspace/${detail.id}?tab=persona`)}
                       >
                         前往红人工作台编辑
                       </button>
