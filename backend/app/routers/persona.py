@@ -14,13 +14,14 @@ app/routers/persona.py
   DELETE /api/persona/reports/{id}               — 删除报告
 """
 import json
+import math
 import re
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, UploadFile, File
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.adapters import tikhub as tikhub_adapter
@@ -29,7 +30,14 @@ from app.core.database import AsyncSessionLocal
 from app.core.response import success_response, error_response, ErrorCode
 from app.middlewares.auth import get_current_user
 from app.models.credential import AiModel
-from app.models.kol_intake import KolIntakeConfig, KolIntakeOperatorSession, KolIntakeQuestion
+from app.models.kol import Kol
+from app.models.kol_intake import (
+    KolIntakeConfig,
+    KolIntakeLink,
+    KolIntakeOperatorSession,
+    KolIntakeQuestion,
+    KolIntakeSubmission,
+)
 from app.models.log import OperationLog, ExternalServiceLog
 from app.models.output import Output
 from app.models.persona_report import PersonaReport
@@ -139,6 +147,18 @@ async def _get_ai_model(db: AsyncSession, model_id: int) -> AiModel:
     return ai_model
 
 
+async def _get_active_kol(db: AsyncSession, kol_id: int) -> Kol:
+    kol = (await db.execute(
+        select(Kol).where(Kol.id == kol_id).where(Kol.deleted_at.is_(None))
+    )).scalar_one_or_none()
+    if kol is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "RESOURCE_NOT_FOUND", "message": "达人不存在"},
+        )
+    return kol
+
+
 def _get_own_report(
     report_id: int, current_user: User, db: AsyncSession,
 ) -> PersonaReport | None:
@@ -162,6 +182,7 @@ class ParseFileResponse(BaseModel):
 
 
 class GenerateRequest(BaseModel):
+    kol_id: int
     influencer_info: str
     top10_content: str | None = None
     supplement_text: str | None = None
@@ -271,6 +292,7 @@ async def generate(
         )
 
     async with AsyncSessionLocal() as db:
+        await _get_active_kol(db, body.kol_id)
         config = await _get_persona_config(db)
         if config.ai_model_id is not None:
             ai_model = await _get_ai_model(db, config.ai_model_id)
@@ -283,6 +305,7 @@ async def generate(
         # 创建报告记录
         report = PersonaReport(
             operator_id=current_user.id,
+            kol_id=body.kol_id,
             douyin_id=body.douyin_id,
             douyin_nickname=body.douyin_nickname,
             top10_text=body.top10_content,
@@ -303,7 +326,7 @@ async def generate(
             action="persona_generate",
             target_type="persona_report",
             target_id=report.id,
-            detail={"douyin_nickname": body.douyin_nickname},
+            detail={"kol_id": body.kol_id, "douyin_nickname": body.douyin_nickname},
             ip=_get_ip(request),
             user_agent=request.headers.get("user-agent") if request else None,
         ))
@@ -410,6 +433,7 @@ async def _finalize_report(
                 content=raw_output,
                 content_json={
                     "report_id": report_id,
+                    "kol_id": report.kol_id,
                     "influencer_name": influencer_name,
                     "profile_result": profile_result,
                     "plan_result": plan_result,
@@ -571,7 +595,118 @@ async def download_questionnaire_template(
     )
 
 
-# ── 7. GET /api/persona/kol-submissions ───────────────────────────
+# ── 7. GET /api/persona/kols ──────────────────────────────────────
+
+_PROFILE_FIELDS = (
+    "persona", "content_plan", "background", "experience", "relationships",
+    "unique_story", "extra_notes",
+)
+_PAGE_SIZE_ALLOWED = {10, 20, 50}
+
+
+def _profile_filled_count(kol: Kol) -> int:
+    return sum(bool((getattr(kol, field) or "").strip()) for field in _PROFILE_FIELDS)
+
+
+@router.get("/api/persona/kols")
+async def list_formal_kols(
+    page: int = 1,
+    page_size: int = 20,
+    keyword: str | None = None,
+    current_user: User = Depends(require_operator),
+):
+    if page < 1:
+        page = 1
+    if page_size not in _PAGE_SIZE_ALLOWED:
+        page_size = 20
+
+    async with AsyncSessionLocal() as db:
+        filters = [Kol.deleted_at.is_(None)]
+        if keyword and keyword.strip():
+            term = f"%{keyword.strip()}%"
+            filters.append(or_(
+                Kol.name.ilike(term),
+                Kol.account_name.ilike(term),
+                Kol.douyin_id.ilike(term),
+            ))
+        total = (await db.execute(
+            select(func.count()).select_from(Kol).where(*filters)
+        )).scalar_one()
+        rows = (await db.execute(
+            select(Kol).where(*filters).order_by(Kol.id.desc())
+            .offset((page - 1) * page_size).limit(page_size)
+        )).scalars().all()
+
+    return success_response(data={
+        "items": [{
+            "id": kol.id,
+            "name": kol.name,
+            "account_name": kol.account_name,
+            "douyin_id": kol.douyin_id,
+            "profile_filled_count": _profile_filled_count(kol),
+            "profile_total": len(_PROFILE_FIELDS),
+        } for kol in rows],
+        "pagination": {
+            "page": page,
+            "page_size": page_size,
+            "total": total,
+            "total_pages": math.ceil(total / page_size) if total else 0,
+        },
+    })
+
+
+# ── 8. GET /api/persona/kols/{kol_id}/intake ──────────────────────
+
+@router.get("/api/persona/kols/{kol_id}/intake")
+async def get_bound_intake(
+    kol_id: int,
+    current_user: User = Depends(require_operator),
+):
+    async with AsyncSessionLocal() as db:
+        await _get_active_kol(db, kol_id)
+        direct_rows = (await db.execute(
+            select(KolIntakeOperatorSession)
+            .where(KolIntakeOperatorSession.operator_id == current_user.id)
+            .where(KolIntakeOperatorSession.kol_id == kol_id)
+            .where(KolIntakeOperatorSession.report_status == "ready")
+            .where(KolIntakeOperatorSession.ai_report.is_not(None))
+            .where(KolIntakeOperatorSession.ai_report != "")
+        )).scalars().all()
+        linked_rows = (await db.execute(
+            select(KolIntakeSubmission, KolIntakeLink)
+            .join(KolIntakeLink, KolIntakeSubmission.link_id == KolIntakeLink.id)
+            .where(KolIntakeLink.operator_id == current_user.id)
+            .where(KolIntakeLink.kol_id == kol_id)
+            .where(KolIntakeSubmission.report_status == "ready")
+            .where(KolIntakeSubmission.ai_report.is_not(None))
+            .where(KolIntakeSubmission.ai_report != "")
+        )).all()
+
+    candidates = [
+        {
+            "completed_at": row.report_generated_at or row.created_at,
+            "formatted_answers": _format_session_messages(row.messages or []),
+            "report": row.ai_report,
+        }
+        for row in direct_rows
+    ]
+    candidates.extend({
+        "completed_at": submission.report_generated_at or submission.created_at,
+        "formatted_answers": _format_session_messages(submission.messages or []),
+        "report": submission.ai_report,
+    } for submission, _link in linked_rows)
+    if not candidates:
+        return success_response(data=None)
+
+    newest = max(candidates, key=lambda item: item["completed_at"] or datetime.min.replace(tzinfo=timezone.utc))
+    return success_response(data={
+        "completed_at": newest["completed_at"].isoformat() if newest["completed_at"] else None,
+        "formatted_answers": newest["formatted_answers"],
+        "report": newest["report"],
+    })
+
+
+# ── 9. GET /api/persona/kol-submissions（兼容旧调用）───────────────
 
 @router.get("/api/persona/kol-submissions")
 async def list_kol_submissions(
@@ -579,29 +714,12 @@ async def list_kol_submissions(
 ):
     async with AsyncSessionLocal() as db:
         rows = (await db.execute(
-            select(KolIntakeOperatorSession)
-            .where(KolIntakeOperatorSession.report_status == "ready")
-            .where(KolIntakeOperatorSession.ai_report.isnot(None))
-            .order_by(KolIntakeOperatorSession.created_at.desc())
+            select(Kol).where(Kol.deleted_at.is_(None)).order_by(Kol.id.desc())
         )).scalars().all()
-
-        # 按名字去重，保留最新
-        seen: set[str] = set()
-        result = []
-        for row in rows:
-            nickname = row.kol_name or f"会话_{row.id}"
-            if nickname in seen:
-                continue
-            seen.add(nickname)
-            result.append({
-                "id": row.id,
-                "nickname": nickname,
-                "submitted_at": row.created_at.isoformat() if row.created_at else None,
-                "formatted_answers": _format_session_messages(row.messages or []),
-                "report": row.ai_report or "",
-            })
-
-        return success_response(data=result)
+    return success_response(data=[
+        {"id": kol.id, "nickname": kol.name, "submitted_at": None}
+        for kol in rows
+    ])
 
 
 def _format_session_messages(messages: list) -> str:
@@ -636,6 +754,7 @@ async def list_reports(
         return success_response(data=[
             {
                 "id": r.id,
+                "kol_id": r.kol_id,
                 "influencer_name": r.influencer_name,
                 "douyin_nickname": r.douyin_nickname,
                 "status": r.status,
@@ -663,6 +782,7 @@ async def get_report_detail(
 
         return success_response(data={
             "id": report.id,
+            "kol_id": report.kol_id,
             "influencer_name": report.influencer_name,
             "douyin_nickname": report.douyin_nickname,
             "douyin_id": report.douyin_id,
