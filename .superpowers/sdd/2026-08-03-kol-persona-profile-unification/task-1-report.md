@@ -61,6 +61,23 @@ DATABASE_URL='postgresql+asyncpg://mcn_user:admin123@localhost:5432/mcn_test' JW
 
 另已通过 `git diff --check` 与受影响 Python 文件的 `compileall` 语法检查。
 
+## 审查补强（CHANGES_REQUESTED）
+
+补充了三项边界测试：
+
+1. 11 名同关键词活跃达人和 1 名同关键词已删除达人，精确断言两页 ID、`total=11`、`total_pages=2`，并断言已删除达人不出现。
+2. 同一 `kol_id` 下，其他运营创建且完成时间更晚的分享链接报告仍不可见。
+3. 人格生成提交不存在或已删除的 `kol_id` 时，必须返回 HTTP 404 标准信封；报告、输出和操作日志计数均不变。
+
+Mutation 思维验证（未破坏代码）：移除正式达人列表的 `deleted_at IS NULL` 条件会使第 1 项总数、页数和 ID 断言失败；移除入驻资料的 `operator_id` 条件会返回第 2 项的其他运营最新报告；移除生成前的未删除达人校验会使第 3 项不再返回 404，并在已配置模型和 mock 流下创建记录，导致计数断言失败。
+
+审查补强后的完整 Task 1 回归：
+
+- `test_models.py + test_persona_profile_migration.py`：`56 passed in 0.09s`。
+- `test_persona_identity_binding.py + test_intake_kol_binding.py`：`10 passed in 3.78s`。
+- `test_persona.py`：`25 passed in 5.63s`。
+- `test_convention_guard.py`：`6 passed in 1.60s`。
+
 ## 改动摘要
 
 1. 新增幂等、非破坏的 055 迁移：重复执行安全，旧行保持 `NULL`，三张表都有 `ON DELETE SET NULL` 外键和索引。

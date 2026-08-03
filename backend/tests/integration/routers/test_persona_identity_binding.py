@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.models.kol import Kol
 from app.models.kol_intake import KolIntakeLink, KolIntakeOperatorSession, KolIntakeSubmission
@@ -60,6 +60,43 @@ class TestFormalKolIdentity:
             assert "会话_" not in response.text
 
     @pytest.mark.asyncio
+    async def test_formal_kol_list_excludes_deleted_matches_from_exact_pages(
+        self, test_client, operator_headers, test_session,
+    ):
+        active_kols = [
+            Kol(name=f"分页隔离达人{index:02}") for index in range(11)
+        ]
+        deleted_kol = Kol(
+            name="分页隔离达人已删除",
+            deleted_at=datetime.now(timezone.utc),
+        )
+        test_session.add_all([*active_kols, deleted_kol])
+        await test_session.commit()
+        expected_ids = [kol.id for kol in reversed(active_kols)]
+
+        first_page = await test_client.get(
+            "/api/persona/kols?page=1&page_size=10&keyword=分页隔离达人",
+            headers=operator_headers,
+        )
+        second_page = await test_client.get(
+            "/api/persona/kols?page=2&page_size=10&keyword=分页隔离达人",
+            headers=operator_headers,
+        )
+
+        assert first_page.status_code == 200
+        assert second_page.status_code == 200
+        first_data = first_page.json()["data"]
+        second_data = second_page.json()["data"]
+        assert first_data["pagination"] == {"page": 1, "page_size": 10, "total": 11, "total_pages": 2}
+        assert second_data["pagination"] == {"page": 2, "page_size": 10, "total": 11, "total_pages": 2}
+        assert [item["id"] for item in first_data["items"]] == expected_ids[:10]
+        assert [item["id"] for item in second_data["items"]] == expected_ids[10:]
+        returned_ids = {
+            item["id"] for item in first_data["items"] + second_data["items"]
+        }
+        assert deleted_kol.id not in returned_ids
+
+    @pytest.mark.asyncio
     async def test_intake_returns_only_current_operators_latest_bound_ready_record(
         self, test_client, operator_headers, operator_user, test_session,
     ):
@@ -90,7 +127,22 @@ class TestFormalKolIdentity:
             report_status="ready",
             report_generated_at=datetime.now(timezone.utc) + timedelta(minutes=2),
         )
-        test_session.add_all([own_direct, other_direct, historical_unbound])
+        other_link = KolIntakeLink(
+            token="persona-other-operator-newest-link",
+            operator_id=other_operator.id,
+            kol_id=formal_kol.id,
+            expires_at=datetime.now(timezone.utc) + timedelta(days=1),
+        )
+        test_session.add_all([own_direct, other_direct, historical_unbound, other_link])
+        await test_session.flush()
+        other_submission = KolIntakeSubmission(
+            link_id=other_link.id,
+            messages=[{"role": "user", "content": "其他链接回答"}],
+            ai_report="其他运营最新链接报告",
+            report_status="ready",
+            report_generated_at=datetime.now(timezone.utc) + timedelta(minutes=3),
+        )
+        test_session.add(other_submission)
         await test_session.commit()
 
         response = await test_client.get(
@@ -101,6 +153,7 @@ class TestFormalKolIdentity:
         own_bound_intake = response.json()["data"]
         assert own_bound_intake["report"] == "本人绑定报告"
         assert "其他运营报告" not in response.text
+        assert "其他运营最新链接报告" not in response.text
         assert "未绑定历史报告" not in response.text
         assert "session_id" not in response.text
 
@@ -198,3 +251,45 @@ class TestFormalKolIdentity:
             f"/api/persona/reports/{report_id}", headers=operator_headers,
         )
         assert detail_response.json()["data"]["kol_id"] == formal_kol.id
+
+    @pytest.mark.asyncio
+    async def test_generate_rejects_missing_or_deleted_kol_without_creating_records(
+        self, test_client, operator_headers, test_session,
+    ):
+        deleted_kol = Kol(name="生成已删除达人", deleted_at=datetime.now(timezone.utc))
+        config = (await test_session.execute(
+            select(KolIntakeConfig).where(KolIntakeConfig.config_key == "persona_generation")
+        )).scalar_one_or_none()
+        if config is None:
+            test_session.add(KolIntakeConfig(config_key="persona_generation", system_prompt="生成"))
+        test_session.add(deleted_kol)
+        await test_session.commit()
+
+        async def fake_stream(**_kwargs):
+            yield "不应生成"
+
+        before_counts = {
+            "reports": await test_session.scalar(select(func.count()).select_from(PersonaReport)),
+            "outputs": await test_session.scalar(select(func.count()).select_from(Output)),
+            "logs": await test_session.scalar(select(func.count()).select_from(OperationLog)),
+        }
+        with patch("app.routers.persona.yunwu_adapter.chat_stream", fake_stream):
+            for kol_id in (999999, deleted_kol.id):
+                response = await test_client.post(
+                    "/api/persona/generate",
+                    headers=operator_headers,
+                    json={"kol_id": kol_id, "influencer_info": "资料"},
+                )
+                assert response.status_code == 404
+                assert response.json() == {
+                    "success": False,
+                    "code": "RESOURCE_NOT_FOUND",
+                    "message": "达人不存在",
+                    "data": None,
+                }
+        after_counts = {
+            "reports": await test_session.scalar(select(func.count()).select_from(PersonaReport)),
+            "outputs": await test_session.scalar(select(func.count()).select_from(Output)),
+            "logs": await test_session.scalar(select(func.count()).select_from(OperationLog)),
+        }
+        assert after_counts == before_counts
