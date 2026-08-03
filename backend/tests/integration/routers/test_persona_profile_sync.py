@@ -1,16 +1,67 @@
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.models.kol import Kol
 from app.models.log import OperationLog
 from app.models.output import Output
 from app.models.persona_report import PersonaReport
-from app.routers.persona import _finalize_report
+from app.routers.persona import (
+    SyncDecisionsRequest,
+    _finalize_report,
+    submit_sync_decisions,
+)
 
 
 pytestmark = pytest.mark.asyncio
+
+
+class _LockSignalSession:
+    """测试代理：只在 SELECT FOR UPDATE 前后发事件，不改变数据库行为。"""
+
+    def __init__(
+        self,
+        session: AsyncSession,
+        *,
+        before_lock: asyncio.Event | None = None,
+        after_lock: asyncio.Event | None = None,
+        release_after_lock: asyncio.Event | None = None,
+    ):
+        self._session = session
+        self._before_lock = before_lock
+        self._after_lock = after_lock
+        self._release_after_lock = release_after_lock
+
+    async def __aenter__(self):
+        await self._session.__aenter__()
+        return self
+
+    async def __aexit__(self, exc_type, exc, traceback):
+        return await self._session.__aexit__(exc_type, exc, traceback)
+
+    async def execute(self, statement, *args, **kwargs):
+        is_for_update = getattr(statement, "_for_update_arg", None) is not None
+        if is_for_update and self._before_lock is not None:
+            self._before_lock.set()
+        result = await self._session.execute(statement, *args, **kwargs)
+        if is_for_update and self._after_lock is not None:
+            self._after_lock.set()
+            if self._release_after_lock is not None:
+                await self._release_after_lock.wait()
+        return result
+
+    def __getattr__(self, name):
+        return getattr(self._session, name)
+
+
+def _request() -> MagicMock:
+    request = MagicMock()
+    request.client.host = "127.0.0.1"
+    request.headers = {}
+    return request
 
 
 async def _make_report(test_session, operator_user, **kol_values):
@@ -49,6 +100,23 @@ async def _finalize(report_id, operator_user, facts=None):
             operator_user,
             request,
         )
+
+
+async def _make_ready_report(
+    test_session, operator_user, *, persona: str | None,
+) -> tuple[int, int]:
+    kol_id, report_id = await _make_report(
+        test_session,
+        operator_user,
+        persona=persona,
+        content_plan="报告规划",
+    )
+    report = await test_session.get(PersonaReport, report_id)
+    report.status = "ready"
+    report.profile_result = "报告人格"
+    report.plan_result = "报告规划"
+    await test_session.commit()
+    return kol_id, report_id
 
 
 async def test_finalize_auto_writes_empty_positioning_and_only_empty_grounded_facts(
@@ -166,6 +234,107 @@ async def test_sync_decisions_default_keep_and_independent_overwrite_are_idempot
         )
     )).scalar_one()
     assert second_count == first_count
+
+
+async def test_sync_decisions_recomputes_after_concurrent_workspace_edit(
+    test_engine, test_session, operator_user
+):
+    kol_id, report_id = await _make_ready_report(
+        test_session, operator_user, persona=""
+    )
+    session_factory = async_sessionmaker(
+        bind=test_engine, class_=AsyncSession, expire_on_commit=False
+    )
+    sync_waiting_for_lock = asyncio.Event()
+
+    def sync_session_factory():
+        return _LockSignalSession(
+            session_factory(), before_lock=sync_waiting_for_lock
+        )
+
+    async with session_factory() as workspace_db:
+        kol = (await workspace_db.execute(
+            select(Kol).where(Kol.id == kol_id).with_for_update()
+        )).scalar_one()
+        kol.persona = "工作台最新人工编辑"
+        await workspace_db.flush()
+
+        with patch("app.routers.persona.AsyncSessionLocal", sync_session_factory):
+            sync_task = asyncio.create_task(submit_sync_decisions(
+                report_id,
+                SyncDecisionsRequest(decisions={}),
+                operator_user,
+                _request(),
+            ))
+            await asyncio.wait_for(sync_waiting_for_lock.wait(), timeout=5)
+            await workspace_db.commit()
+            response = await asyncio.wait_for(sync_task, timeout=5)
+
+    assert response.data["fields"]["persona"] == "kept"
+    async with session_factory() as verification_db:
+        kol = await verification_db.get(Kol, kol_id)
+        assert kol.persona == "工作台最新人工编辑"
+
+
+async def test_concurrent_overwrite_recomputes_and_logs_only_first_effective_write(
+    test_engine, test_session, operator_user
+):
+    kol_id, report_id = await _make_ready_report(
+        test_session, operator_user, persona="人工旧人格"
+    )
+    session_factory = async_sessionmaker(
+        bind=test_engine, class_=AsyncSession, expire_on_commit=False
+    )
+    first_has_lock = asyncio.Event()
+    release_first = asyncio.Event()
+    second_waiting_for_lock = asyncio.Event()
+    call_count = 0
+
+    def ordered_sync_session_factory():
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return _LockSignalSession(
+                session_factory(),
+                after_lock=first_has_lock,
+                release_after_lock=release_first,
+            )
+        return _LockSignalSession(
+            session_factory(), before_lock=second_waiting_for_lock
+        )
+
+    with patch("app.routers.persona.AsyncSessionLocal", ordered_sync_session_factory):
+        first_task = asyncio.create_task(submit_sync_decisions(
+            report_id,
+            SyncDecisionsRequest(decisions={"persona": "overwrite"}),
+            operator_user,
+            _request(),
+        ))
+        await asyncio.wait_for(first_has_lock.wait(), timeout=5)
+        second_task = asyncio.create_task(submit_sync_decisions(
+            report_id,
+            SyncDecisionsRequest(decisions={"persona": "overwrite"}),
+            operator_user,
+            _request(),
+        ))
+        await asyncio.wait_for(second_waiting_for_lock.wait(), timeout=5)
+        release_first.set()
+        first_response, second_response = await asyncio.wait_for(
+            asyncio.gather(first_task, second_task), timeout=5
+        )
+
+    assert first_response.data["fields"]["persona"] == "overwritten"
+    assert second_response.data["fields"]["persona"] == "unchanged"
+    async with session_factory() as verification_db:
+        kol = await verification_db.get(Kol, kol_id)
+        assert kol.persona == "报告人格"
+        log_count = (await verification_db.execute(
+            select(func.count()).select_from(OperationLog).where(
+                OperationLog.action == "persona_sync_decisions",
+                OperationLog.target_id == report_id,
+            )
+        )).scalar_one()
+        assert log_count == 1
 
 
 async def test_empty_decisions_model_modal_close_as_keep(

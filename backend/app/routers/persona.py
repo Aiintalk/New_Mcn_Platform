@@ -1064,9 +1064,12 @@ async def submit_sync_decisions(
 
         kol = (await db.execute(
             select(Kol).where(Kol.id == report.kol_id, Kol.deleted_at.is_(None))
+            .execution_options(populate_existing=True)
+            .with_for_update()
         )).scalar_one_or_none()
         if kol is None:
             return error_response(ErrorCode.RESOURCE_NOT_FOUND, "达人不存在")
+
         generated = _positioning_values(report)
         actions = resolve_positioning_decisions(
             _current_positioning(kol), generated, body.decisions
@@ -1085,14 +1088,6 @@ async def submit_sync_decisions(
             .limit(1)
         )).scalar_one_or_none()
 
-        # 在实际写入和日志落库前再次读取未删除正式达人。
-        kol = (await db.execute(
-            select(Kol).where(Kol.id == report.kol_id, Kol.deleted_at.is_(None))
-            .execution_options(populate_existing=True)
-            .with_for_update()
-        )).scalar_one_or_none()
-        if kol is None:
-            return error_response(ErrorCode.RESOURCE_NOT_FOUND, "达人不存在")
         if updates:
             for field, value in updates.items():
                 setattr(kol, field, value)
