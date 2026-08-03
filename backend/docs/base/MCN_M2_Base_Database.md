@@ -112,6 +112,7 @@ config_key: conversation_bridge / report_generation
 | `id` | SERIAL | 是 | 链接 ID |
 | `token` | VARCHAR(64) | 是 | URL token（`secrets.token_urlsafe(32)`），全局唯一 |
 | `operator_id` | INTEGER | 是 | 生成链接的运营，关联 `users.id` |
+| `kol_id` | BIGINT | 否 | 明确绑定的正式达人，关联 `kols.id`，删除达人时置空；历史记录不回填 |
 | `kol_name` | VARCHAR(200) | 否 | 运营预填的博主姓名 |
 | `expires_at` | TIMESTAMPTZ | 是 | 链接有效期 |
 | `used_at` | TIMESTAMPTZ | 否 | 博主首次访问时间 |
@@ -132,6 +133,7 @@ config_key: conversation_bridge / report_generation
 ```sql
 CREATE UNIQUE INDEX idx_kol_intake_links_token ON kol_intake_links(token);
 CREATE INDEX idx_kol_intake_links_operator ON kol_intake_links(operator_id);
+CREATE INDEX idx_kol_intake_links_kol ON kol_intake_links(kol_id);
 CREATE INDEX idx_kol_intake_links_expires ON kol_intake_links(expires_at);
 ```
 
@@ -191,6 +193,20 @@ CREATE INDEX idx_kol_intake_submissions_created ON kol_intake_submissions(create
 
 ---
 
+## 5A. kol_intake_operator_sessions 运营直发会话表（Sprint 25 关联补充）
+
+既有表保留全部历史字段；Sprint 25 只新增以下关联：
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `kol_id` | BIGINT | 否 | 明确绑定的正式达人，关联 `kols.id`，删除达人时置空；历史记录和新建未绑定会话保持空值，不按姓名回填 |
+
+索引：`CREATE INDEX idx_kol_intake_operator_sessions_kol ON kol_intake_operator_sessions(kol_id);`
+
+人格定位读取入驻资料时必须同时满足 `kol_id` 相等、`operator_id` 为当前用户、`report_status='ready'` 且 `ai_report` 非空。
+
+---
+
 ## 6. M2 数据迁移脚本
 
 Migration 文件位于 `backend/alembic/versions/` 或 `backend/migrations/`，Sprint 1 需包含：
@@ -225,6 +241,7 @@ Migration 文件位于 `backend/alembic/versions/` 或 `backend/migrations/`，S
 |------|------|------|------|
 | `id` | BIGSERIAL | 是 | 报告 ID |
 | `operator_id` | BIGINT | 是 | 创建者，关联 `users.id` |
+| `kol_id` | BIGINT | 否 | 正式达人编号，关联 `kols.id`，删除达人时置空；应用层要求所有新人格报告必填，历史报告保留空值 |
 | `douyin_text` | TEXT | 否 | 用户输入的抖音分享文本 |
 | `douyin_nickname` | VARCHAR(200) | 否 | TikHub 解析出的昵称 |
 | `douyin_id` | TEXT | 否 | 抖音号或分享链接 |
@@ -256,6 +273,7 @@ generating → failed
 
 ```sql
 CREATE INDEX idx_persona_reports_operator ON persona_reports(operator_id);
+CREATE INDEX idx_persona_reports_kol ON persona_reports(kol_id);
 CREATE INDEX idx_persona_reports_status ON persona_reports(status);
 CREATE INDEX idx_persona_reports_created ON persona_reports(created_at DESC);
 ```
@@ -329,6 +347,7 @@ CREATE INDEX idx_tikhub_call_logs_created ON tikhub_call_logs(created_at DESC);
 | `007_kol_intake_operator_sessions.sql` | 运营直发会话表 | Sprint 1 |
 | `008_schema_catchup.sql` | 补全 001~007 缺失的表和字段 | 补丁 |
 | `009_persona_positioning.sql` | persona_reports 表 | Sprint 3 |
+| `055_kol_persona_profile_unification.sql` | persona_reports / kol_intake_links / kol_intake_operator_sessions 增加可空 `kol_id` 外键与索引；不回填历史数据 | Sprint 25 |
 | `010_tikhub_credentials.sql` | tikhub_credentials 表 | Sprint 3 |
 | `011_tikhub_call_logs.sql` | tikhub_call_logs 表 | Sprint 3 |
 | `012_migrate_tikhub_to_dedicated_pool.sql` | 迁移 TikHub Key 到独立池 | Sprint 3 |
