@@ -22,6 +22,7 @@
 | `tiktok_writer_configs` | TikTok 脚本仿写 AI 配置（Prompt + 模型） | Sprint 4 |
 | `qianchuan_review_configs` | 千川脚本复盘 AI 配置（Prompt + 模型） | Sprint 6 |
 | `qianchuan_edit_review_configs` | 千川剪辑预审 AI 配置（Prompt + 模型） | Sprint 7 |
+| `schema_migrations` | 数据库迁移账本（文件、版本、校验和、执行方式） | Sprint 24 运维修复 |
 
 > 各工具的产出记录统一复用 `outputs` 和 `task_jobs`，不单独建产出表。
 > 迁移文件清单见 §11（M2 数据迁移脚本，完整 006~029）。
@@ -1257,3 +1258,26 @@ migration 035 UPDATE：
 | `created_at` | TIMESTAMPTZ | 是 | 关联创建时间 |
 
 迁移文件：`049_kol_active_products_single_current_product.sql`。现有数据库升级时，迁移会先检测同一 `kol_id` 的历史重复关联；发现重复会明确中止，需人工确认后再清理，避免自动删除运营选择。应用层仍须在写入时整体替换旧关联，防止前端多选绕过业务规则。
+
+---
+
+## 37. schema_migrations 数据库迁移账本（M2 Sprint 24）
+
+由 `backend/scripts/run_migrations.py` 自动维护，用于保证迁移按“数字前缀、文件名”稳定排序，每个文件只执行一次。相同数字前缀的文件不会互相覆盖，例如两个 `044_*.sql` 会按完整文件名分别登记。
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `filename` | TEXT PK | 是 | 完整迁移文件名 |
+| `version` | INTEGER | 是 | 文件名前三位数字 |
+| `checksum_sha256` | CHAR(64) | 是 | 文件内容校验和；已登记文件被修改时拒绝继续 |
+| `execution_kind` | VARCHAR(16) | 是 | `applied`（真实执行）/ `baseline`（既有库确认后登记） |
+| `applied_at` | TIMESTAMPTZ | 是 | 执行或登记时间 |
+
+规则：
+
+- 每个待执行文件与账本写入处于同一数据库事务；失败时不登记。
+- 执行器使用 PostgreSQL advisory lock（数据库会话锁），防止两个部署进程并发迁移。
+- 已登记迁移只校验内容，不重新执行，因此历史 seed 不会重复写入或覆盖运营数据。
+- 检测到已有业务表但没有账本时，执行器拒绝猜测；运维必须先核对结构，再显式传 `--baseline-through N`。
+- 基线之后若有迁移已由旧流程人工执行，必须先逐项核对结构，再用 `--adopt-existing 文件名` 单独登记；禁止直接扩大基线跳过中间文件。
+- 现网首次接管以 `049` 为基线前，必须确认 049 的唯一约束等前置结构真实存在；随后 050 及之后迁移由账本顺序执行。

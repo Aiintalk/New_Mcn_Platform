@@ -3,6 +3,8 @@
 > 本目录存放后端相关的所有文档。开发后端时，不出 `backend/` 目录即可找到全部所需内容。
 
 > 2026-07-14：红人工作台旧版核心流程还原的接口、数据库与测试证据见 `base/MCN_M2_Base_API.md`、`base/MCN_M2_Base_Database.md` 和 `tests/M2_红人工作台旧版功能还原_测试报告.md`。
+>
+> 2026-07-28：新增 `scripts/run_migrations.py` 与 `schema_migrations` 账本，部署不再只执行 001；既有数据库需显式核对并登记基线，之后按顺序、事务化执行未执行迁移，历史 seed 不重放。素材库 050 前后与二次执行证据见 `tests/M2_Sprint24_测试报告_红人工作台生产迁移链路_v1_修复Bug.md`。
 
 ---
 
@@ -173,7 +175,8 @@ backend/
 │   ├── init_db.sh                     #   一键初始化数据库
 │   ├── run_coverage.py                #   覆盖率门禁脚本
 │   ├── migrate_qianchuan_reports.py   #   旧千川复盘数据迁移
-│   └── migrate_material_library.py    #   旧素材库（soul.md/content-plan.md）迁移
+│   ├── migrate_material_library.py    #   旧素材库（soul.md/content-plan.md）迁移
+│   └── run_migrations.py              #   顺序迁移执行器（账本、校验和、事务、并发锁）
 ├── requirements.txt                   # Python 依赖
 ├── seed_local.sql                     # 本地种子数据
 └── pytest.ini                         # pytest 配置

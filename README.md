@@ -32,6 +32,7 @@ MCN 红人孵化管理平台，支持多用户、多并发场景，集成 AI 能
 - **素材库**：红人素材中枢（迁移自旧架构 Ai_Toolbox/material-library-web）。每位红人一个档案，含人格档案（soul.md）+ 内容规划（content-plan.md）+ 6 类参考素材（红人爆款/红人喜欢/风格参考/千川爆款/千川喜欢/千川风格）；支持 AI 从入驻问卷数据生成 soul.md 初稿（Sprint 18 迁移）
 - **红人工作台**：运营端红人统一入口（`/kol-hub`）。聚合展示红人入驻状态（4 种动态计算：待入驻 / 人格档案已填 / 内容规划已填 / 入驻完成），按状态分卡片分组，支持点击进入对应红人详情/操作页（2026-07-12 PR #25）
 - **红人工作台旧版核心流程还原**：保留新版视觉和额外工具，恢复千川仿写闭环、价值观四步仿写、直播脚本上下文、六类素材文档/视频、逐份复盘，以及原片与剪辑成片的完整视频预审；TikTok 工具不在本轮范围。完整视频预审使用统一配置中的 Gemini（谷歌视频模型）能力，未配置时明确失败、不降级为关键帧。
+- **数据库迁移链路**：既有数据库通过 `schema_migrations` 账本按文件顺序执行未完成迁移；包含校验和、单文件事务和并发锁，已执行 seed 不重放。首次接管旧库必须先备份并显式核对基线。
 - **运营首页**：数据概览，产出趋势，常用工具
 - **产出中心**：AI 产出记录，入驻报告管理，分享链接管理
 
@@ -135,8 +136,9 @@ pip install -r requirements.txt
 cp .env.example .env
 # 编辑 .env，填写数据库连接、JWT_SECRET 等
 
-# 一键初始化数据库（Mac/Linux）
-bash scripts/init_db.sh   # 默认 postgres/admin123/mcn_m1
+# 按账本执行数据库迁移（Mac/Linux）
+# 既有库首次纳管必须先按 deploy/README.md 备份、核对并登记基线
+bash ../deploy/scripts/init-db.sh
 
 # 一键初始化测试数据库（只需创建空库，表由 conftest.py 自动建删）
 bash scripts/init_test_db.sh   # 默认 postgres/admin123/mcn_test
