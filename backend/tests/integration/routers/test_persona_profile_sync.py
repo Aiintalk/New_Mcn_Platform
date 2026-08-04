@@ -439,6 +439,56 @@ async def test_interrupted_generation_never_archives_partial_output_or_syncs_pro
     assert response.json()["data"]["failure_reason"] == "generation_failed"
 
 
+@pytest.mark.parametrize("raw_output", [
+    "只有人格档案",
+    "===SPLIT===只有内容规划",
+    "只有人格档案===SPLIT===",
+    "人格档案===SPLIT===内容规划===SPLIT===异常多段",
+])
+async def test_invalid_report_structure_never_archives_output_or_syncs_seven_fields(
+    raw_output, test_client, operator_headers, test_session, operator_user
+):
+    kol_id, report_id = await _make_report(test_session, operator_user)
+    docx_spy = MagicMock(return_value="/tmp/report.docx")
+    with patch("app.routers.persona.generate_persona_docx", docx_spy), patch(
+        "app.routers.persona._extract_grounded_facts",
+        new=AsyncMock(return_value={field: "不应写入" for field in (
+            "background", "experience", "relationships", "unique_story", "extra_notes"
+        )}),
+    ):
+        await _finalize_report(
+            report_id,
+            raw_output,
+            operator_user,
+            _request(),
+        )
+
+    test_session.expire_all()
+    report = await test_session.get(PersonaReport, report_id)
+    kol = await test_session.get(Kol, kol_id)
+    assert report.status == "failed"
+    assert report.profile_result is None
+    assert report.plan_result is None
+    assert report.raw_output is None
+    assert report.profile_docx_path is None
+    assert report.plan_docx_path is None
+    assert all(getattr(kol, field) is None for field in (
+        "persona", "content_plan", "background", "experience",
+        "relationships", "unique_story", "extra_notes",
+    ))
+    output_count = (await test_session.execute(
+        select(func.count()).select_from(Output).where(
+            Output.content_json["report_id"].astext == str(report_id)
+        )
+    )).scalar_one()
+    assert output_count == 0
+    docx_spy.assert_not_called()
+    response = await test_client.get(
+        f"/api/persona/reports/{report_id}", headers=operator_headers
+    )
+    assert response.json()["data"]["failure_reason"] == "generation_failed"
+
+
 async def test_fact_extraction_failure_does_not_change_ready_report_or_positioning_sync(
     test_client, operator_headers, test_session, operator_user
 ):

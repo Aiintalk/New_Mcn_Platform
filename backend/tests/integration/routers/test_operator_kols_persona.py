@@ -157,3 +157,154 @@ class TestFillEmptyFacts:
         )
         assert details.json()["data"]["background"] == "人工基本身份"
         assert details.json()["data"]["experience"] == "自己的最新报告原文"
+
+    @pytest.mark.parametrize(("facts", "expected_fields"), [
+        ({
+            "background": "",
+            "experience": "报告中的真实经历",
+            "relationships": "",
+            "unique_story": "",
+            "extra_notes": "",
+        }, ["experience"]),
+        ({
+            "background": "",
+            "experience": "",
+            "relationships": "",
+            "unique_story": "",
+            "extra_notes": "",
+        }, []),
+    ])
+    @pytest.mark.asyncio
+    async def test_successful_retry_closes_latest_fact_failure_even_without_new_fields(
+        self,
+        facts,
+        expected_fields,
+        test_client,
+        operator_headers,
+        test_session,
+        operator_user,
+    ):
+        kol_id = await _create_kol(test_session)
+        report = PersonaReport(
+            operator_id=operator_user.id,
+            kol_id=kol_id,
+            status="ready",
+            profile_result="报告中的真实经历",
+        )
+        test_session.add(report)
+        await test_session.flush()
+        test_session.add(OperationLog(
+            user_id=operator_user.id,
+            username=operator_user.username,
+            role=operator_user.role,
+            action="persona_fact_sync_failed",
+            target_type="persona_report",
+            target_id=report.id,
+            detail={"kol_id": kol_id, "status": "failed"},
+            ip="127.0.0.1",
+        ))
+        await test_session.commit()
+
+        with patch(
+            "app.routers.admin_kols._extract_grounded_facts",
+            new=AsyncMock(return_value=facts),
+        ):
+            response = await test_client.post(
+                f"/api/operator/kols/{kol_id}/persona-details/fill-empty",
+                headers=operator_headers,
+            )
+
+        assert response.json()["data"]["filled_fields"] == expected_fields
+        detail = await test_client.get(
+            f"/api/persona/reports/{report.id}", headers=operator_headers
+        )
+        assert detail.json()["data"]["fact_sync_failed"] is False
+        latest_log = (await test_session.execute(
+            select(OperationLog)
+            .where(
+                OperationLog.target_type == "persona_report",
+                OperationLog.target_id == report.id,
+                OperationLog.action.in_((
+                    "persona_fact_sync_failed", "fill_kol_persona_facts"
+                )),
+            )
+            .order_by(OperationLog.created_at.desc(), OperationLog.id.desc())
+            .limit(1)
+        )).scalar_one()
+        assert latest_log.action == "fill_kol_persona_facts"
+        assert latest_log.detail == {
+            "kol_id": kol_id,
+            "report_id": report.id,
+            "fields": expected_fields,
+        }
+        assert "报告中的真实经历" not in str(latest_log.detail)
+
+    @pytest.mark.asyncio
+    async def test_failed_retry_becomes_latest_fact_state_without_logging_report_text(
+        self, test_client, operator_headers, test_session, operator_user
+    ):
+        kol_id = await _create_kol(test_session)
+        report = PersonaReport(
+            operator_id=operator_user.id,
+            kol_id=kol_id,
+            status="ready",
+            profile_result="不得进入日志的报告正文",
+        )
+        test_session.add(report)
+        await test_session.flush()
+        test_session.add(OperationLog(
+            user_id=operator_user.id,
+            username=operator_user.username,
+            role=operator_user.role,
+            action="persona_fact_sync_failed",
+            target_type="persona_report",
+            target_id=report.id,
+            detail={"kol_id": kol_id, "status": "failed"},
+            ip="127.0.0.1",
+        ))
+        await test_session.flush()
+        test_session.add(OperationLog(
+            user_id=operator_user.id,
+            username=operator_user.username,
+            role=operator_user.role,
+            action="fill_kol_persona_facts",
+            target_type="kol",
+            target_id=kol_id,
+            detail={"kol_id": kol_id, "report_id": report.id, "fields": []},
+            ip="127.0.0.1",
+        ))
+        await test_session.commit()
+
+        detail_before_retry = await test_client.get(
+            f"/api/persona/reports/{report.id}", headers=operator_headers
+        )
+        assert detail_before_retry.json()["data"]["fact_sync_failed"] is False
+
+        with patch(
+            "app.routers.admin_kols._extract_grounded_facts",
+            new=AsyncMock(side_effect=RuntimeError("提取失败")),
+        ):
+            response = await test_client.post(
+                f"/api/operator/kols/{kol_id}/persona-details/fill-empty",
+                headers=operator_headers,
+            )
+
+        assert response.json()["success"] is False
+        detail = await test_client.get(
+            f"/api/persona/reports/{report.id}", headers=operator_headers
+        )
+        assert detail.json()["data"]["fact_sync_failed"] is True
+        latest_log = (await test_session.execute(
+            select(OperationLog)
+            .where(
+                OperationLog.target_type == "persona_report",
+                OperationLog.target_id == report.id,
+                OperationLog.action.in_((
+                    "persona_fact_sync_failed", "fill_kol_persona_facts"
+                )),
+            )
+            .order_by(OperationLog.created_at.desc(), OperationLog.id.desc())
+            .limit(1)
+        )).scalar_one()
+        assert latest_log.action == "persona_fact_sync_failed"
+        assert "不得进入日志的报告正文" not in str(latest_log.detail)

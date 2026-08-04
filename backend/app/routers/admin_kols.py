@@ -552,6 +552,9 @@ async def fill_empty_persona_facts(
     try:
         facts = await _extract_grounded_facts(profile_result, current_user)
     except Exception:
+        # 延迟导入避免 admin/persona 路由加载顺序形成循环依赖。
+        from app.routers.persona import _record_fact_sync_failure
+        await _record_fact_sync_failure(report_id, current_user, request)
         return error_response(ErrorCode.INTERNAL_ERROR, "人物事实提取失败，请稍后重试")
 
     async with AsyncSessionLocal() as session:
@@ -571,18 +574,22 @@ async def fill_empty_persona_facts(
             setattr(kol, field, facts[field])
         if filled_fields:
             kol.updated_at = datetime.now(timezone.utc)
-            session.add(OperationLog(
-                user_id=current_user.id,
-                username=current_user.username,
-                role=current_user.role,
-                action="fill_kol_persona_facts",
-                target_type="kol",
-                target_id=kol_id,
-                detail={"report_id": report_id, "fields": filled_fields},
-                ip=_get_ip(request),
-                user_agent=request.headers.get("user-agent"),
-            ))
-            await session.commit()
+        session.add(OperationLog(
+            user_id=current_user.id,
+            username=current_user.username,
+            role=current_user.role,
+            action="fill_kol_persona_facts",
+            target_type="persona_report",
+            target_id=report_id,
+            detail={
+                "kol_id": kol_id,
+                "report_id": report_id,
+                "fields": filled_fields,
+            },
+            ip=_get_ip(request),
+            user_agent=request.headers.get("user-agent"),
+        ))
+        await session.commit()
 
     return success_response(data={
         "kol_id": kol_id,

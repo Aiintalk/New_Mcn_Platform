@@ -638,10 +638,20 @@ async def _finalize_report(
                 )
                 return
 
-            # 拆分
+            # 人格档案与内容规划必须同时存在，异常分段不能进入正式归档。
             split_parts = raw_output.split("===SPLIT===")
-            profile_result = split_parts[0].strip() if len(split_parts) >= 1 else ""
-            plan_result = split_parts[1].strip() if len(split_parts) >= 2 else ""
+            if (
+                len(split_parts) != 2
+                or not split_parts[0].strip()
+                or not split_parts[1].strip()
+            ):
+                await _mark_generation_failed(
+                    db, report, current_user, request, "generation_failed"
+                )
+                return
+            profile_result, plan_result = (
+                part.strip() for part in split_parts
+            )
 
             # 提取达人名字
             influencer_name = _extract_influencer_name(profile_result) or report.douyin_nickname or "达人"
@@ -1072,13 +1082,22 @@ async def _report_failure_state(
 ) -> tuple[str | None, bool, bool]:
     logs = (await db.execute(
         select(OperationLog)
-        .where(OperationLog.target_type == "persona_report")
-        .where(OperationLog.target_id == report_id)
-        .where(OperationLog.action.in_((
-            "persona_generation_failed",
-            "persona_profile_sync_failed",
-            "persona_fact_sync_failed",
-        )))
+        .where(or_(
+            (
+                (OperationLog.target_type == "persona_report")
+                & (OperationLog.target_id == report_id)
+                & OperationLog.action.in_((
+                    "persona_generation_failed",
+                    "persona_profile_sync_failed",
+                    "persona_fact_sync_failed",
+                    "fill_kol_persona_facts",
+                ))
+            ),
+            (
+                (OperationLog.action == "fill_kol_persona_facts")
+                & (OperationLog.detail["report_id"].astext == str(report_id))
+            ),
+        ))
         .order_by(OperationLog.created_at.desc(), OperationLog.id.desc())
     )).scalars().all()
     actions = {log.action for log in logs}
@@ -1089,10 +1108,15 @@ async def _report_failure_state(
         (generation_failure.detail or {}).get("reason")
         if generation_failure else None
     )
+    latest_fact_sync = next((
+        log for log in logs
+        if log.action in ("persona_fact_sync_failed", "fill_kol_persona_facts")
+    ), None)
     return (
         failure_reason,
         "persona_profile_sync_failed" in actions,
-        "persona_fact_sync_failed" in actions,
+        latest_fact_sync is not None
+        and latest_fact_sync.action == "persona_fact_sync_failed",
     )
 
 @router.get("/api/persona/reports/{report_id}")
