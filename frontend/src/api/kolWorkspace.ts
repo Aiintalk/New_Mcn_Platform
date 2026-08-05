@@ -1,6 +1,7 @@
 import { get, post, put, del } from './request';
 import type {
   WorkspaceDashboardData, KolBenchmark, QianchuanProduct, PersonaDetails,
+  PersonaDetailsUpdate, FillEmptyPersonaFactsResult,
 } from '../types/kolWorkspace';
 
 // 首页聚合
@@ -41,5 +42,8 @@ export const updateActiveProducts = (kolId: number, productIds: number[]) =>
 export const getPersonaDetails = (kolId: number) =>
   get<PersonaDetails>(`/api/operator/kols/${kolId}/persona-details`);
 
-export const updatePersonaDetails = (kolId: number, data: Partial<PersonaDetails>) =>
+export const updatePersonaDetails = (kolId: number, data: PersonaDetailsUpdate) =>
   put<PersonaDetails>(`/api/operator/kols/${kolId}/persona-details`, data);
+
+export const fillEmptyPersonaFacts = (kolId: number) =>
+  post<FillEmptyPersonaFactsResult>(`/api/operator/kols/${kolId}/persona-details/fill-empty`);

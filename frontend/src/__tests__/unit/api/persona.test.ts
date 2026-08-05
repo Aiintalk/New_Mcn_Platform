@@ -14,9 +14,12 @@ vi.mock('../../../api/request', () => ({
 
 import {
   fetchDouyin,
-  getKolSubmissions,
+  generatePersona,
+  getPersonaKols,
+  getPersonaKolIntake,
   getPersonaReports,
   getPersonaReportDetail,
+  syncPersonaReportDecisions,
   deletePersonaReport,
 } from '../../../api/persona';
 
@@ -44,10 +47,60 @@ describe('persona API — request.ts 封装接口', () => {
     expect(result.total_videos).toBe(100);
   });
 
-  it('getKolSubmissions calls GET /api/persona/kol-submissions', async () => {
-    mockGet.mockResolvedValue([]);
-    await getKolSubmissions();
-    expect(mockGet).toHaveBeenCalledWith('/api/persona/kol-submissions');
+  it('getPersonaKols calls the formal KOL list with search and pagination', async () => {
+    mockGet.mockResolvedValue({ items: [], pagination: { page: 1, page_size: 20, total: 0, total_pages: 0 } });
+
+    await getPersonaKols({ page: 1, page_size: 20, keyword: '兔兔' });
+
+    expect(mockGet).toHaveBeenCalledWith('/api/persona/kols', {
+      page: 1,
+      page_size: 20,
+      keyword: '兔兔',
+    });
+  });
+
+  it('getPersonaKolIntake calls the selected formal KOL intake endpoint', async () => {
+    mockGet.mockResolvedValue(null);
+
+    await getPersonaKolIntake(43);
+
+    expect(mockGet).toHaveBeenCalledWith('/api/persona/kols/43/intake');
+  });
+
+  it('syncPersonaReportDecisions posts field-level decisions', async () => {
+    mockPost.mockResolvedValue({ persona: 'kept', content_plan: 'overwritten' });
+
+    await syncPersonaReportDecisions(88, {
+      persona: 'keep',
+      content_plan: 'overwrite',
+    });
+
+    expect(mockPost).toHaveBeenCalledWith('/api/persona/reports/88/sync-decisions', {
+      decisions: {
+        persona: 'keep',
+        content_plan: 'overwrite',
+      },
+    });
+  });
+
+  it('generatePersona sends the formal kol_id in the streaming request body', async () => {
+    const reader = { read: vi.fn() } as unknown as ReadableStreamDefaultReader<Uint8Array>;
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: new Headers({ 'X-Report-Id': '88' }),
+      body: { getReader: () => reader },
+    });
+    vi.stubGlobal('fetch', mockFetch);
+
+    const result = await generatePersona({ kol_id: 43, influencer_info: '达人资料' });
+
+    expect(result).toEqual({ reader, reportId: 88 });
+    expect(mockFetch).toHaveBeenCalledOnce();
+    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toEqual({
+      kol_id: 43,
+      influencer_info: '达人资料',
+    });
   });
 
   it('getPersonaReports calls GET /api/persona/reports', async () => {

@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.response import success_response
 from app.middlewares.auth import get_current_user
+from app.models.kol import Kol
 from app.models.kol_intake import KolIntakeLink, KolIntakeSubmission
 from app.models.log import OperationLog
 from app.models.user import User
@@ -54,11 +55,26 @@ def _get_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
+async def _get_active_kol(db: AsyncSession, kol_id: int | None) -> Kol | None:
+    if kol_id is None:
+        return None
+    kol = (await db.execute(
+        select(Kol).where(Kol.id == kol_id).where(Kol.deleted_at.is_(None))
+    )).scalar_one_or_none()
+    if kol is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "RESOURCE_NOT_FOUND", "message": "达人不存在"},
+        )
+    return kol
+
+
 # ---------------------------------------------------------------------------
 # POST /operator/intake/links
 # ---------------------------------------------------------------------------
 
 class CreateLinkRequest(BaseModel):
+    kol_id: int | None = None
     kol_name: str | None = None
     expire_hours: int = 168  # 默认 7 天
 
@@ -71,11 +87,13 @@ async def create_link(
     current_user: User = Depends(require_operator),
 ):
     """生成一次性分享链接。"""
+    await _get_active_kol(db, body.kol_id)
     token = secrets.token_urlsafe(32)
     expires_at = datetime.now(timezone.utc) + timedelta(hours=body.expire_hours)
     link = KolIntakeLink(
         token=token,
         operator_id=current_user.id,
+        kol_id=body.kol_id,
         kol_name=body.kol_name,
         expires_at=expires_at,
     )
@@ -88,7 +106,7 @@ async def create_link(
         action="create_intake_link",
         target_type="link",
         target_id=link.id,
-        detail={"kol_name": body.kol_name},
+        detail={"kol_id": body.kol_id, "kol_name": body.kol_name},
         ip=_get_ip(request),
         user_agent=request.headers.get("user-agent"),
     ))
@@ -97,6 +115,7 @@ async def create_link(
 
     return success_response(data={
         "id":         link.id,
+        "kol_id":     link.kol_id,
         "token":      link.token,
         "kol_name":   link.kol_name,
         "expires_at": _ts(link.expires_at),

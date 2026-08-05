@@ -18,6 +18,7 @@ class PersonaReport(Base):
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     operator_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    kol_id = Column(BigInteger, ForeignKey("kols.id", ondelete="SET NULL"), nullable=True)
 
     # Step 1 输入
     douyin_id = Column(String(200))

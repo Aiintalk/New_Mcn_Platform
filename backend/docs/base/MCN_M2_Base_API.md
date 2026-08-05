@@ -198,14 +198,15 @@ Response：文件流
 | GET  | `/api/operator/intake/submissions` | 我的提交列表 |
 | GET  | `/api/operator/intake/submissions/{id}` | 提交详情（含 messages + ai_report） |
 | GET  | `/api/operator/intake/submissions/{id}/download` | 运营下载报告 |
+| POST | `/api/operator/intake/direct/start` | 新建运营直发会话，可选绑定正式达人 |
 
 ---
 
 ### POST `/api/operator/intake/links` — 生成分享链接
 
-Request:
+Request：`kol_id` 可选；一旦传入，后端必须校验它指向未删除的正式 `kols` 记录。`kol_name` 只作展示，不参与任何自动匹配。
 ```json
-{ "kol_name": "张三", "expires_hours": 24 }
+{ "kol_id": 43, "kol_name": "张三", "expire_hours": 24 }
 ```
 
 Response:
@@ -217,6 +218,7 @@ Response:
   "data": {
     "id": 1,
     "token": "abc123",
+    "kol_id": 43,
     "kol_name": "张三",
     "expires_at": "2026-06-09T10:00:00+08:00",
     "share_url": "/intake/abc123"
@@ -225,6 +227,8 @@ Response:
 ```
 
 业务规则：
+- `kol_id` 不传时保留为 `null`，历史和新建未绑定记录均不得按姓名自动关联。
+- `kol_id` 传入时只按正式编号绑定，不使用 `kol_name` 猜测；操作日志仅记录对象编号，不记录档案正文。
 - 工具 `kol-intake` 状态不为 `online` 时，返回 `403`
 - `expires_hours` 范围：1 ~ 720（30天）
 
@@ -259,6 +263,12 @@ Query 参数：`?format=docx`（默认）或 `?format=pdf`
 不满足时 → `403: 链接仍在有效期内，请等待博主下载或链接到期后再操作`
 
 首次下载写入 `operator_downloaded_at`。
+
+### POST `/api/operator/intake/direct/start` — 新建运营直发会话
+
+Request：`{ "kol_id": 43, "kol_name": "张三" }`。`kol_id` 可选；传入时必须指向未删除的正式达人，并原样写入 `kol_intake_operator_sessions.kol_id`。不传时保存 `null`，不得按姓名自动匹配。
+
+Response.data：`{ "session_id": 21, "kol_id": 43, "kol_name": "张三" }`。后续对话、提交和报告生成沿用这条会话已保存的 `kol_id`，不得用会话编号冒充达人编号。
 
 ---
 
@@ -446,8 +456,6 @@ Response:
 | `avatar_url` | str | 否 | null | 头像 URL |
 | `follower_count` | int | 否 | null | 粉丝数 |
 | `video_count` | int | 否 | null | 作品数 |
-| `persona` | str | 否 | null | 人格档案 |
-| `content_plan` | str | 否 | null | 内容规划 |
 | `style_note` | str | 否 | null | 风格备注（**前端字段名**，映射到 DB `style_notes`） |
 | `owner` | str | 否 | null | 负责人姓名 |
 | `owner_id` | int | 否 | null | 负责人 user_id |
@@ -468,7 +476,7 @@ Response:
 
 ### 6A.5 PATCH `/api/admin/kols/{kol_id}` — 更新红人
 
-**Request Body**：`UpdateKolRequest`（所有字段均可选，与 CreateKolRequest 字段集相同）
+**Request Body**：`UpdateKolRequest`（所有字段均可选，与 CreateKolRequest 字段集相同）。Sprint 25 起不再接受 `persona` / `content_plan` 写入；红人管理只读展示这两项并跳转红人工作台维护。
 
 > ⚠️ **2026-07-12 起**：`UpdateKolRequest` **删除了 `status` 字段**。`status` 改为根据 persona + content_plan 动态计算（见 §6A.8）。客户端若仍传 `status` 字段，会被 Pydantic 静默忽略（不报错但不生效）。
 
@@ -562,9 +570,11 @@ Response:
 | POST | `/api/persona/optimize` | SSE 流式优化对话 |
 | POST | `/api/persona/export-word` | 导出 Word 文档 |
 | GET  | `/api/persona/questionnaire-template` | 下载问卷模板 |
-| GET  | `/api/persona/kol-submissions` | KOL 入驻列表（供导入达人资料） |
+| GET  | `/api/persona/kols` | 正式达人列表（分页、搜索，值为 `kols.id`） |
+| GET  | `/api/persona/kols/{kol_id}/intake` | 当前运营对该正式达人有权访问的最近完成入驻资料 |
 | GET  | `/api/persona/reports` | 报告列表（当前用户最近 50 条） |
 | GET  | `/api/persona/reports/{id}` | 报告详情 |
+| POST | `/api/persona/reports/{id}/sync-decisions` | 对待覆盖定位字段提交覆盖或保留决定 |
 | DELETE | `/api/persona/reports/{id}` | 软删除报告 |
 
 ### POST `/api/persona/fetch-douyin` — 解析抖音账号
@@ -591,19 +601,72 @@ Response:
 Request:
 ```json
 {
-  "douyin_text": "...",
+  "kol_id": 43,
+  "influencer_info": "已导入或上传的达人资料",
   "douyin_nickname": "然然",
-  "sec_user_id": "MS4w...",
-  "top_videos": [...],
-  "file_content": "上传文件解析后的文本",
-  "kol_submission_id": null,
-  "additional_info": "补充信息"
+  "top10_content": "...",
+  "recent30_text": "...",
+  "questionnaire_files": [],
+  "supplement_text": "补充信息"
 }
 ```
 
-Response：SSE `text/event-stream`，逐 chunk 输出 AI 生成内容。
+Response：`text/plain` 流式逐 chunk 输出 AI 生成内容，响应头 `X-Report-Id` 返回报告编号。
 
-AI 输出用 `===SPLIT===` 分隔两部分：人格档案 + 内容规划。
+AI 输出必须且只能用一个 `===SPLIT===` 分隔两部分：人格档案 + 内容规划；分隔符缺失、任一侧为空或出现多段时，报告标记为 `failed`，不生成 Output、不写正式档案。
+
+业务规则：
+- `kol_id` 必填，必须是未删除的正式达人；报告创建、输出记录、正式档案同步和操作日志始终使用同一编号。
+- `persona` / `content_plan` 为空时自动写入；非空且与新报告不同时进入待覆盖列表，默认保留。
+- 五项人物事实从 `profile_result` 提取，只接受能在报告正文中找到原文证据的内容，且只写当前空字段；提取失败不把报告改为生成失败。
+- 报告历史始终保留，即使运营拒绝覆盖已有正式档案。
+
+### GET `/api/persona/kols` — 正式达人列表
+
+Query：`page`（默认 1）、`page_size`（10/20/50，默认 20）、`keyword`（匹配 name / account_name / douyin_id）。只返回 `deleted_at IS NULL` 的 `kols`。
+
+Response.data：
+```json
+{
+  "items": [{
+    "id": 43,
+    "name": "mini兔兔",
+    "account_name": "mini兔兔",
+    "douyin_id": "mini2026",
+    "profile_filled_count": 6,
+    "profile_total": 7
+  }],
+  "pagination": { "page": 1, "page_size": 20, "total": 1, "total_pages": 1 }
+}
+```
+
+不得读取入驻会话代替达人，不返回会话编号或未绑定历史会话。
+
+### GET `/api/persona/kols/{kol_id}/intake` — 最近关联入驻资料
+
+只在分享链接或运营直发会话明确保存相同 `kol_id`、报告状态为 `ready`、报告非空且 `operator_id=current_user.id` 时返回最近一条。Response.data 为 `null` 或：
+```json
+{
+  "completed_at": "2026-08-03T10:00:00+08:00",
+  "formatted_answers": "【达人回答】...",
+  "report": "入驻报告正文"
+}
+```
+
+历史 `kol_id IS NULL` 记录、其他运营记录和姓名相同但编号不同的记录均不得返回。
+
+### GET `/api/persona/reports/{id}` — 报告详情与同步状态
+
+除历史字段外返回 `kol_id`、`sync_result`、`pending_overwrites`、`failure_reason`、`positioning_sync_failed` 和 `fact_sync_failed`。`pending_overwrites` 每项包含字段名、现有摘要和新报告摘要；`failure_reason` 仅在生成失败时返回 `kol_deleted` 或 `generation_failed`，两个同步失败布尔值分别表示定位字段同步和五项事实补全失败。`fact_sync_failed` 以同一报告最新一次事实同步结果为准，成功重试后关闭旧失败；不返回其他运营的报告。
+
+### POST `/api/persona/reports/{id}/sync-decisions` — 字段级覆盖决定
+
+Request：
+```json
+{ "decisions": { "persona": "keep", "content_plan": "overwrite" } }
+```
+
+只接受详情接口当前返回的待覆盖字段，字段分别判断，未显式选择覆盖时按 `keep` 处理。重复提交按最新正式值重算；相同内容不重复写入或重复产生覆盖日志。Response.data 返回字段级 `auto_written` / `overwritten` / `kept` / `unchanged` 结果。
 
 ### POST `/api/persona/optimize` — SSE 流式优化对话
 
@@ -2012,7 +2075,7 @@ Request Body：
 - 参考素材存于新表 `kol_references`（详见 `MCN_M2_Base_Database.md` §28）。
 - AI 配置存于新表 `material_library_configs`（详见 §29）。
 
-### 24.2 运营端接口（11 个）
+### 24.2 运营端接口（10 个）
 
 基础路径：`/api/tools/material-library`（operator / admin 鉴权，需已改密）
 
@@ -2020,15 +2083,14 @@ Request Body：
 |---|------|------|------|------|-------------|
 | 1 | GET | `/kols?search=&page=&page_size=` | 红人列表（搜索+聚合+分页）| 标准 | 否 |
 | 2 | GET | `/kols/{kol_id}` | 红人详情（persona + plan + references 按类型分组）| 标准 | 否 |
-| 3 | PUT | `/kols/{kol_id}/profile` | 更新 persona 和/或 content_plan | 标准 | 是 |
-| 4 | POST | `/kols/{kol_id}/references` | 新增参考素材 | 标准 | 是 |
-| 5 | DELETE | `/kols/{kol_id}/references/{ref_id}` | 软删参考素材 | 标准 | 是 |
-| 6 | GET | `/kols/{kol_id}/intake` | 红人最新入驻问卷数据 | 标准 | 否 |
-| 7 | POST | `/kols/{kol_id}/generate-soul` | AI 生成 soul.md 初稿（不自动保存）| 标准 | 是 |
-| 8 | PUT | `/kols/{kol_id}/references/{ref_id}` | 编辑标题、数据说明和正文 | 标准 | 是 |
-| 9 | POST | `/kols/{kol_id}/references/parse-document` | 解析脚本文档，返回可编辑正文和文档元数据 | 标准 | 是 |
-| 10 | POST | `/kols/{kol_id}/references/{ref_id}/video` | 上传或明确替换视频原片 | 标准 | 是 + OSS 调用日志 |
-| 11 | GET | `/kols/{kol_id}/references/{ref_id}/video/playback` | 鉴权后返回短时视频播放地址 | 标准 | OSS 调用日志 |
+| 3 | POST | `/kols/{kol_id}/references` | 新增参考素材 | 标准 | 是 |
+| 4 | DELETE | `/kols/{kol_id}/references/{ref_id}` | 软删参考素材 | 标准 | 是 |
+| 5 | GET | `/kols/{kol_id}/intake` | 红人最新入驻问卷数据 | 标准 | 否 |
+| 6 | POST | `/kols/{kol_id}/generate-soul` | AI 生成只读草稿（不写正式档案）| 标准 | 是 |
+| 7 | PUT | `/kols/{kol_id}/references/{ref_id}` | 编辑标题、数据说明和正文 | 标准 | 是 |
+| 8 | POST | `/kols/{kol_id}/references/parse-document` | 解析脚本文档，返回可编辑正文和文档元数据 | 标准 | 是 |
+| 9 | POST | `/kols/{kol_id}/references/{ref_id}/video` | 上传或明确替换视频原片 | 标准 | 是 + OSS 调用日志 |
+| 10 | GET | `/kols/{kol_id}/references/{ref_id}/video/playback` | 鉴权后返回短时视频播放地址 | 标准 | OSS 调用日志 |
 
 #### GET /kols?search=&page=&page_size=
 `page` 默认 1，`page_size` 默认 20，最大 100。Response.data：`{ items: KolListItem[], pagination }`
@@ -2064,13 +2126,7 @@ Response.data：`KolDetail`
 }
 ```
 
-#### PUT /kols/{kol_id}/profile
-Request Body（两个字段都可选，至少传一个）：
-```json
-{ "persona": "新的人格档案文本", "content_plan": "新的内容规划文本" }
-```
-Response.data：`{ "kol_id": 3, "updated_fields": ["persona"] }`
-写 OperationLog（action=`material_library_update_profile`，target_type=`kol`，target_id=kol_id）。
+Sprint 25 起移除 `PUT /kols/{kol_id}/profile`。素材库仅返回 `persona` / `content_plan` 只读摘要，正式编辑统一跳转 `/kol-workspace/{kol_id}` 的“人物档案”页签。
 
 #### POST /kols/{kol_id}/references
 Request Body：
@@ -2723,3 +2779,35 @@ Request Body：
 Response `data`：`{ "output_id": 456 }`。仅允许任务创建者或管理员保存；空报告会按平台统一响应信封返回 `success=false` 与 `VALIDATION_ERROR`（校验失败），HTTP 状态码为 `200`。
 
 `POST /export-word` 可复用，传入上述保存前或保存后的报告文本即可导出 `.docx` 办公文档。
+
+---
+
+## 31. Sprint 25 — 红人工作台统一人物档案
+
+基础路径：`/api/operator/kols/{kol_id}/persona-details`。鉴权：已改密的 `operator` / `admin`。正式数据始终写入同一条 `kols` 记录。
+
+### GET `/api/operator/kols/{kol_id}/persona-details`
+
+返回 `persona`、`content_plan`、`background`、`experience`、`relationships`、`unique_story`、`extra_notes` 共七项正式字段，以及 `filled_count`、`total_count=7`、`updated_at`。空白字符串按空值计算。
+
+### PUT `/api/operator/kols/{kol_id}/persona-details`
+
+一次请求必须且只能提交七项字段中的一个；允许提交空字符串以便运营清空。任一字段保存失败不影响其他字段。写 OperationLog：`action=update_kol_persona_field`，detail 只含 `field`，不得记录正文。
+
+Request 示例：`{ "persona": "完整人格档案" }`。
+
+### POST `/api/operator/kols/{kol_id}/persona-details/fill-empty`
+
+读取当前运营自己创建、同一 `kol_id`、状态为 `ready` 的最新人格报告，重新执行有原文证据约束的五项人物事实提取，只写当前为空的事实字段，不触碰 `persona` / `content_plan`，不覆盖任何非空内容。
+
+Response.data：
+```json
+{
+  "kol_id": 43,
+  "report_id": 88,
+  "filled_fields": ["extra_notes"],
+  "preserved_fields": ["background", "experience", "relationships", "unique_story"]
+}
+```
+
+没有可用报告时返回 `RESOURCE_NOT_FOUND`；提取无可用事实时成功返回空 `filled_fields`。提取成功后即写 OperationLog：`action=fill_kol_persona_facts`，包括没有新字段可填的成功重试；detail 只含达人编号、报告编号和字段名，不记录正文。提取失败写同一报告编号的 `persona_fact_sync_failed`，供详情按最新结果展示当前状态。
