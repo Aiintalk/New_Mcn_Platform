@@ -31,13 +31,35 @@
 
 ---
 
-## 改存量文件（19，全 eval 内部 + 2 接线）
+## §1. 改了哪些「已有文件」（12 个生产文件 — 动存量，郜郜重点审）
 
-**后端 eval 内部**：`constants.py` / `admin_evaluation.py` / `operator_evaluation.py` / `worker.py` + 对应测试
-**前端 eval 内部**：`api/index.ts` / `types/index.ts` / `primitives.tsx` / `RunDetail.tsx` / `Runs.tsx` / `TestCaseEdit.tsx` + 测试
-**前端接线**：`App.tsx`（+Observability 路由）/ `AdminLayout.tsx`（+评测监控 菜单项）
+> 测试文件改动（7 个）不列——不影响生产行为。配附录 A 看逐行 diff。
 
-> **无共享/核心文件**（`yunwu.py`/`main.py`/`models/__init__`/`requirements`/`conftest` 均在 PR #34 已合并，本分支未再动）。
+### 后端 eval（4 个）
+
+| 文件 | 改了什么 | 为什么 | 风险 |
+|---|---|---|---|
+| `constants.py` | +`RUN_STATUS_CANCELLED` 常量 | cancel 功能需要 cancelled 状态值 | 低（纯新增常量，不改现有值）|
+| `routers/admin_evaluation.py` | +`queue-stats` +`runs/{id}/jobs` 端点（+import func/text/EvalCaseJob/EvalRun）| Phase 5 可观测 | 低（纯新增只读 admin 端点，不动现有端点）|
+| `routers/operator_evaluation.py` | +`GET /runs` 列表 +`POST /cancel` +`GET /case-results` +`GET /test-cases/{id}`；`get_run` 末尾加 ETA 查询 | 运行管理完全体 | 低（纯新增端点；唯一改存量行= get_run 加 avg/eta 计算，不改原有 `_run_to_dict`）|
+| `worker.py` | `aggregate_run_progress` 加 cancelled 守卫（+import RUN_STATUS_CANCELLED）| 防 cancel 后在跑 job 完成把 cancelled 翻成 completed | ⚠️ **改并发敏感函数**：但仅加 `row[3] != CANCELLED` 条件——现有 completed/failed/pending/running 路径不受影响（它们的 status≠cancelled，守卫不触发）。多轮 review + 回归测试验证。 |
+
+### 前端（8 个）
+
+| 文件 | 改了什么 | 风险 |
+|---|---|---|
+| `App.tsx` | +1 lazy import +1 Route（Observability 评测监控页）| 低（纯新增路由）|
+| `layouts/AdminLayout.tsx` | +1 菜单项（评测监控）| 低（纯新增）|
+| `api/index.ts` | +6 API 函数（listRuns/cancelRun/listCaseResults/getQueueStats/getRunJobs/getTestCase）| 低（纯新增函数）|
+| `types/index.ts` | +4 类型 + EvalRun 加可选 `eta_secs`/`avg_case_duration_secs` | 低（纯新增 + 可选字段，不破坏现有）|
+| `components/primitives.tsx` | +cancelled badge（RUN_STATUS_META +1 case）| 低（+1 行）|
+| `pages/RunDetail.tsx` | +轮询/+ETA卡/+cancel按钮/+case-results展开；run 类型改用 EvalRun | 低（单页面内改动，不影响其它页）|
+| `pages/Runs.tsx` | 删 localStorage 兜底 → listRuns API + 触发刷新 | 低（单页面内改动）|
+| `pages/TestCaseEdit.tsx` | 编辑模式 list+find → getTestCase 单条 | 低（单页面内改动）|
+
+> **核心结论**：12 个生产文件，**11 个是纯新增（端点/函数/类型/路由）或单页面内改动，0 核心业务逻辑改动**。唯一需关注 = `worker.py` 的 aggregate 守卫（并发敏感函数）——但仅加了 cancelled 条件分支，现有路径完全不受影响，经多轮独立 review + 回归测试。
+>
+> **无共享/核心文件改动**（`yunwu.py`/`main.py`/`models/__init__`/`requirements`/`conftest` 均在已合 PR #34，本分支零改动）→ **对主工程零侵入**。
 
 ## 新增文件
 - `frontend/src/evaluation/pages/Observability.tsx` + 测试（评测监控 admin 页）
