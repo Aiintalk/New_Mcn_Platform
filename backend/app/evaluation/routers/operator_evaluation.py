@@ -29,7 +29,7 @@ import math
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -38,7 +38,12 @@ from app.middlewares.auth import get_current_user
 from app.models.log import OperationLog
 from app.models.user import User
 
-from app.evaluation.constants import TRIGGER_TYPE_MANUAL
+from app.evaluation.constants import (
+    RUN_STATUS_CANCELLED,
+    RUN_STATUS_PENDING,
+    RUN_STATUS_RUNNING,
+    TRIGGER_TYPE_MANUAL,
+)
 from app.evaluation.models import (
     EvalCaseResult,
     EvalHumanLabel,
@@ -220,6 +225,22 @@ async def list_test_cases(
     })
 
 
+@router.get("/test-cases/{test_case_id}")
+async def get_test_case(
+    test_case_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_operator),
+):
+    """测试样本单条（编辑模式用，替代早期 list+find，样本超 50 也能取到）。"""
+    tc = await db.get(EvalTestCase, test_case_id)
+    if tc is None or tc.deleted_at is not None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": ErrorCode.RESOURCE_NOT_FOUND, "message": "测试样本不存在"},
+        )
+    return success_response(data=_test_case_to_dict(tc))
+
+
 @router.post("/test-cases")
 async def create_test_case(
     body: TestCaseCreate,
@@ -354,6 +375,52 @@ async def list_versions(
 # ---------------------------------------------------------------------------
 
 
+@router.get("/runs")
+async def list_runs(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    status: str | None = None,
+    version_id: int | None = None,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_operator),
+):
+    """运行分页列表（status / version_id 过滤，id 倒序）。
+
+    响应：{items:[_run_to_dict], pagination:{page,page_size,total,total_pages}}。
+    """
+    if page_size not in _PAGE_SIZE_ALLOWED:
+        page_size = 20
+
+    stmt = select(EvalRun)
+    if status:
+        stmt = stmt.where(EvalRun.status == status)
+    if version_id:
+        stmt = stmt.where(EvalRun.version_id == version_id)
+
+    from sqlalchemy import func as sa_func
+    count_stmt = select(sa_func.count()).select_from(EvalRun)
+    if status:
+        count_stmt = count_stmt.where(EvalRun.status == status)
+    if version_id:
+        count_stmt = count_stmt.where(EvalRun.version_id == version_id)
+    total = (await db.execute(count_stmt)).scalar() or 0
+
+    stmt = stmt.order_by(EvalRun.id.desc()).limit(page_size).offset((page - 1) * page_size)
+    rows = (await db.execute(stmt)).scalars().all()
+
+    items = [_run_to_dict(r) for r in rows]
+    total_pages = math.ceil(total / page_size) if total > 0 else 0
+    return success_response(data={
+        "items": items,
+        "pagination": {
+            "page": page,
+            "page_size": page_size,
+            "total": total,
+            "total_pages": total_pages,
+        },
+    })
+
+
 @router.post("/runs")
 async def trigger_run(
     body: dict,
@@ -413,14 +480,29 @@ async def get_run(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_operator),
 ):
-    """运行状态查询。"""
+    """运行状态查询（含 ETA：avg_case_duration_secs + eta_secs）。"""
     run = await db.get(EvalRun, run_id)
     if run is None:
         raise HTTPException(
             status_code=404,
             detail={"code": ErrorCode.RESOURCE_NOT_FOUND, "message": "运行不存在"},
         )
-    return success_response(data=_run_to_dict(run))
+    # ETA：用本 run 已完成 job 的平均耗时估算剩余（无 done job 则 null）
+    dur = (await db.execute(
+        text(
+            "SELECT AVG(EXTRACT(EPOCH FROM (finished_at - started_at))), "
+            "COUNT(*) FILTER (WHERE status = 'done'), "
+            "COUNT(*) FILTER (WHERE status = 'pending') "
+            "FROM eval_case_jobs WHERE run_id = :rid"
+        ),
+        {"rid": run_id},
+    )).fetchone()
+    avg_dur = dur[0] if dur else None
+    pending_n = (dur[2] if dur else 0) or 0
+    data = _run_to_dict(run)
+    data["avg_case_duration_secs"] = int(avg_dur) if avg_dur is not None else None
+    data["eta_secs"] = int(avg_dur * pending_n) if (avg_dur is not None and pending_n > 0) else None
+    return success_response(data=data)
 
 
 @router.get("/runs/{run_id}/scores")
@@ -445,6 +527,95 @@ async def list_run_scores(
     )
     rows = (await db.execute(stmt)).scalars().all()
     return success_response(data=[_score_to_dict(s) for s in rows])
+
+
+@router.get("/runs/{run_id}/case-results")
+async def list_run_case_results(
+    run_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_operator),
+):
+    """运行的所有 case 生成结果（含 generated_output，供前端「查看输出」）。
+
+    join eval_test_cases 拿真实样本名；按 test_case_id 排序。
+    """
+    run = await db.get(EvalRun, run_id)
+    if run is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": ErrorCode.RESOURCE_NOT_FOUND, "message": "运行不存在"},
+        )
+    stmt = (
+        select(EvalCaseResult, EvalTestCase.name)
+        .outerjoin(EvalTestCase, EvalTestCase.id == EvalCaseResult.test_case_id)
+        .where(EvalCaseResult.run_id == run_id)
+        .order_by(EvalCaseResult.test_case_id.asc())
+    )
+    rows = (await db.execute(stmt)).all()
+    return success_response(data=[
+        {
+            "id": cr.id,
+            "test_case_id": cr.test_case_id,
+            "test_case_name": name or f"样本 #{cr.test_case_id}",
+            "generated_output": cr.generated_output,
+            "output_payload": cr.output_payload,
+            "input_snapshot": cr.input_snapshot,
+            "created_at": _ts(cr.created_at),
+        }
+        for cr, name in rows
+    ])
+
+
+@router.post("/runs/{run_id}/cancel")
+async def cancel_run(
+    run_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_operator),
+):
+    """取消运行：pending job 标 cancelled + run 直接收尾 cancelled（写 OperationLog）。
+
+    worker 无需改动——已入队的 pending job 被 arq 投递时，run_case_job_logic 的幂等守卫
+    （status ∈ terminal → skip）自动跳过；在跑的 job 自然跑完（结果落库，run 仍 cancelled）。
+    """
+    run = await db.get(EvalRun, run_id)
+    if run is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": ErrorCode.RESOURCE_NOT_FOUND, "message": "运行不存在"},
+        )
+    if run.status not in (RUN_STATUS_PENDING, RUN_STATUS_RUNNING):
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "CONFLICT", "message": f"运行已终态（{run.status}），无法取消"},
+        )
+
+    prev_status = run.status
+    # pending job → cancelled（在跑的 job 不动，自然跑完）
+    await db.execute(
+        text(
+            "UPDATE eval_case_jobs SET status = 'cancelled', finished_at = NOW() "
+            "WHERE run_id = :rid AND status = 'pending'"
+        ),
+        {"rid": run_id},
+    )
+    run.status = RUN_STATUS_CANCELLED
+    run.finished_at = datetime.now(timezone.utc)
+
+    db.add(OperationLog(
+        user_id=current_user.id,
+        username=current_user.username,
+        role=current_user.role,
+        action="evaluation_run_cancel",
+        target_type="eval_run",
+        target_id=run.id,
+        detail={"prev_status": prev_status},
+        ip=_get_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    ))
+    await db.commit()
+    await db.refresh(run)
+    return success_response(data=_run_to_dict(run))
 
 
 # ---------------------------------------------------------------------------

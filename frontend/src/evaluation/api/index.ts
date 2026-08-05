@@ -10,15 +10,19 @@
 import { get, post, put, del } from '../../api/request';
 import type {
   EvalCaseDelta,
+  EvalCaseResult,
   EvalComparisonReport,
   EvalDimension,
   EvalDimensionCreate,
   EvalDimensionUpdate,
   EvalHumanLabelRequest,
   EvalPaged,
+  EvalQueueStats,
   EvalRubric,
+  EvalRunJob,
   EvalRubricBatchUpdate,
   EvalRun,
+  EvalRunListParams,
   EvalSchedulePolicy,
   EvalSchedulePolicyCreate,
   EvalSchedulePolicyUpdate,
@@ -50,6 +54,10 @@ export async function createTestCase(body: EvalTestCaseCreate) {
 
 export async function updateTestCase(id: number, body: EvalTestCaseUpdate) {
   return put<EvalTestCase>(`/api/operator/evaluation/test-cases/${id}`, body);
+}
+
+export async function getTestCase(id: number) {
+  return get<EvalTestCase>(`/api/operator/evaluation/test-cases/${id}`);
 }
 
 export async function deleteTestCase(id: number) {
@@ -92,12 +100,27 @@ export async function triggerRun(body: EvalTriggerRunRequest) {
   return post<EvalRun>('/api/operator/evaluation/runs', body);
 }
 
+export async function listRuns(params: EvalRunListParams = {}) {
+  return get<EvalPaged<EvalRun>>(
+    '/api/operator/evaluation/runs',
+    params as Record<string, string | number | boolean | undefined>,
+  );
+}
+
 export async function getRun(id: number) {
   return get<EvalRun>(`/api/operator/evaluation/runs/${id}`);
 }
 
 export async function listRunScores(id: number) {
   return get<EvalScore[]>(`/api/operator/evaluation/runs/${id}/scores`);
+}
+
+export async function listCaseResults(runId: number) {
+  return get<EvalCaseResult[]>(`/api/operator/evaluation/runs/${runId}/case-results`);
+}
+
+export async function cancelRun(id: number) {
+  return post<EvalRun>(`/api/operator/evaluation/runs/${id}/cancel`);
 }
 
 export async function submitHumanLabel(scoreId: number, body: EvalHumanLabelRequest) {
@@ -109,6 +132,18 @@ export async function compareRuns(runA: number, runB: number) {
     run_a: runA,
     run_b: runB,
   });
+}
+
+// ---------------------------------------------------------------------------
+// 可观测（admin，Phase 5）
+// ---------------------------------------------------------------------------
+
+export async function getQueueStats() {
+  return get<EvalQueueStats>('/api/admin/evaluation/queue-stats');
+}
+
+export async function getRunJobs(runId: number) {
+  return get<EvalRunJob[]>(`/api/admin/evaluation/runs/${runId}/jobs`);
 }
 
 // ---------------------------------------------------------------------------

@@ -18,6 +18,7 @@ import {
   listTestCases,
   createTestCase,
   updateTestCase,
+  getTestCase,
   deleteTestCase,
   listVersionsAdmin,
   listVersionsOperator,
@@ -27,7 +28,12 @@ import {
   cloneVersion,
   triggerRun,
   getRun,
+  listRuns,
   listRunScores,
+  listCaseResults,
+  cancelRun,
+  getQueueStats,
+  getRunJobs,
   submitHumanLabel,
   compareRuns,
   listDimensions,
@@ -83,6 +89,12 @@ describe('evaluation API — 测试样本 (operator)', () => {
     mockDel.mockResolvedValue({ id: 7, deleted_at: 't' });
     await deleteTestCase(7);
     expect(mockDel).toHaveBeenCalledWith('/api/operator/evaluation/test-cases/7');
+  });
+
+  it('getTestCase calls GET test-cases/:id', async () => {
+    mockGet.mockResolvedValue({ id: 7 });
+    await getTestCase(7);
+    expect(mockGet).toHaveBeenCalledWith('/api/operator/evaluation/test-cases/7');
   });
 });
 
@@ -157,6 +169,23 @@ describe('evaluation API — 运行 + 评分 (operator)', () => {
     });
   });
 
+  it('listRuns calls GET operator/runs with pagination + filter params', async () => {
+    mockGet.mockResolvedValue({ items: [], pagination: { total: 0 } });
+    await listRuns({ page: 2, page_size: 20, status: 'completed', version_id: 5 });
+    expect(mockGet).toHaveBeenCalledWith('/api/operator/evaluation/runs', {
+      page: 2,
+      page_size: 20,
+      status: 'completed',
+      version_id: 5,
+    });
+  });
+
+  it('listRuns defaults to empty params', async () => {
+    mockGet.mockResolvedValue({ items: [], pagination: { total: 0 } });
+    await listRuns();
+    expect(mockGet).toHaveBeenCalledWith('/api/operator/evaluation/runs', {});
+  });
+
   it('getRun calls GET operator/runs/:id', async () => {
     mockGet.mockResolvedValue({ id: 10 });
     await getRun(10);
@@ -167,6 +196,30 @@ describe('evaluation API — 运行 + 评分 (operator)', () => {
     mockGet.mockResolvedValue([]);
     await listRunScores(10);
     expect(mockGet).toHaveBeenCalledWith('/api/operator/evaluation/runs/10/scores');
+  });
+
+  it('listCaseResults calls GET operator/runs/:id/case-results', async () => {
+    mockGet.mockResolvedValue([]);
+    await listCaseResults(10);
+    expect(mockGet).toHaveBeenCalledWith('/api/operator/evaluation/runs/10/case-results');
+  });
+
+  it('cancelRun calls POST operator/runs/:id/cancel', async () => {
+    mockPost.mockResolvedValue({ id: 10, status: 'cancelled' });
+    await cancelRun(10);
+    expect(mockPost).toHaveBeenCalledWith('/api/operator/evaluation/runs/10/cancel');
+  });
+
+  it('getQueueStats calls GET admin/queue-stats', async () => {
+    mockGet.mockResolvedValue({ pending: 0 });
+    await getQueueStats();
+    expect(mockGet).toHaveBeenCalledWith('/api/admin/evaluation/queue-stats');
+  });
+
+  it('getRunJobs calls GET admin/runs/:id/jobs', async () => {
+    mockGet.mockResolvedValue([]);
+    await getRunJobs(16);
+    expect(mockGet).toHaveBeenCalledWith('/api/admin/evaluation/runs/16/jobs');
   });
 
   it('submitHumanLabel calls PUT operator/scores/:id/human-label', async () => {
