@@ -25,6 +25,7 @@
 
 > 各工具的产出记录统一复用 `outputs` 和 `task_jobs`，不单独建产出表。
 > 迁移文件清单见 §11（M2 数据迁移脚本，完整 006~029）。
+> 2026-08-05 外部只读 KOL API（`/api/external/kols`）不新增数据库表，只读取 M1 `kols` 表；字段定义以 `MCN_M1_Base_Database.md` §6 为准，人物档案 5 分区字段来自 migration 039。
 
 ---
 

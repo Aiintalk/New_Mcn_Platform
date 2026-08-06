@@ -14,6 +14,7 @@ MCN 红人孵化管理平台，支持多用户、多并发场景，集成 AI 能
 
 - **用户管理**：管理员 / 运营角色，JWT 鉴权，密码策略
 - **红人管理（KOL）**：TikHub 数据抓取，粉丝画像，红人档案
+- **外部 KOL 只读 API**：`/api/external/kols` 通过 `X-API-Key` 只读开放红人列表与详情，给其它项目读取 `kols` 表数据，不暴露数据库端口或账号
 - **AI 服务**：多服务商 Key 池（云雾/硅基流动/GLM），并发调度，僵尸锁自动清理，模型管理，使用统计
 - **TikHub 管理**：独立 Key 池，端点统计，用户排行，调用日志
 - **OSS 对象存储**：阿里云 OSS adapter（上传/下载/删除），独立凭证池，4 张统计卡 + 操作分布饼图 + 7 天趋势折线图 + 3 子 Tab（凭证管理 / 操作统计 / 用户排行）+ 连通性测试
@@ -49,14 +50,14 @@ mcn-platform/
 │   │   ├── adapters/                  #     外部服务适配器（AI、TikHub、OSS、ASR）
 │   │   ├── core/                      #     配置、数据库、安全、响应封装
 │   │   ├── middlewares/               #     JWT 鉴权中间件
-│   │   ├── models/                    #     SQLAlchemy ORM 模型（30 个文件）
-│   │   ├── routers/                   #     API 路由（按角色分文件，54 个）
+│   │   ├── models/                    #     SQLAlchemy ORM 模型（38 个文件）
+│   │   ├── routers/                   #     API 路由（按角色分文件，67 个）
 │   │   ├── schemas/                   #     Pydantic schema
 │   │   └── services/                  #     业务逻辑服务
 │   ├── docs/                          #   后端文档
 │   │   ├── README.md                  #     架构说明 + 文档索引
 │   │   ├── base/                      #     接口契约 + 数据库契约
-│   │   ├── tasks/                     #     任务单 + 验收文档（43 个）
+│   │   ├── tasks/                     #     任务单 + 验收文档（57 个）
 │   │   └── tests/                     #     测试报告 + 测试任务
 │   ├── tests/                         #   测试代码
 │   │   ├── unit/                      #     单元测试
@@ -64,7 +65,7 @@ mcn-platform/
 │   │   ├── e2e/                       #     端到端测试
 │   │   ├── concurrent/                #     并发隔离测试
 │   │   └── intake/                    #     入驻问卷专项测试
-│   ├── migrations/                    #   SQL 迁移脚本（001 ~ 033）
+│   ├── migrations/                    #   SQL 迁移脚本（53 个）
 │   └── scripts/                       #   工具脚本（init_db.sh、init_test_db.sh、run_coverage.py）
 │
 ├── frontend/                          ← 前端（React + Vite）
@@ -88,7 +89,7 @@ mcn-platform/
 ├── deploy/                            ← 运维部署
 │   ├── docs/                          #   运维文档
 │   │   ├── README.md                  #     部署架构说明 + 文档索引
-│   │   └── tasks/                     #     任务单 + 验收文档（6 个）
+│   │   └── tasks/                     #     任务单 + 验收文档（8 个）
 │   ├── scripts/                       #   启停脚本、健康检查
 │   └── nginx/                         #   Nginx 配置
 │
@@ -222,5 +223,6 @@ npx vitest
 | `ENCRYPTION_KEY` | 数据加密密钥，32 位随机字符串 |
 | `INITIAL_ADMIN_USERNAME` | 初始管理员账号（首次启动自动创建） |
 | `INITIAL_ADMIN_PASSWORD` | 初始管理员密码 |
+| `EXTERNAL_KOLS_API_KEY` | 外部 KOL 只读 API 密钥，用于 `X-API-Key` 鉴权 |
 | `LLM_API_KEY` | AI 服务 API Key（也可在管理后台配置 Key Pool） |
 | `TIKHUB_API_KEY` | TikHub API Key |

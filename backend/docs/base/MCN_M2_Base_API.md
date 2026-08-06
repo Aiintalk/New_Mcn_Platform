@@ -59,6 +59,12 @@
 |------|--------|----------|
 | 工具接口（截帧/转录/流式/Word导出/保存报告） | 5 | `/api/tools/` |
 
+### 1.9 外部只读 KOL API
+
+| 分类 | 接口数 | 路由前缀 |
+|------|--------|----------|
+| 外部系统只读接口 | 2 | `/api/external/kols` |
+
 ---
 
 ## 2. 通用约定
@@ -66,7 +72,7 @@
 与 M1 完全一致，参见 `MCN_M1_Base_API.md` §2。关键点：
 
 - **响应格式**：`{ success, code, message, data }`
-- **鉴权**：Bearer Token（JWT），公开接口除外
+- **鉴权**：Bearer Token（JWT），公开接口除外；外部只读 KOL API 例外，使用 `X-API-Key`
 - **字段命名**：响应全部使用 `snake_case`
 - **时间格式**：ISO 8601 with timezone（`+08:00`）
 
@@ -522,6 +528,117 @@ Response:
 **GET 列表的 `status` 查询参数**：传入上述 4 种合法值之一时，按相同的 persona / content_plan 组合条件过滤；传入其他值时静默忽略（不应用任何过滤）。
 
 **代码位置**：`app/routers/admin_kols.py::_compute_status(persona, content_plan)`。
+
+---
+
+## 6B. 外部只读 KOL API
+
+> 路由文件：`backend/app/routers/external_kols.py`
+>
+> 路由前缀：`/api/external/kols`
+>
+> 用途：给其它项目只读访问 `kols` 表中的红人资料。接口不开放数据库连接、不支持写入、不使用 JWT。
+>
+> 鉴权：请求头 `X-API-Key: <密钥>`；密钥从后端环境变量 `EXTERNAL_KOLS_API_KEY` 读取。
+>
+> 数据来源：复用 M1 `kols` 表，不新增业务表。字段定义见 `MCN_M1_Base_Database.md` §6；人物档案 5 分区字段见 M2 红人工作台数据库补充。
+
+### 6B.1 接口总览
+
+| 方法 | 路径 | 说明 | 鉴权 |
+|------|------|------|------|
+| GET | `/api/external/kols` | 红人列表（分页 + 关键词 + 平台 + 计算状态筛选） | `X-API-Key` |
+| GET | `/api/external/kols/{kol_id}` | 单个红人详情 | `X-API-Key` |
+
+### 6B.2 GET `/api/external/kols` — 外部红人列表
+
+**Query 参数**：
+
+| 参数 | 类型 | 默认 | 说明 |
+|------|------|------|------|
+| `page` | int | 1 | 页码，从 1 开始 |
+| `page_size` | int | 20 | 每页条数，范围 1~100 |
+| `keyword` | str | "" | 模糊匹配 `name` / `account_name` / `douyin_id` / `sec_uid` |
+| `platform` | str | "" | 平台精确筛选，例如 `douyin` |
+| `status` | str | "" | 计算状态筛选：`pending_onboarding` / `persona_done` / `content_done` / `onboarded`；非法值静默忽略 |
+| `include_raw` | bool | false | 是否返回 `tikhub_raw` 原始 JSON |
+
+**Response**（标准信封）：
+```json
+{
+  "success": true,
+  "code": "OK",
+  "message": "success",
+  "data": {
+    "items": [
+      {
+        "id": 1,
+        "name": "测试红人",
+        "account_name": "kol_a",
+        "category": "美妆",
+        "platform": "douyin",
+        "external_id": "ext_001",
+        "douyin_id": "douyin_001",
+        "sec_uid": "MS4wLjABAAAA...",
+        "avatar_url": "https://...",
+        "signature": "个人简介",
+        "follower_count": 12345,
+        "video_count": 67,
+        "owner": "运营A",
+        "owner_id": 2,
+        "persona": "人格档案",
+        "content_plan": "内容规划",
+        "style_notes": "风格说明",
+        "status": "signed",
+        "computed_status": "onboarded",
+        "created_by": 1,
+        "background": "基本身份",
+        "experience": "真实经历",
+        "relationships": "关系网",
+        "unique_story": "独特故事",
+        "extra_notes": "补充说明",
+        "created_at": "2026-08-05T10:00:00+08:00",
+        "updated_at": "2026-08-05T10:00:00+08:00",
+        "deleted_at": null
+      }
+    ],
+    "pagination": {
+      "page": 1,
+      "page_size": 20,
+      "total": 1,
+      "total_pages": 1
+    }
+  }
+}
+```
+
+说明：
+- 默认排除 `deleted_at IS NOT NULL` 的软删红人。
+- `computed_status` 计算规则与 §6A.8 一致。
+- `status` 为数据库保留字段，业务应优先使用 `computed_status`。
+- `include_raw=false` 时不返回 `tikhub_raw`，避免默认响应过大。
+
+### 6B.3 GET `/api/external/kols/{kol_id}` — 外部红人详情
+
+**Query 参数**：
+
+| 参数 | 类型 | 默认 | 说明 |
+|------|------|------|------|
+| `include_raw` | bool | true | 是否返回 `tikhub_raw` 原始 JSON |
+
+**Response**：单个红人字段，字段集同 §6B.2；默认包含 `tikhub_raw`。
+
+**错误码**：
+- `401 EXTERNAL_API_KEY_INVALID` — 缺少或传错 `X-API-Key`
+- `503 EXTERNAL_API_KEY_NOT_CONFIGURED` — 后端未配置 `EXTERNAL_KOLS_API_KEY`
+- `404 RESOURCE_NOT_FOUND` — 红人不存在或已软删
+
+### 6B.4 部署约定
+
+- 本地测试：`http://localhost:8000/api/external/kols`
+- 阿里云部署：由运维通过 Nginx / HTTPS 暴露公网域名，例如 `https://api.example.com/api/external/kols`
+- 密钥只放在服务器环境变量或 `.env`，不得提交真实密钥到 GitHub
+- 生产环境不建议直接裸露 `8000` 端口，推荐只开放 `80/443`
 
 ---
 
