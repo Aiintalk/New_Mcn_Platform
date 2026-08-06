@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Select, Spin, App, Tag, Typography } from 'antd';
 import { submitReview, saveOutput } from '../../api/scriptReview';
 import { getQianchuanProducts } from '../../api/qianchuanProducts';
@@ -42,6 +42,13 @@ export function QianchuanScriptReviewModule() {
   // History drawer + save
   const [saving, setSaving] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const inputRevisionRef = useRef(0);
+
+  function invalidateReviewResult() {
+    inputRevisionRef.current += 1;
+    setResult(null);
+    setReviewError('');
+  }
 
   useEffect(() => {
     if (scriptType === 'direct') {
@@ -56,6 +63,7 @@ export function QianchuanScriptReviewModule() {
     setReviewing(true);
     setResult(null);
     setReviewError('');
+    const inputRevision = inputRevisionRef.current;
     try {
       const product =
         scriptType === 'direct' && selectedProduct
@@ -72,6 +80,7 @@ export function QianchuanScriptReviewModule() {
         product,
       });
       if (!isReviewResponse(res)) throw new Error('审核结果结构异常，请重新审核');
+      if (inputRevision !== inputRevisionRef.current) return;
       setResult(res);
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : '审核请求失败';
@@ -162,13 +171,13 @@ export function QianchuanScriptReviewModule() {
             <span style={{ fontSize: 13, color: 'var(--gray-600)', marginRight: 'var(--sp-2)' }}>脚本类型：</span>
             <button
               className={`btn btn-sm ${scriptType === 'direct' ? 'btn-primary' : 'btn-ghost'}`}
-              onClick={() => { setScriptType('direct'); setResult(null); }}
+              onClick={() => { setScriptType('direct'); invalidateReviewResult(); }}
             >
               千川直销
             </button>
             <button
               className={`btn btn-sm ${scriptType === 'value' ? 'btn-primary' : 'btn-ghost'}`}
-              onClick={() => { setScriptType('value'); setSelectedProduct(null); setResult(null); }}
+              onClick={() => { setScriptType('value'); setSelectedProduct(null); invalidateReviewResult(); }}
             >
               价值观内容
             </button>
@@ -190,6 +199,7 @@ export function QianchuanScriptReviewModule() {
                 onChange={(val) => {
                   const p = products.find((x) => x.id === val) ?? null;
                   setSelectedProduct(p);
+                  invalidateReviewResult();
                 }}
                 options={products.map((p) => ({
                   value: p.id,
@@ -218,7 +228,7 @@ export function QianchuanScriptReviewModule() {
           <div className="card-body">
             <textarea
               value={originalScript}
-              onChange={(e) => setOriginalScript(e.target.value)}
+              onChange={(e) => { setOriginalScript(e.target.value); invalidateReviewResult(); }}
               rows={14}
               placeholder="粘贴原版千川脚本..."
               style={{
@@ -247,7 +257,7 @@ export function QianchuanScriptReviewModule() {
           <div className="card-body">
             <textarea
               value={adaptedScript}
-              onChange={(e) => setAdaptedScript(e.target.value)}
+              onChange={(e) => { setAdaptedScript(e.target.value); invalidateReviewResult(); }}
               rows={14}
               placeholder="粘贴待审核的仿写脚本..."
               style={{

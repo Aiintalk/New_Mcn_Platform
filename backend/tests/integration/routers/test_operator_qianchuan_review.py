@@ -1,7 +1,9 @@
 """Integration tests for operator_qianchuan_review router."""
+import uuid
 from unittest.mock import patch, AsyncMock
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import text as sa_text
 
 
@@ -99,6 +101,30 @@ class TestGenerate:
         )
         assert resp.status_code == 400
         assert "30条" in resp.json()["message"]
+
+    @pytest.mark.asyncio
+    async def test_config_failure_does_not_leave_processing_task(
+        self, test_client, operator_token, operator_user, test_session
+    ):
+        with patch(
+            "app.routers.operator_qianchuan_review._get_qr_config",
+            new=AsyncMock(side_effect=HTTPException(
+                status_code=503,
+                detail={"code": "CONFIG_NOT_FOUND", "message": "配置未激活"},
+            )),
+        ):
+            resp = await test_client.post(
+                "/api/tools/qianchuan-review/generate",
+                json={"scripts": [{"title": "脚本甲", "content": "脚本内容"}], "excel_data": []},
+                headers={"Authorization": f"Bearer {operator_token}"},
+            )
+
+        assert resp.status_code == 503
+        count = (await test_session.execute(sa_text(
+            "SELECT count(*) FROM task_jobs "
+            "WHERE tool_code = 'qianchuan-review' AND created_by = :uid"
+        ), {"uid": operator_user.id})).scalar_one()
+        assert count == 0
 
     @pytest.mark.asyncio
     async def test_generate_returns_stream_and_task_id_header(self, test_client, operator_token):
@@ -243,14 +269,15 @@ class TestSave:
     @pytest.mark.asyncio
     async def test_save_creates_output(self, test_client, operator_token, operator_user, test_session):
         # 先创建 task_job
+        task_no = f"QR-SAVE-{uuid.uuid4().hex}"
         await test_session.execute(sa_text(
             "INSERT INTO task_jobs (task_no, tool_code, tool_name, status, created_by) "
-            "VALUES ('QR-TEST-001', 'qianchuan-review', '千川脚本复盘', 'success', :uid) "
-            "ON CONFLICT (task_no) DO NOTHING"
-        ), {"uid": operator_user.id})
+            "VALUES (:task_no, 'qianchuan-review', '千川脚本复盘', 'success', :uid)"
+        ), {"task_no": task_no, "uid": operator_user.id})
         await test_session.commit()
         task_row = (await test_session.execute(
-            sa_text("SELECT id FROM task_jobs WHERE task_no='QR-TEST-001'")
+            sa_text("SELECT id FROM task_jobs WHERE task_no=:task_no"),
+            {"task_no": task_no},
         )).fetchone()
         task_id = task_row[0]
 
@@ -282,11 +309,12 @@ class TestSave:
     async def test_save_failed_task_returns_409(
         self, test_client, operator_token, operator_user, test_session
     ):
+        task_no = f"QR-FAILED-{uuid.uuid4().hex}"
         task_id = (await test_session.execute(sa_text(
             "INSERT INTO task_jobs (task_no, tool_code, tool_name, status, created_by) "
-            "VALUES ('QR-FAILED-SAVE', 'qianchuan-review', '千川脚本复盘', 'failed', :uid) "
+            "VALUES (:task_no, 'qianchuan-review', '千川脚本复盘', 'failed', :uid) "
             "RETURNING id"
-        ), {"uid": operator_user.id})).scalar_one()
+        ), {"task_no": task_no, "uid": operator_user.id})).scalar_one()
         await test_session.commit()
 
         resp = await test_client.post(
@@ -306,11 +334,12 @@ class TestSave:
     async def test_save_rejects_legacy_error_marker(
         self, test_client, operator_token, operator_user, test_session
     ):
+        task_no = f"QR-ERROR-{uuid.uuid4().hex}"
         task_id = (await test_session.execute(sa_text(
             "INSERT INTO task_jobs (task_no, tool_code, tool_name, status, created_by) "
-            "VALUES ('QR-ERROR-MARKER', 'qianchuan-review', '千川脚本复盘', 'success', :uid) "
+            "VALUES (:task_no, 'qianchuan-review', '千川脚本复盘', 'success', :uid) "
             "RETURNING id"
-        ), {"uid": operator_user.id})).scalar_one()
+        ), {"task_no": task_no, "uid": operator_user.id})).scalar_one()
         await test_session.commit()
 
         resp = await test_client.post(

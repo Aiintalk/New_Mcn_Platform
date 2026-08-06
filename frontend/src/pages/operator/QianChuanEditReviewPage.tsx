@@ -83,7 +83,7 @@ interface VideoSide {
 const EMPTY_SIDE: VideoSide = { file: null, transcript: '', frames: [], duration: 0, status: 'not_uploaded', error: '' }
 
 function isSideReady(side: VideoSide): boolean {
-  return side.file !== null && side.frames.length > 0 && side.transcript.trim().length > 0
+  return side.status === 'ready' && side.file !== null && side.frames.length > 0 && side.transcript.trim().length > 0
 }
 
 export default function QianChuanEditReviewPage() {
@@ -98,6 +98,14 @@ export default function QianChuanEditReviewPage() {
   const [activePrompt, setActivePrompt] = useState(SYSTEM_PROMPT)
   const [activeModelId, setActiveModelId] = useState<number | null>(null)
   const reportRef = useRef<HTMLDivElement>(null)
+  const inputRevisionRef = useRef(0)
+
+  function invalidateAnalysis() {
+    inputRevisionRef.current += 1
+    setReport('')
+    setAnalysisSucceeded(false)
+    setAnalysisError('')
+  }
 
   useEffect(() => {
     getConfig().then(cfg => {
@@ -111,6 +119,7 @@ export default function QianChuanEditReviewPage() {
     const setter = side === 'original' ? setOriginal : setOurs
     if (!data.file) { message.error('请先上传视频文件'); return }
 
+    invalidateAnalysis()
     setter(prev => ({ ...prev, status: 'extracting', error: '', frames: [] }))
     try {
       const frameResult = await extractFrames(data.file, 8)
@@ -133,6 +142,7 @@ export default function QianChuanEditReviewPage() {
     const data = side === 'original' ? original : ours
     const setter = side === 'original' ? setOriginal : setOurs
     if (!data.file) return
+    invalidateAnalysis()
     setter(prev => ({ ...prev, status: 'transcribing', error: '' }))
     try {
       const result = await transcribeVideo(data.file, 'zh')
@@ -182,6 +192,7 @@ export default function QianChuanEditReviewPage() {
     setReport('')
     setAnalysisSucceeded(false)
     setAnalysisError('')
+    const inputRevision = inputRevisionRef.current
 
     try {
       const resp = await chatStream(
@@ -205,6 +216,7 @@ export default function QianChuanEditReviewPage() {
       }
       fullText += decoder.decode()
       if (!fullText.trim() || fullText.includes('[ERROR]')) throw new Error('AI 未返回有效报告，请重新预审')
+      if (inputRevision !== inputRevisionRef.current) return
       setReport(fullText)
       setAnalysisSucceeded(true)
       setTimeout(() => reportRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
@@ -288,13 +300,17 @@ export default function QianChuanEditReviewPage() {
             onDrop={e => {
               e.preventDefault()
               const f = e.dataTransfer.files[0]
-              if (f && f.type.startsWith('video/')) setter({ ...EMPTY_SIDE, file: f, status: 'pending' })
+              if (f && f.type.startsWith('video/')) {
+                invalidateAnalysis()
+                setter({ ...EMPTY_SIDE, file: f, status: 'pending' })
+              }
             }}
           >
             <input
               id={`file-${side}`} aria-label={`上传${label}视频`} type="file" accept="video/*" style={{ display: 'none' }}
               onChange={e => {
                 const f = e.target.files?.[0] || null
+                invalidateAnalysis()
                 if (f) setter({ ...EMPTY_SIDE, file: f, status: 'pending' })
                 else setter({ ...EMPTY_SIDE })
               }}
@@ -304,7 +320,7 @@ export default function QianChuanEditReviewPage() {
                 {data.file.name} <span style={{ color: '#9ca3af' }}>({(data.file.size / 1024 / 1024).toFixed(1)}MB)</span>
                 {data.duration > 0 && <span style={{ color: '#9ca3af' }}> · {data.duration}秒</span>}
                 <button style={{ marginLeft: 8, color: '#f87171', background: 'none', border: 'none', cursor: 'pointer' }}
-                  onClick={e => { e.stopPropagation(); setter({ ...EMPTY_SIDE }) }}>✕</button>
+                  onClick={e => { e.stopPropagation(); invalidateAnalysis(); setter({ ...EMPTY_SIDE }) }}>✕</button>
               </div>
             ) : (
               <div style={{ fontSize: 13, color: '#9ca3af' }}>拖入或点击上传视频（最大25MB）</div>
@@ -354,16 +370,19 @@ export default function QianChuanEditReviewPage() {
             style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, height: 112, resize: 'vertical', boxSizing: 'border-box', outline: 'none', fontFamily: 'inherit' }}
             placeholder="点击上方按钮自动提取，或直接粘贴文案..."
             value={data.transcript}
-            onChange={e => setter(prev => {
-              const transcript = e.target.value
-              const hasProcessedVideo = prev.file !== null && prev.frames.length > 0
-              return {
-                ...prev,
-                transcript,
-                status: hasProcessedVideo ? (transcript.trim() ? 'ready' : 'failed') : prev.status,
-                error: hasProcessedVideo ? (transcript.trim() ? '' : '文案为空，尚未就绪') : prev.error,
-              }
-            })}
+            onChange={e => {
+              invalidateAnalysis()
+              setter(prev => {
+                const transcript = e.target.value
+                const hasProcessedVideo = prev.file !== null && prev.frames.length > 0
+                return {
+                  ...prev,
+                  transcript,
+                  status: hasProcessedVideo ? (transcript.trim() ? 'ready' : 'failed') : prev.status,
+                  error: hasProcessedVideo ? (transcript.trim() ? '' : '文案为空，尚未就绪') : prev.error,
+                }
+              })
+            }}
           />
         </div>
       </div>

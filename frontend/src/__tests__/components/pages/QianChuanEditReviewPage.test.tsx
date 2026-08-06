@@ -29,6 +29,7 @@ const frameResult = { frames: [{ time: 1, base64: 'data:image/jpeg;base64,AA==' 
 describe('QianChuanEditReviewPage 双侧就绪门禁', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    Element.prototype.scrollIntoView = vi.fn();
     mockExtractFrames.mockResolvedValue(frameResult);
     mockTranscribeVideo.mockResolvedValue({ text: '自动转录文案' });
   });
@@ -91,5 +92,45 @@ describe('QianChuanEditReviewPage 双侧就绪门禁', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('AI 未返回有效报告，请重新预审');
     expect(screen.queryByRole('button', { name: /导出 Word/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /保存报告/ })).not.toBeInTheDocument();
+  });
+
+  it('已就绪侧重新处理或重试转录期间不再被旧文案误判为就绪', async () => {
+    const user = userEvent.setup();
+    let resolveTranscription: ((value: { text: string }) => void) | undefined;
+    renderPage();
+
+    await user.upload(screen.getByLabelText('上传原版爆款视频'), new File(['a'], 'original.mp4', { type: 'video/mp4' }));
+    await user.upload(screen.getByLabelText('上传我方成片视频'), new File(['b'], 'ours.mp4', { type: 'video/mp4' }));
+    await user.click(screen.getAllByRole('button', { name: '截帧 + 提取文案' })[0]);
+    await user.click(screen.getByRole('button', { name: '截帧 + 提取文案' }));
+    await waitFor(() => expect(screen.getAllByText('已就绪')).toHaveLength(2));
+    expect(screen.getByRole('button', { name: '开始预审' })).toBeEnabled();
+
+    mockTranscribeVideo.mockImplementationOnce(() => new Promise(resolve => { resolveTranscription = resolve; }));
+    await user.click(screen.getAllByRole('button', { name: '重新处理' })[0]);
+
+    expect(await screen.findByText('转录中')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '开始预审' })).toBeDisabled();
+    resolveTranscription?.({ text: '重新转录完成' });
+    await waitFor(() => expect(screen.getAllByText('已就绪')).toHaveLength(2));
+  });
+
+  it('报告成功后任一输入变化会立即关闭旧报告的保存和导出', async () => {
+    const user = userEvent.setup();
+    mockChatStream.mockResolvedValue(new Response('# 有效报告', { status: 200 }));
+    renderPage();
+
+    await user.upload(screen.getByLabelText('上传原版爆款视频'), new File(['a'], 'original.mp4', { type: 'video/mp4' }));
+    await user.upload(screen.getByLabelText('上传我方成片视频'), new File(['b'], 'ours.mp4', { type: 'video/mp4' }));
+    await user.click(screen.getAllByRole('button', { name: '截帧 + 提取文案' })[0]);
+    await user.click(screen.getByRole('button', { name: '截帧 + 提取文案' }));
+    await waitFor(() => expect(screen.getAllByText('已就绪')).toHaveLength(2));
+    await user.click(screen.getByRole('button', { name: '开始预审' }));
+
+    expect(await screen.findByText('保存报告', {}, { timeout: 3000 })).toBeInTheDocument();
+    expect(screen.getByText('导出 Word')).toBeInTheDocument();
+    await user.type(screen.getAllByPlaceholderText('点击上方按钮自动提取，或直接粘贴文案...')[0], '新内容');
+    expect(screen.queryByText('保存报告')).not.toBeInTheDocument();
+    expect(screen.queryByText('导出 Word')).not.toBeInTheDocument();
   });
 });

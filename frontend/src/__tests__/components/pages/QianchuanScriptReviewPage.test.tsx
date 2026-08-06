@@ -122,6 +122,20 @@ describe('QianchuanScriptReviewPage — QianchuanScriptReviewModule', () => {
     expect(screen.queryByRole('button', { name: '保存到历史' })).not.toBeInTheDocument();
   });
 
+  it('审核成功后编辑输入会失效旧任务结果并关闭保存门禁', async () => {
+    const user = userEvent.setup();
+    renderModule();
+    const original = screen.getByPlaceholderText('粘贴原版千川脚本...');
+    const adapted = screen.getByPlaceholderText('粘贴待审核的仿写脚本...');
+    await user.type(original, '原版');
+    await user.type(adapted, '仿写');
+    await user.click(screen.getByRole('button', { name: /开始预审/ }));
+
+    expect(await screen.findByRole('button', { name: '保存到历史' })).toBeInTheDocument();
+    await user.type(adapted, '新增内容');
+    expect(screen.queryByRole('button', { name: '保存到历史' })).not.toBeInTheDocument();
+  });
+
   // Test 1: 页面渲染 — 两个 TextArea、脚本类型切换按钮
   it('渲染两个脚本输入区和类型切换按钮', async () => {
     renderModule();

@@ -223,6 +223,12 @@ async def generate(
             },
         )
 
+    # 在创建任务前完成配置与模型解析；配置阶段失败时不留下永久 processing 任务。
+    config_key = "with_excel" if has_excel else "without_excel"
+    qr_config = await _get_qr_config(config_key, db)
+    system_prompt = qr_config.system_prompt or ""
+    model_id = await _resolve_qr_model(qr_config, db)
+
     # 只有通过输入门禁后才创建 processing 任务，避免无效数据留下假任务。
     task_job = TaskJob(
         task_no=f"QR-{int(time.time() * 1000)}-{uuid.uuid4().hex[:8]}",
@@ -255,12 +261,6 @@ async def generate(
     task_id = task_job.id
     user_id = current_user.id
     start_time = time.monotonic()
-
-    # 从 DB 读取 Prompt + 模型
-    config_key = "with_excel" if has_excel else "without_excel"
-    qr_config = await _get_qr_config(config_key, db)
-    system_prompt = qr_config.system_prompt or ""
-    model_id = await _resolve_qr_model(qr_config, db)
 
     async def generate_stream():
         chunks: list[str] = []

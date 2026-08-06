@@ -477,6 +477,35 @@ describe('PersonaPage 正式达人绑定', () => {
     expect(screen.getAllByText('历史新人格')).toHaveLength(2);
   });
 
+  it('打开其他达人的历史报告后进入报告绑定的同一 kol_id 工作台', async () => {
+    const user = userEvent.setup();
+    mockGetPersonaReports.mockResolvedValueOnce([{
+      id: 77,
+      kol_id: 56,
+      influencer_name: '韩国欧尼慧敏',
+      douyin_nickname: null,
+      status: 'ready',
+      created_at: '2026-08-03T09:00:00+08:00',
+    }]);
+    mockGetPersonaReportDetail.mockResolvedValueOnce({
+      id: 77,
+      kol_id: 56,
+      status: 'ready',
+      profile_result: '慧敏人格',
+      plan_result: '慧敏规划',
+      sync_result: { persona: 'auto_written', content_plan: 'auto_written' },
+      pending_overwrites: [],
+    });
+    renderPage();
+    await screen.findByRole('option', { name: /mini兔兔/ });
+    await user.selectOptions(screen.getByLabelText('目标达人（必填）'), '43');
+    await user.click(screen.getByRole('button', { name: '历史记录' }));
+    await user.click(await screen.findByText('韩国欧尼慧敏'));
+
+    await user.click(await screen.findByRole('button', { name: '进入红人工作台' }));
+    expect(await screen.findByText('工作台红人 56 ?tab=persona')).toBeInTheDocument();
+  });
+
   it('重新开始后丢弃旧报告详情的迟到响应，并只向新报告提交同步决定', async () => {
     const user = userEvent.setup();
     let resolveReport88: ((value: Record<string, unknown>) => void) | undefined;

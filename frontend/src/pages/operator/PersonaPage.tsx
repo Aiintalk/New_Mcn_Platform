@@ -485,6 +485,10 @@ export default function PersonaPage() {
       if (requestId !== reportDetailRequestRef.current) return;
       setProfileResult(detail.profile_result || '');
       setPlanResult(detail.plan_result || '');
+      setSelectedKolId(detail.kol_id);
+      setSelectedKol(detail.kol_id === null
+        ? null
+        : personaKols.find(item => item.id === detail.kol_id) ?? null);
       setReportId(id);
       setHistoryOpen(false);
       setStep(3);
