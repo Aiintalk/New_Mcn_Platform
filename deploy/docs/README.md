@@ -23,14 +23,15 @@ deploy/
 │
 ├── docs/                              # ===== 本目录 =====
 │   ├── README.md                      #   本文件（架构 + 文档索引）
-│   └── tasks/                         #   任务单 + 验收文档
+│   └── tasks/                         #   任务单 + 验收文档（9 个）
 │       ├── M1_Sprint0.md              #     基础环境搭建
 │       ├── M1_Sprint1.md              #     用户模块部署
 │       ├── M1_Sprint4.md              #     AI 模块部署
 │       ├── M1_Sprint5_TikHub_独立池化.md #  TikHub 独立池化部署
 │       ├── M2_Sprint1_kol_intake.md   #     入驻问卷部署
 │       ├── M2_测试服首次部署.md         #     测试服首次部署
-│       └── M2_Sprint24_运维端任务_顺序数据库迁移_v1_修复Bug.md
+│       ├── M2_Sprint24_运维端任务_顺序数据库迁移_v1_修复Bug.md
+│       └── M2_Sprint24_运维端任务_外部KOL只读API部署配置_v1.md # 外部 KOL API 部署配置
 │
 └── README.md                          # 部署说明
 ```
@@ -87,3 +88,4 @@ deploy/docs/
 - 日志轮转：确认 logs/ 不写满磁盘
 - 端口安全：仅开放 80/443，5432 不对外暴露
 - 环境变量：`.env` 文件管理，不硬编码到配置中
+- 外部接口：`EXTERNAL_KOLS_API_KEY` 只放服务器环境变量或 `.env`，通过 Nginx + HTTPS 暴露，不直接开放 8000/5432

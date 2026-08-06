@@ -29,7 +29,7 @@ backend/
 │   │   └── seed.py                    #   初始数据填充
 │   ├── middlewares/
 │   │   └── auth.py                    #   JWT 鉴权（get_current_user / require_admin）
-│   ├── models/                        # SQLAlchemy ORM 模型（33 个文件）
+│   ├── models/                        # SQLAlchemy ORM 模型（38 个文件）
 │   │   ├── user.py                    #   用户表
 │   │   ├── kol.py                     #   红人表（Sprint 18 新增 background/experience/relationships/unique_story/extra_notes 5 列）
 │   │   ├── credential.py              #   AI 密钥池表
@@ -53,7 +53,7 @@ backend/
 │   │   ├── kol_benchmark.py           #   达人对标账号（Sprint 18）
 │   │   ├── kol_active_product.py      #   达人在售商品关联（Sprint 18）
 │   │   └── ...                        #   log / file / output / session / task
-│   ├── routers/                       # API 路由（按角色分文件，52 个）
+│   ├── routers/                       # API 路由（按角色分文件，67 个）
 │   │   ├── auth.py                    #   POST /api/auth/login、/change-password
 │   │   ├── admin_users.py             #   用户管理（admin）
 │   │   ├── admin_kols.py              #   红人管理（admin）
@@ -95,6 +95,7 @@ backend/
 │   │   ├── admin_kols.py + _operator_router # 红人管理（admin）+ persona-details（operator，Sprint 18）
 │   │   ├── persona.py                 #   人格定位（正式达人分页/入驻绑定/报告同步，运营端）
 │   │   ├── intake_public.py           #   公开接口（博主填写问卷）
+│   │   ├── external_kols.py           #   外部只读 KOL API（X-API-Key 鉴权，读取 kols 表）
 │   │   ├── tool_chat_stream.py        #   工具：AI 流式对话
 │   │   ├── tool_export_word.py        #   工具：Word 导出
 │   │   ├── tool_extract_frames.py     #   工具：视频抽帧
@@ -127,7 +128,7 @@ backend/
 │   │   ├── MCN_M1_Base_Database.md    #     M1 阶段数据库契约
 │   │   ├── MCN_M2_Base_API.md         #     M2 阶段 API 契约
 │   │   └── MCN_M2_Base_Database.md    #     M2 阶段数据库契约
-│   ├── tasks/                         #   任务单 + 验收文档（43 个）
+│   ├── tasks/                         #   任务单 + 验收文档（59 个）
 │   │   ├── M1_Sprint0.md ~ Sprint4.md          #  M1 各 Sprint
 │   │   ├── M1_Sprint5_TikHub_独立池化.md        #  TikHub 独立池化
 │   │   ├── M2_Sprint1_kol_intake.md            #  入驻问卷主任务
@@ -139,6 +140,8 @@ backend/
 │   │   ├── M2_Sprint06_后端任务_qianchuan-review_v1.md       #  千川脚本复盘 v1
 │   │   ├── M2_Sprint07_后端任务_qianchuan-edit-review_v1.md  #  千川剪辑预审 v1
 │   │   ├── M2_Sprint07_后端_开发验收_qianchuan-edit-review_v1.md  #  千川剪辑预审验收
+│   │   ├── M2_Sprint24_后端任务_外部KOL只读API_v1.md              #  外部 KOL 只读 API 任务
+│   │   ├── M2_Sprint24_后端任务_开发验收_外部KOL只读API_v1.md      #  外部 KOL 只读 API 验收
 │   │   └── BugFix_*.md                         #  BugFix（3 个）
 │   └── tests/                         #   测试报告 + 测试任务
 │       ├── MCN_M1_Test_Task.md                        #  M1 测试任务
@@ -158,6 +161,7 @@ backend/
 │       ├── M2_Sprint11_测试报告_oss-adapter_v1.md        #  M2 Sprint11 OSS 测试报告
 │       ├── M2_Sprint12_测试报告_qianchuan-collection_v1.md  #  M2 Sprint12 测试报告
 │       ├── M2_Sprint15_测试报告_persona-writer_v2_修复Bug.md  #  M2 Sprint15 Bug修复测试报告
+│       ├── M2_外部KOL只读API_测试报告.md              #  外部只读 KOL API 测试报告
 │       ├── M2_Sprint25_测试报告_达人档案统一_v1.md        #  M2 Sprint25 达人档案统一测试报告
 │       └── MCN_Integration_Test_Fix_Report_2026-06-11.md  #  集成测试修复报告
 │
@@ -169,12 +173,12 @@ backend/
 │   ├── integration/                   #   集成测试（需测试数据库 mcn_test）
 │   │   ├── test_convention_guard.py   #     规范守卫（AST 扫描红线 #1 #2 #6 #7）
 │   │   ├── test_credential_pool.py    #     AI 凭证池并发安全（21 条）
-│   │   └── routers/                   #     20 个文件，覆盖全部 router
+│   │   └── routers/                   #     router 集成测试
 │   ├── e2e/                           #   端到端测试（待补充）
 │   ├── concurrent/                    #   并发隔离测试
 │   └── intake/                        #   入驻问卷专项测试
 │
-├── migrations/                        # SQL 迁移脚本（001 ~ 034）
+├── migrations/                        # SQL 迁移脚本（53 个）
 ├── scripts/                           # 工具脚本
 │   ├── init_db.sh                     #   一键初始化数据库
 │   ├── run_coverage.py                #   覆盖率门禁脚本
@@ -255,6 +259,26 @@ BugFix：      BugFix_{序号}_{描述}.md
 ---
 
 ## 最近改动
+
+### 2026-08-05 外部只读 KOL API
+
+**背景**：需要让另一个项目通过密钥读取红人数据，用于本地联调和后续阿里云部署后的跨项目访问。
+
+**改动**：
+
+| 模块 | 文件 | 变更 |
+|------|------|------|
+| 后端 - 配置 | `app/core/config.py` | 新增 `external_kols_api_key`，读取 `EXTERNAL_KOLS_API_KEY` |
+| 后端 - 路由 | `app/routers/external_kols.py` | 新增 `GET /api/external/kols` + `GET /api/external/kols/{id}`，`X-API-Key` 鉴权，只读 `kols` 表 |
+| 后端 - 入口 | `app/main.py` | 注册 external_kols router |
+| 后端 - 文档 | `base/MCN_M2_Base_API.md` / `base/MCN_M2_Base_Database.md` | 补外部接口契约；说明不新增表、复用 M1 `kols` |
+| 后端 - 任务 | `tasks/M2_Sprint24_后端任务_外部KOL只读API_v1.md` / `tasks/M2_Sprint24_后端任务_开发验收_外部KOL只读API_v1.md` | 补后端任务和开发验收落档 |
+| 后端 - 测试 | `tests/unit/routers/test_external_kols_unit.py` / `tests/integration/routers/test_external_kols.py` | 覆盖密钥鉴权、未配置、列表筛选分页、空数据、详情、404 标准信封 |
+| 运维 - 部署 | `../deploy/docs/tasks/M2_Sprint24_运维端任务_外部KOL只读API部署配置_v1.md` | 补阿里云部署、Nginx、CORS、安全组和调用方配置注意事项 |
+
+**验证**：`tests/unit/routers/test_external_kols_unit.py` + `tests/integration/routers/test_external_kols.py` + `tests/integration/test_convention_guard.py` 合计 27 passed。
+
+**部署注意**：生产密钥只放服务器环境变量或 `.env`，不得提交真实值；阿里云建议由 Nginx + HTTPS 对外暴露，不直接裸露 `8000` 或 `5432`。
 
 ### 2026-07-12 PR #25 红人入驻状态重构 + 运营端红人工作台入口
 

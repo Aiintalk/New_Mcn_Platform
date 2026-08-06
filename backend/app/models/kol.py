@@ -12,6 +12,7 @@ class Kol(Base):
     account_name = Column(String(128), nullable=True)    # 抖音昵称（来自 TikHub）
     category = Column(String(64), nullable=True)
     platform = Column(String(32), nullable=True, default="douyin")
+    external_id = Column(String(128), nullable=True)
     douyin_id = Column(String(128), nullable=True)       # 抖音号（短ID）
     sec_uid = Column(String(128), nullable=True)         # TikHub 长标识
     avatar_url = Column(Text, nullable=True)

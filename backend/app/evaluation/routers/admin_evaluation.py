@@ -71,6 +71,7 @@ from app.evaluation.schemas import (
 router = APIRouter(
     prefix="/admin/evaluation",
     tags=["admin-evaluation"],
+    lifespan=None,
 )
 
 

@@ -74,6 +74,7 @@ cp backend/.env.example backend/.env
 #   DATABASE_URL=postgresql://user:pass@127.0.0.1:5432/mcn_db
 #   JWT_SECRET=<随机字符串，至少 32 位>
 #   CORS_ORIGINS=http://localhost:5173   ← 前端实际访问地址（逗号分隔多个）
+#   EXTERNAL_KOLS_API_KEY=<外部 KOL 只读 API 密钥，如未开放外部访问可留空>
 #   AI_API_KEY=<第三方 AI 密钥>
 #   OSS_ACCESS_KEY=...
 #   OSS_SECRET_KEY=...
@@ -348,6 +349,7 @@ deploy/
 | SSE 必须关闭 buffering | Nginx `proxy_buffering off` |
 | 视频不落本地盘 | 一律 OSS 前端签名直传 |
 | CORS_ORIGINS 与前端地址一致 | `.env` 中配置，前端端口/域名变更时必须同步更新 |
+| EXTERNAL_KOLS_API_KEY 不提交真实值 | 外部 KOL 只读 API 用 `X-API-Key` 鉴权，生产密钥只放服务器环境变量或 `.env` |
 | 生产强制 HTTPS | Nginx HTTP 80 → HTTPS 443 重定向，HSTS 证书验证后启用 |
 | 日志轮转必须配置 | logrotate copytruncate + maxsize 100M + 14 天保留 |
 
@@ -514,3 +516,30 @@ UPDATE credentials SET base_url = 'https://yunwu.ai/v1' WHERE provider = 'yunwu'
 ```
 
 或在管理端「工具配置 → 凭证管理」编辑，`base_url` 填 `https://yunwu.ai/v1`（必须带 `/v1`）。
+
+### 7.7 外部 KOL 只读 API 访问失败
+
+**症状**：调用 `/api/external/kols` 返回 `EXTERNAL_API_KEY_NOT_CONFIGURED`、`EXTERNAL_API_KEY_INVALID`，或浏览器提示 CORS。
+
+**排查**：
+
+```bash
+# 1. 确认服务器后端已配置密钥
+grep EXTERNAL_KOLS_API_KEY backend/.env
+
+# 2. 本机验证
+curl -H "X-API-Key: <密钥>" \
+  "http://127.0.0.1:8000/api/external/kols?page=1&page_size=20"
+
+# 3. 通过公网域名验证
+curl -H "X-API-Key: <密钥>" \
+  "https://<domain>/api/external/kols?page=1&page_size=20"
+```
+
+**修复**：
+
+- `EXTERNAL_API_KEY_NOT_CONFIGURED`：在服务器 `.env` 设置 `EXTERNAL_KOLS_API_KEY=<强随机密钥>` 并重启后端。
+- `EXTERNAL_API_KEY_INVALID`：检查调用方请求头必须是 `X-API-Key: <密钥>`，密钥值要与服务器一致。
+- 浏览器 CORS：把调用方前端域名加入 `CORS_ORIGINS` 并重启后端；服务端到服务端调用不受 CORS 影响。
+
+> 生产环境建议只通过 Nginx + HTTPS 暴露 `/api/external/kols`，不要直接开放 `8000` 或 PostgreSQL `5432`。
