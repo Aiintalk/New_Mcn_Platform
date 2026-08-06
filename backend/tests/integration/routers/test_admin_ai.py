@@ -19,8 +19,28 @@ import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+import pytest_asyncio
+from sqlalchemy import delete
 
 from app.models.credential import AiModel, Credential
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _cleanup_credentials_and_models(test_session):
+    """每个测试前后清空 credentials + ai_models，防止泄漏污染其他测试。
+
+    根因修复：本文件 seed 的 Credential 行（如 sk-cov-list，base_url=云雾）
+    会泄漏进共享测试库，被 tests/integration/test_credential_pool.py 选中
+    并对 yunwu.ai 发真实 401 调用 → credential_pool 10 个测试全挂。
+    test_session 不做跨测试 truncate，故必须本模块自清理（before+after）。
+    """
+    await test_session.execute(delete(Credential))
+    await test_session.execute(delete(AiModel))
+    await test_session.commit()
+    yield
+    await test_session.execute(delete(Credential))
+    await test_session.execute(delete(AiModel))
+    await test_session.commit()
 
 
 class TestAdminAiKeys:
