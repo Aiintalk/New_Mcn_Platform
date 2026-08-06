@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Select, Spin, App, Tag, Typography } from 'antd';
 import { submitReview, saveOutput } from '../../api/scriptReview';
 import { getQianchuanProducts } from '../../api/qianchuanProducts';
-import type { ScriptType, ReviewResult, ReviewRating } from '../../types/scriptReview';
+import type { ScriptType, ReviewResult, ReviewResponse, ReviewRating } from '../../types/scriptReview';
 import type { QianchuanProduct } from '../../types/kolWorkspace';
 import type { Output } from '../../types/output';
 import OutputHistoryDrawer from '../../components/OutputHistoryDrawer';
@@ -15,6 +15,19 @@ const RATING_CONFIG: Record<ReviewRating, { bg: string; color: string; label: st
   fail:  { bg: 'var(--danger-bg)',  color: 'var(--danger)',  label: '❌ 需要大改' },
 };
 
+function isReviewResponse(value: unknown): value is ReviewResponse {
+  if (!value || typeof value !== 'object') return false;
+  const result = value as Record<string, unknown>;
+  if (!Number.isInteger(result.task_id) || !['pass', 'minor', 'fail'].includes(String(result.rating))) return false;
+  if (!Array.isArray(result.must_fix) || !Array.isArray(result.suggestions) || !Array.isArray(result.passed)) return false;
+  if (!result.suggestions.every(item => typeof item === 'string') || !result.passed.every(item => typeof item === 'string')) return false;
+  return result.must_fix.every(item => {
+    if (!item || typeof item !== 'object') return false;
+    const detail = item as Record<string, unknown>;
+    return ['type', 'quote', 'fix'].every(key => typeof detail[key] === 'string' && String(detail[key]).trim().length > 0);
+  });
+}
+
 export function QianchuanScriptReviewModule() {
   const { message } = App.useApp();
   const [scriptType, setScriptType] = useState<ScriptType>('direct');
@@ -23,7 +36,8 @@ export function QianchuanScriptReviewModule() {
   const [products, setProducts] = useState<QianchuanProduct[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<QianchuanProduct | null>(null);
   const [reviewing, setReviewing] = useState(false);
-  const [result, setResult] = useState<ReviewResult | null>(null);
+  const [result, setResult] = useState<ReviewResponse | null>(null);
+  const [reviewError, setReviewError] = useState('');
 
   // History drawer + save
   const [saving, setSaving] = useState(false);
@@ -41,6 +55,7 @@ export function QianchuanScriptReviewModule() {
     if (!originalScript.trim() || !adaptedScript.trim()) return;
     setReviewing(true);
     setResult(null);
+    setReviewError('');
     try {
       const product =
         scriptType === 'direct' && selectedProduct
@@ -56,9 +71,12 @@ export function QianchuanScriptReviewModule() {
         adapted_script: adaptedScript,
         product,
       });
+      if (!isReviewResponse(res)) throw new Error('审核结果结构异常，请重新审核');
       setResult(res);
     } catch (err: unknown) {
-      message.error(err instanceof Error ? err.message : '审核请求失败');
+      const errorMessage = err instanceof Error ? err.message : '审核请求失败';
+      setReviewError(errorMessage);
+      message.error(errorMessage);
     } finally {
       setReviewing(false);
     }
@@ -72,9 +90,11 @@ export function QianchuanScriptReviewModule() {
     setSaving(true);
     try {
       const titlePreview = adaptedScript.slice(0, 20).replace(/\n/g, ' ');
+      const { task_id, ...contentJson } = result;
       await saveOutput({
+        task_id,
         content: adaptedScript,
-        content_json: result,
+        content_json: contentJson,
         title: `脚本预审 [${result.rating}] · ${titlePreview}...`,
       });
       message.success('已保存到历史');
@@ -265,6 +285,13 @@ export function QianchuanScriptReviewModule() {
           ) : '🔍 开始预审'}
         </button>
       </div>
+
+      {reviewError && (
+        <div role="alert" style={{ background: 'var(--danger-bg)', border: '1px solid var(--danger)', borderRadius: 'var(--radius-md)', padding: '12px 14px', color: 'var(--danger)', marginBottom: 'var(--sp-4)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>{reviewError}</span>
+          <button className="btn btn-ghost btn-sm" onClick={handleReview} disabled={!canSubmit || reviewing}>重新审核</button>
+        </div>
+      )}
 
       {/* 审核结果 */}
       {result && (

@@ -76,16 +76,23 @@ interface VideoSide {
   transcript: string
   frames: Frame[]
   duration: number
+  status: 'not_uploaded' | 'pending' | 'extracting' | 'transcribing' | 'ready' | 'failed'
+  error: string
 }
 
-const EMPTY_SIDE: VideoSide = { file: null, transcript: '', frames: [], duration: 0 }
+const EMPTY_SIDE: VideoSide = { file: null, transcript: '', frames: [], duration: 0, status: 'not_uploaded', error: '' }
+
+function isSideReady(side: VideoSide): boolean {
+  return side.file !== null && side.frames.length > 0 && side.transcript.trim().length > 0
+}
 
 export default function QianChuanEditReviewPage() {
   const [original, setOriginal] = useState<VideoSide>({ ...EMPTY_SIDE })
   const [ours, setOurs] = useState<VideoSide>({ ...EMPTY_SIDE })
-  const [processing, setProcessing] = useState<Record<string, string>>({})
   const [analyzing, setAnalyzing] = useState(false)
   const [report, setReport] = useState('')
+  const [analysisError, setAnalysisError] = useState('')
+  const [analysisSucceeded, setAnalysisSucceeded] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [saving, setSaving] = useState(false)
   const [activePrompt, setActivePrompt] = useState(SYSTEM_PROMPT)
@@ -104,19 +111,35 @@ export default function QianChuanEditReviewPage() {
     const setter = side === 'original' ? setOriginal : setOurs
     if (!data.file) { message.error('请先上传视频文件'); return }
 
-    setProcessing(prev => ({ ...prev, [side]: '截帧中...' }))
-
+    setter(prev => ({ ...prev, status: 'extracting', error: '', frames: [] }))
     try {
       const frameResult = await extractFrames(data.file, 8)
-      setter(prev => ({ ...prev, frames: frameResult.frames, duration: frameResult.duration }))
-
-      setProcessing(prev => ({ ...prev, [side]: '转录文案中...' }))
-      const transResult = await transcribeVideo(data.file, 'zh')
-      setter(prev => ({ ...prev, transcript: transResult.text }))
+      if (!frameResult.frames.length) throw new Error('未提取到有效画面')
+      setter(prev => ({ ...prev, frames: frameResult.frames, duration: frameResult.duration, status: 'transcribing' }))
+      try {
+        const transResult = await transcribeVideo(data.file, 'zh')
+        if (!transResult.text.trim()) throw new Error('转录结果为空')
+        setter(prev => ({ ...prev, transcript: transResult.text, status: 'ready', error: '' }))
+      } catch {
+        setter(prev => ({ ...prev, status: 'failed', error: '转录失败，尚未就绪' }))
+      }
     } catch (e) {
-      message.error(e instanceof Error ? e.message : '处理失败')
-    } finally {
-      setProcessing(prev => { const n = { ...prev }; delete n[side]; return n })
+      setter(prev => ({ ...prev, frames: [], duration: 0, status: 'failed', error: '截帧失败，尚未就绪' }))
+      message.error(e instanceof Error ? e.message : '截帧失败')
+    }
+  }
+
+  async function retryTranscription(side: 'original' | 'ours') {
+    const data = side === 'original' ? original : ours
+    const setter = side === 'original' ? setOriginal : setOurs
+    if (!data.file) return
+    setter(prev => ({ ...prev, status: 'transcribing', error: '' }))
+    try {
+      const result = await transcribeVideo(data.file, 'zh')
+      if (!result.text.trim()) throw new Error('转录结果为空')
+      setter(prev => ({ ...prev, transcript: result.text, status: 'ready', error: '' }))
+    } catch {
+      setter(prev => ({ ...prev, status: 'failed', error: '转录失败，尚未就绪' }))
     }
   }
 
@@ -151,12 +174,14 @@ export default function QianChuanEditReviewPage() {
   }
 
   async function analyze() {
-    if (!original.transcript && !ours.transcript && original.frames.length === 0 && ours.frames.length === 0) {
-      message.error('请先处理视频（截帧+转录）再预审')
+    if (!isSideReady(original) || !isSideReady(ours)) {
+      setAnalysisError('原版爆款和我方成片都就绪后才能开始预审')
       return
     }
     setAnalyzing(true)
     setReport('')
+    setAnalysisSucceeded(false)
+    setAnalysisError('')
 
     try {
       const resp = await chatStream(
@@ -177,11 +202,18 @@ export default function QianChuanEditReviewPage() {
         const { done, value } = await reader.read()
         if (done) break
         fullText += decoder.decode(value, { stream: true })
-        setReport(fullText)
       }
+      fullText += decoder.decode()
+      if (!fullText.trim() || fullText.includes('[ERROR]')) throw new Error('AI 未返回有效报告，请重新预审')
+      setReport(fullText)
+      setAnalysisSucceeded(true)
       setTimeout(() => reportRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
     } catch (e) {
-      message.error(e instanceof Error ? e.message : '分析出错')
+      const errorText = e instanceof Error ? e.message : '分析出错，请重新预审'
+      setReport('')
+      setAnalysisSucceeded(false)
+      setAnalysisError(errorText)
+      message.error(errorText)
     } finally {
       setAnalyzing(false)
     }
@@ -229,8 +261,13 @@ export default function QianChuanEditReviewPage() {
     const data = side === 'original' ? original : ours
     const setter = side === 'original' ? setOriginal : setOurs
     const label = side === 'original' ? '原版爆款' : '我方成片'
-    const isProcessing = !!processing[side]
-    const statusText = processing[side] || ''
+    const ready = isSideReady(data)
+    const status = ready ? 'ready' : data.status
+    const isProcessing = status === 'extracting' || status === 'transcribing'
+    const statusText = status === 'extracting' ? '截帧中...' : status === 'transcribing' ? '转录文案中...' : ''
+    const statusLabel = {
+      not_uploaded: '未上传', pending: '待处理', extracting: '截帧中', transcribing: '转录中', ready: '已就绪', failed: data.error || '处理失败',
+    }[status]
 
     const colors = side === 'original'
       ? { border: '#6ee7b7', dot: '#10b981', text: '#065f46', btn: '#059669' }
@@ -251,14 +288,14 @@ export default function QianChuanEditReviewPage() {
             onDrop={e => {
               e.preventDefault()
               const f = e.dataTransfer.files[0]
-              if (f && f.type.startsWith('video/')) setter(prev => ({ ...prev, file: f, transcript: '', frames: [], duration: 0 }))
+              if (f && f.type.startsWith('video/')) setter({ ...EMPTY_SIDE, file: f, status: 'pending' })
             }}
           >
             <input
-              id={`file-${side}`} type="file" accept="video/*" style={{ display: 'none' }}
+              id={`file-${side}`} aria-label={`上传${label}视频`} type="file" accept="video/*" style={{ display: 'none' }}
               onChange={e => {
                 const f = e.target.files?.[0] || null
-                if (f) setter(prev => ({ ...prev, file: f, transcript: '', frames: [], duration: 0 }))
+                if (f) setter({ ...EMPTY_SIDE, file: f, status: 'pending' })
                 else setter({ ...EMPTY_SIDE })
               }}
             />
@@ -277,8 +314,20 @@ export default function QianChuanEditReviewPage() {
           {data.file && (
             <Button type="primary" block style={{ marginTop: 8, background: isProcessing ? '#9ca3af' : colors.btn }}
               disabled={isProcessing} onClick={() => processVideo(side)}>
-              {isProcessing ? statusText : data.frames.length > 0 ? '重新处理' : '截帧 + 提取文案'}
+              {isProcessing
+                ? statusText
+                : data.status === 'failed' && data.frames.length === 0
+                  ? '重试截帧'
+                  : data.frames.length > 0
+                    ? '重新处理'
+                    : '截帧 + 提取文案'}
             </Button>
+          )}
+          <div style={{ marginTop: 8, fontSize: 12, color: status === 'failed' ? '#dc2626' : status === 'ready' ? '#059669' : '#6b7280' }}>
+            状态：<strong>{statusLabel}</strong> · {data.frames.length} 帧 · {data.transcript.trim().length} 字
+          </div>
+          {status === 'failed' && data.frames.length > 0 && (
+            <Button block style={{ marginTop: 8 }} onClick={() => retryTranscription(side)}>重试转录</Button>
           )}
         </div>
 
@@ -305,7 +354,16 @@ export default function QianChuanEditReviewPage() {
             style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, height: 112, resize: 'vertical', boxSizing: 'border-box', outline: 'none', fontFamily: 'inherit' }}
             placeholder="点击上方按钮自动提取，或直接粘贴文案..."
             value={data.transcript}
-            onChange={e => setter(prev => ({ ...prev, transcript: e.target.value }))}
+            onChange={e => setter(prev => {
+              const transcript = e.target.value
+              const hasProcessedVideo = prev.file !== null && prev.frames.length > 0
+              return {
+                ...prev,
+                transcript,
+                status: hasProcessedVideo ? (transcript.trim() ? 'ready' : 'failed') : prev.status,
+                error: hasProcessedVideo ? (transcript.trim() ? '' : '文案为空，尚未就绪') : prev.error,
+              }
+            })}
           />
         </div>
       </div>
@@ -327,12 +385,19 @@ export default function QianChuanEditReviewPage() {
       <div style={{ textAlign: 'center', marginBottom: 32 }}>
         <Button type="primary" size="large"
           style={{ padding: '0 32px', height: 48, fontSize: 16, fontWeight: 'bold', background: analyzing ? '#9ca3af' : 'linear-gradient(to right, #2563eb, #4f46e5)', border: 'none' }}
-          disabled={analyzing} onClick={analyze}>
+          disabled={analyzing || !isSideReady(original) || !isSideReady(ours)} onClick={analyze}>
           {analyzing ? '正在预审...' : '开始预审'}
         </Button>
       </div>
 
-      {report && (
+      {analysisError && (
+        <div role="alert" style={{ marginBottom: 20, padding: '12px 16px', border: '1px solid #dc2626', borderRadius: 8, color: '#b91c1c', background: '#fef2f2', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>{analysisError}</span>
+          {isSideReady(original) && isSideReady(ours) && <Button onClick={analyze}>重新预审</Button>}
+        </div>
+      )}
+
+      {analysisSucceeded && report && (
         <div ref={reportRef} style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: 24 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <h2 style={{ fontSize: 17, fontWeight: 'bold', color: '#1f2937', margin: 0 }}>剪辑预审报告</h2>

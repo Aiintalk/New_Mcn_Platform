@@ -14,6 +14,10 @@ export interface ReviewResult {
   passed: string[];
 }
 
+export interface ReviewResponse extends ReviewResult {
+  task_id: number;
+}
+
 export interface ScriptReviewConfig {
   id: number;
   config_key: string;
@@ -39,6 +43,7 @@ export interface ReviewRequest {
 
 /** POST /operator/qianchuan-script-review/save-output 请求体 */
 export interface ScriptReviewSaveOutputRequest {
+  task_id: number;
   content: string; // 仿写脚本原文
   content_json: ReviewResult; // 结构化评分
   title?: string;

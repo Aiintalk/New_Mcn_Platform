@@ -240,7 +240,7 @@ BugFix：      BugFix_{序号}_{描述}.md
 |---------|---------|------------|------------|
 | tiktok-writer | TikTok脚本仿写 | operator_tiktok_writer.py / admin_tiktok_writer.py | Sprint 4 |
 | selling-point-extractor | 产品卖点提取器 | operator_selling_point.py / admin_selling_point.py | Sprint 5 |
-| qianchuan-review | 千川脚本复盘 | operator_qianchuan_review.py | Sprint 6 |
+| qianchuan-review | 千川脚本复盘（结构化流终态、匹配诊断、成功任务保存门禁） | operator_qianchuan_review.py | Sprint 6；Sprint 26 缺陷闭环 |
 | qianchuan-edit-review | 千川剪辑预审 | tool_qianchuan_edit_review.py | Sprint 7 |
 | livestream-writer | 直播脚本仿写 | operator_livestream_writer.py / admin_livestream_writer.py | Sprint 8 |
 | livestream-review | 直播间脚本复盘 | operator_livestream_review.py / admin_livestream_review.py | Sprint 9 |
@@ -253,12 +253,18 @@ BugFix：      BugFix_{序号}_{描述}.md
 | material-library | 素材库（红人素材中枢） | operator_material_library.py / admin_material_library.py | Sprint 18（迁移） |
 | subtitle | 字幕提取（单条异步+批量+思维导图+统一历史+软删除） | operator_subtitle.py / admin_subtitle.py | Sprint 19（迁移）；Sprint 21（异步任务化+软删除） |
 | values-writer | 价值观仿写（4步向导 + save-output 历史） | operator_values_writer.py / admin_values_writer.py | Sprint 20；历史功能 2026-07-01 补齐 |
-| qianchuan-script-review | 千川脚本预审（直销/价值观双模式 + save-output 历史） | operator_script_review.py / admin_script_review.py | Sprint 21；历史功能 2026-07-01 补齐 |
+| qianchuan-script-review | 千川脚本预审（直销/价值观双模式 + 严格结果结构 + 成功任务保存门禁） | operator_script_review.py / admin_script_review.py | Sprint 21；Sprint 26 缺陷闭环 |
 | retrospective | 复盘（工作台子模块，多维材料+AI分析+导出） | operator_retrospective.py / admin_retrospective.py | Sprint 22 |
 
 ---
 
 ## 最近改动
+
+### 2026-08-06 Sprint26 运营反馈缺陷修复（开发分支）
+
+- 千川脚本预审：严格校验评级和四组结果字段，最多两次受控格式修复；失败任务不写成功日志、不能保存。
+- 千川脚本复盘：改为内容/完成/失败三类结构化流事件；空流、异常流、中断和零匹配均有真实失败或输入门禁，保存接口只接受当前用户的成功任务。
+- 无数据库表结构和权限契约变更；当前仅完成开发侧验证，未合并、未部署、未上线。
 
 ### 2026-08-05 外部只读 KOL API
 
