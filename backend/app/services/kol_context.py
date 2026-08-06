@@ -26,13 +26,13 @@ class KolContext:
     def prompt_sections(self) -> list[tuple[str, str]]:
         """返回仅含非空档案字段的 AI 输入分段。"""
         fields = (
-            ("原有人设", self.persona),
-            ("内容规划", self.content_plan),
-            ("基本身份", self.background),
-            ("真实经历", self.experience),
-            ("关系网", self.relationships),
-            ("独家经历", self.unique_story),
-            ("其他补充", self.extra_notes),
+            ("人格档案（角色定位和表达原则）", self.persona),
+            ("内容规划（内容方向和创作策略）", self.content_plan),
+            ("人物事实：基本身份", self.background),
+            ("人物事实：真实经历", self.experience),
+            ("人物事实：关系网", self.relationships),
+            ("人物事实：独家经历", self.unique_story),
+            ("人物事实：其他补充", self.extra_notes),
         )
         return [(label, value) for label, value in fields if value and value.strip()]
 

@@ -1,6 +1,8 @@
 # 前端文档目录
 
 > 本目录存放前端相关的所有文档。开发前端时，不出 `frontend/` 目录即可找到全部所需内容。
+>
+> 2026-07-28：`request.ts` 对 HTTP 5xx 且非 JSON 的响应改为中文可行动诊断，保留状态码并提示检查后端日志与数据库迁移；不再把底层 JSON 解析错误直接展示给运营。
 
 ---
 
@@ -12,7 +14,7 @@ frontend/
 │   ├── api/                           # API 调用层（36 个模块）
 │   ├── components/                    # 可复用组件
 │   │   └── OutputHistoryDrawer.tsx    #   产出历史抽屉（按 tool_code 过滤全局 outputs，分页+软删，支持自定义 renderItem）2026-07-01 新增
-│   │   ├── request.ts                 #   基础封装（get/post/patch/put/del + 拦截器）
+│   │   ├── request.ts                 #   基础封装（get/post/patch/put/del + 鉴权/非 JSON 服务端异常诊断）
 │   │   ├── auth.ts                    #   登录、改密码
 │   │   ├── users.ts                   #   用户管理
 │   │   ├── kols.ts                    #   红人管理
@@ -30,7 +32,7 @@ frontend/
 │   │   ├── tikhub.ts                  #   TikHub 管理
 │   │   ├── oss.ts                     #   OSS 统计（stats/operations/users）+ OSS 凭证 CRUD
 │   │   ├── asr.ts                     #   ASR 统计（stats/operations/users）+ ASR 凭证 CRUD 类型（实际 CRUD 走通用 credentials.ts）
-│   │   ├── persona.ts                 #   人格定位
+│   │   ├── persona.ts                 #   人格定位（正式达人分页、绑定入驻资料、报告同步）
 │   │   ├── benchmark.ts               #   对标分析
 │   │   ├── tiktokWriter.ts            #   TikTok 脚本仿写
 │   │   ├── sellingPoint.ts            #   产品卖点提取器
@@ -60,7 +62,7 @@ frontend/
 │   │   │   ├── KolsPage.tsx           #     红人管理
 │   │   │   ├── UsersPage.tsx          #     用户管理
 │   │   │   ├── AiManagementPage.tsx   #     AI 密钥/模型管理
-│   │   │   ├── ServiceConfigPage.tsx  #     工具配置：AI / TikHub / OSS / ASR 凭证池（OSS / ASR Tab 完整对齐 TikHub：4 张统计卡 + 操作分布饼图 + 7 天趋势折线图 + 3 子 Tab 凭证管理/操作统计/用户排行；OSS 表单=AccessKey ID/Secret/Bucket/Endpoint，ASR 表单=AppKey/AccessKey ID/Secret/Region；均含连通性测试）
+│   │   │   ├── ServiceConfigPage.tsx  #     工具配置：AI / TikHub / OSS / ASR 凭证池（OSS / ASR Tab 完整对齐 TikHub：4 张统计卡 + 操作分布饼图 + 7 天趋势折线图 + 3 子 Tab 凭证管理/操作统计/用户排行；OSS 表单=AccessKey ID/Secret/Bucket/Endpoint，ASR 表单=AppKey/AccessKey ID/Secret/Region；均含连通性测试；**AI 配置 Tab 自 2026-07-31 起支持自定义厂商**：除预设 yunwu/siliconflow/glm/gemini 外，可在加 Key/编辑 Key/加模型表单选「自定义厂商」填厂商编码（小写字母/数字/短横线，如 deepseek）+ 自定义 base_url，需 OpenAI 兼容协议；提交后等价于预设厂商）
 │   │   │   ├── WorkspaceConfigPage.tsx #    工作空间配置（工具列表 + 配置 Tab：搜索/状态筛选 + 15/页分页；2026-07-01 加「配置」按钮直达对应 Tab + Tabs 受控；含 CONFIG_TAB_KEYS 白名单 + TOOL_CODE_TO_TAB_KEY 例外映射 kol-intake/qianchuan-script-review/selling-point-extractor；4 个预留 Tab 用 PlaceholderConfigTab 占位：persona-positioning/qianchuan-collection/qianchuan分组/review分组）
 │   │   │   ├── AdminIntakePage.tsx    #     入驻问卷管理
 │   │   │   ├── AdminTasksPage.tsx     #     任务管理
@@ -91,7 +93,7 @@ frontend/
 │   │   │   ├── TasksPage.tsx          #     任务中心
 │   │   │   ├── OutputsPage.tsx        #     产出中心
 │   │   │   ├── WorkspacePage.tsx      #     创作中心
-│   │   │   ├── PersonaPage.tsx        #     人格定位
+│   │   │   ├── PersonaPage.tsx        #     人格定位（三步流程 + 正式达人选择 + 字段级同步确认）
 │   │   │   ├── PersonaWriterPage.tsx  #     人设定位（旧版入口）
 │   │   │   ├── BenchmarkPage.tsx      #     对标分析助手
 │   │   │   ├── TiktokWriterPage.tsx   #     TikTok 脚本仿写
@@ -104,7 +106,7 @@ frontend/
 │   │   │   ├── KolWorkspacePage.tsx   #     红人工作台 Shell（Sprint 18-20+23）路由 /kol-workspace/:kol_id，13 个导航项（dashboard/persona/references/products/qianchuan-writer/seeding-writer/persona-writer/livestream-writer/livestream-review/values-writer/script-review/film-review/retrospective）；2026-07-12 对齐全站侧栏 UI（190px 深色导航 + 橙色 active）；2026-07-14 PR #28 还原旧版八模块 + 启用 film-review 页签
 │   │   │   └── workspace/             #     工作台子模块（Sprint 18-19+23）
 │   │   │       ├── WorkspaceDashboard.tsx      #  工作台首页（对标账号 + 当前商品；2026-07-14 PR #28 改"在售商品"为"当前商品"，单选）
-│   │   │       ├── WorkspacePersona.tsx        #  人物档案 5 分区 inline 编辑器（Sprint 19；2026-07-14 PR #28 统一人物上下文读取供所有脚本工具复用）
+│   │   │       ├── WorkspacePersona.tsx        #  七字段人物档案唯一编辑入口（Sprint 25；定位与规划 + 五项人物事实，支持最新报告只补空字段）
 │   │   │       ├── WorkspaceReferences.tsx     #  素材库 6 类管理 + 文档解析 + 私有视频上传/播放/替换/软删除（Sprint 19；2026-07-14 PR #28 补媒体能力 + OSS 私有桶短时签名）
 │   │   │       ├── WorkspaceRetrospective.tsx  #  复盘（五类材料 + AI 分析 + 多脚本逐份解析 + 红人维度列表/草稿/重新复盘/复制/导出，2026-07-14 PR #28）
 │   │   │       └── QianchuanProductsModule.tsx #  千川产品库 CRUD + 单一当前商品约束（2026-07-14 PR #28 加唯一有效关联）
@@ -115,7 +117,7 @@ frontend/
 │   │   │   （另有 QianchuanWriterPage.tsx — 千川文案写作，Sprint 14 新增）
 │   │   │   （另有 PersonaWriterPage.tsx — 人设脚本仿写，Sprint 15 重写 placeholder 上线）
 │   │   │   （另有 SeedingWriterPage.tsx — 种草内容仿写，Sprint 16 新增：4 步向导=选达人+产品信息+对标验证+种草仿写）
-│   │   │   （另有 MaterialLibraryPage.tsx — 素材库，Sprint 18 新增（迁移自旧架构）：左右分栏=红人列表+4 Tab（人格档案/内容规划/参考素材/入驻信息），支持 AI 从入驻问卷生成 soul.md 初稿；2026-07-14 PR #28 工作台 WorkspaceReferences 子模块补文档解析 + 私有视频上传/播放/替换/软删除）
+│   │   │   （另有 MaterialLibraryPage.tsx — 素材库，Sprint 18 新增（迁移自旧架构）；Sprint 25 将人格档案和内容规划收口为只读摘要及工作台跳转，参考素材仍由 WorkspaceReferences 管理）
 │   │   │   （另有 SubtitleExtractorPage.tsx — 字幕提取，Sprint 19 新增（迁移自旧架构）：3 Tab（单条提取/思维导图/批量提取），抖音链接→ASR→字幕+AI 思维导图，支持 SRT/Excel/Zip 导出 + 保存到产出中心）
 │   │   ├── auth/                      #   登录/改密码
 │   │   │   ├── LoginPage.tsx
@@ -169,7 +171,8 @@ frontend/
 │   │   └── MCN_M1_Base_Frontend.md    #     前端架构 + 页面 + 路由规范
 │   ├── tests/                         #   测试报告
 │   │   ├── MCN_Frontend_Test_Task_M1M2.md              #  前端测试任务单
-│   │   └── MCN_Frontend_Test_Fix_Report_2026-06-11.md  #  前端测试修复报告
+│   │   ├── MCN_Frontend_Test_Fix_Report_2026-06-11.md  #  前端测试修复报告
+│   │   └── M2_Sprint25_测试报告_达人档案统一_v1.md       #  M2 Sprint25 达人档案统一测试报告
 │   └── tasks/                         #   任务单 + 验收文档（46 个）
 │       ├── M1_Sprint0.md ~ Sprint4.md           #  M1 各 Sprint
 │       ├── M1_Sprint5_TikHub_独立池化.md         #  TikHub 独立池化

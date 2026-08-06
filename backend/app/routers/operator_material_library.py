@@ -4,7 +4,6 @@ app/routers/operator_material_library.py
 素材库运营端 API（7 接口）：
   GET    /kols                          红人列表（含 profile 概况 + 素材数 + intake 状态）
   GET    /kols/{kol_id}                 红人详情（persona + content_plan + references 按类型分组）
-  PUT    /kols/{kol_id}/profile         更新 kols.persona（soul.md）/ kols.content_plan
   POST   /kols/{kol_id}/references      添加素材
   DELETE /kols/{kol_id}/references/{id} 删除素材（软删除）
   GET    /kols/{kol_id}/intake          获取关联的入驻问卷数据（只读）
@@ -58,11 +57,6 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # 请求体
 # ---------------------------------------------------------------------------
-class ProfileUpdate(BaseModel):
-    persona: Optional[str] = None        # soul.md 全文
-    content_plan: Optional[str] = None   # content-plan.md 全文
-
-
 class ReferenceCreate(BaseModel):
     title: str
     likes: Optional[int] = None
@@ -329,46 +323,6 @@ async def get_kol_detail(
         "content_plan": kol.content_plan or "",
         "references": grouped,
     })
-
-
-# ---------------------------------------------------------------------------
-# 3. PUT /kols/{kol_id}/profile — 更新 persona / content_plan
-# ---------------------------------------------------------------------------
-@router.put("/kols/{kol_id}/profile")
-async def update_profile(
-    kol_id: int,
-    body: ProfileUpdate,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    """更新 kols.persona（soul.md）和/或 kols.content_plan。"""
-    kol = await _get_active_kol(db, kol_id)
-    if not kol:
-        return error_response(ErrorCode.RESOURCE_NOT_FOUND, "红人不存在")
-
-    changes = []
-    if body.persona is not None:
-        kol.persona = body.persona
-        changes.append("persona")
-    if body.content_plan is not None:
-        kol.content_plan = body.content_plan
-        changes.append("content_plan")
-
-    db.add(OperationLog(
-        user_id=user.id,
-        username=user.username,
-        role=user.role,
-        action="material_library_update_profile",
-        target_type="kol",
-        target_id=kol_id,
-        detail={"updated_fields": changes},
-        ip=_get_ip(request),
-        user_agent=request.headers.get("user-agent"),
-    ))
-    await db.commit()
-
-    return success_response(data={"kol_id": kol_id, "updated_fields": changes})
 
 
 # ---------------------------------------------------------------------------

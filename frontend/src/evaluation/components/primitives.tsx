@@ -60,6 +60,7 @@ const RUN_STATUS_META: Record<EvalRunStatus, { text: string; cls: string }> = {
   completed: { text: 'completed', cls: 'badge-success' },
   failed: { text: 'failed', cls: 'badge-danger' },
   partial: { text: 'partial', cls: 'badge-warning' },
+  cancelled: { text: 'cancelled', cls: 'badge-gray' },
 };
 
 export function RunStatusBadge({ status }: { status: EvalRunStatus }) {

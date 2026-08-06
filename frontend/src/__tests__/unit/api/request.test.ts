@@ -23,6 +23,9 @@ function mockFetchResponse(body: unknown, status = 200) {
   return vi.fn(() =>
     Promise.resolve({
       status,
+      ok: status >= 200 && status < 300,
+      statusText: status === 500 ? 'Internal Server Error' : '',
+      headers: new Headers({ 'content-type': 'application/json' }),
       json: () => Promise.resolve(body),
     } as Response)
   );
@@ -200,6 +203,22 @@ describe('request.ts', () => {
     );
 
     await expect(get('/api/test')).rejects.toThrow('Invalid input');
+  });
+
+  it('非 JSON 的 HTTP 500 返回可行动的中文诊断，而不是暴露解析错误', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(vi.fn(() =>
+      Promise.resolve({
+        status: 500,
+        ok: false,
+        statusText: 'Internal Server Error',
+        headers: new Headers({ 'content-type': 'text/plain' }),
+        json: () => Promise.reject(new SyntaxError('Unexpected token I')),
+      } as Response)
+    ));
+
+    await expect(get('/api/test')).rejects.toThrow(
+      '服务器请求失败（HTTP 500），后端返回了无法解析的内容，请联系管理员检查服务日志和数据库迁移',
+    );
   });
 
   // --- HTTP 401 status ---

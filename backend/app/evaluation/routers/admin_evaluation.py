@@ -33,7 +33,7 @@ from datetime import datetime, timezone
 
 from croniter import croniter
 from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy import select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -46,8 +46,10 @@ from app.services import kol_context, workspace_prompt
 
 from app.evaluation.constants import EVAL_TOOL_QIANCHUAN_WRITER
 from app.evaluation.models import (
+    EvalCaseJob,
     EvalDimension,
     EvalRubric,
+    EvalRun,
     EvalSchedulePolicy,
     EvalVersion,
 )
@@ -745,3 +747,75 @@ async def delete_schedule_policy(
     ))
     await db.commit()
     return success_response(data={"id": policy.id, "deleted_at": _ts(policy.deleted_at)})
+
+
+# ---------------------------------------------------------------------------
+# Phase 5：可观测性（队列状态 + 单 run job 明细，admin 只读）
+# ---------------------------------------------------------------------------
+
+
+@router.get("/queue-stats")
+async def queue_stats(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """队列健康度：各状态 job 计数 + 最老 pending 等待秒数 + 活跃 run 数。
+
+    用于一眼判断"堵没堵"：pending 堆积 + oldest_pending_secs 大 = 队列堵塞信号。
+    """
+    rows = (await db.execute(
+        select(EvalCaseJob.status, func.count()).group_by(EvalCaseJob.status)
+    )).all()
+    counts = {r[0]: int(r[1]) for r in rows}
+    oldest = (await db.execute(
+        text(
+            "SELECT EXTRACT(EPOCH FROM (NOW() - MIN(enqueued_at))) "
+            "FROM eval_case_jobs WHERE status = 'pending'"
+        )
+    )).scalar()
+    active_runs = (await db.execute(
+        select(func.count(EvalRun.id)).where(
+            EvalRun.status.in_(("pending", "running", "cancelling"))
+        )
+    )).scalar()
+    return success_response(data={
+        "pending": counts.get("pending", 0),
+        "running": counts.get("running", 0),
+        "failed_dead_letter": counts.get("failed", 0),
+        "done": counts.get("done", 0),
+        "cancelled": counts.get("cancelled", 0),
+        "oldest_pending_secs": int(oldest) if oldest is not None else None,
+        "runs_active": int(active_runs or 0),
+    })
+
+
+@router.get("/runs/{run_id}/jobs")
+async def list_run_jobs(
+    run_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """单 run 的逐 job 明细（debug 卡住的 run：哪个 job 卡 running / last_error 失败原因）。"""
+    run = await db.get(EvalRun, run_id)
+    if run is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": ErrorCode.RESOURCE_NOT_FOUND, "message": "运行不存在"},
+        )
+    rows = (await db.execute(
+        select(EvalCaseJob).where(EvalCaseJob.run_id == run_id).order_by(EvalCaseJob.id)
+    )).scalars().all()
+    return success_response(data=[
+        {
+            "id": j.id,
+            "test_case_id": j.test_case_id,
+            "status": j.status,
+            "attempts": j.attempts,
+            "max_attempts": j.max_attempts,
+            "last_error": j.last_error,
+            "enqueued_at": _ts(j.enqueued_at),
+            "started_at": _ts(j.started_at),
+            "finished_at": _ts(j.finished_at),
+        }
+        for j in rows
+    ])

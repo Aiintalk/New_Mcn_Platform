@@ -1009,7 +1009,7 @@ Response `data.items[]` 字段：
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `id` | number | Key ID |
-| `provider` | string | 服务商：`yunwu` / `siliconflow` / `glm` |
+| `provider` | string | 服务商标识：`yunwu` / `siliconflow` / `glm` / `gemini`，或**自定义厂商编码**（任意小写字母/数字/短横线组合，如 `deepseek`、`moonshot`；需 OpenAI 兼容协议，详见 §13.2） |
 | `label` | string\|null | 名称标签 |
 | `api_key` | string | 完整 Key（管理端不脱敏） |
 | `base_url` | string\|null | 接口地址 |
@@ -1043,7 +1043,11 @@ Request:
 }
 ```
 
-规则：`base_url` 为 `null` 时自动填充各服务商默认地址。
+规则：
+- `base_url` 为 `null` 时自动填充各服务商默认地址（预设见下）。
+- **自定义厂商**（2026-07-31 起）：`provider` 可为任意小写字母/数字/短横线组合（正则 `^[a-z][a-z0-9-]{0,31}$`），用于接入 OpenAI 兼容协议的第三方服务商（如 DeepSeek、Moonshot、零一万物、通义千问等）。自定义厂商必须显式传 `base_url`，指向 OpenAI 兼容端点（需支持 `GET /v1/models`、`POST /v1/chat/completions`、`Authorization: Bearer <key>`）。
+- 预设服务商与默认 `base_url`：`yunwu` → `https://yunwu.ai/v1`；`siliconflow` → `https://api.siliconflow.cn/v1`；`glm` → `https://open.bigmodel.cn/api/paas/v4`；`gemini`。
+- 自定义厂商与预设厂商在系统中**完全等价**：可加模型、可被工具 `ai_model_id` 绑定、可看调用日志、可删除。
 
 ### 13.3 编辑 Key
 
@@ -1120,7 +1124,7 @@ Response `data.items[]` 字段：
 |---|---|---|
 | `id` | number | 模型 ID |
 | `name` | string | 模型名称（展示用） |
-| `provider` | string | 服务商：`yunwu` / `siliconflow` / `glm` |
+| `provider` | string | 服务商标识：`yunwu` / `siliconflow` / `glm` / `gemini`，或**自定义厂商编码**（任意小写字母/数字/短横线组合，如 `deepseek`、`moonshot`；需 OpenAI 兼容协议，详见 §13.2） |
 | `model_id` | string | 模型 ID（传给 API 使用） |
 | `status` | string | `active` / `disabled` |
 | `last_tested_at` | string\|null | 最近测试时间 |

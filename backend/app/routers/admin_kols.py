@@ -12,10 +12,8 @@ app/routers/admin_kols.py
 import math
 from datetime import datetime, timezone
 
-from typing import Optional
-
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, model_validator
 from sqlalchemy import and_, or_, select, update
 
 from app.core.database import AsyncSessionLocal, get_db
@@ -23,8 +21,10 @@ from app.core.response import ApiResponse, ErrorCode, error_response, success_re
 from app.middlewares.auth import get_current_user, require_admin, require_admin_or_operator
 from app.models.kol import Kol
 from app.models.log import OperationLog
+from app.models.persona_report import PersonaReport
 from app.models.user import User
 from app.services.kol_tikhub import fetch_tikhub_for_kol
+from app.services.persona_profile_sync import FACT_FIELDS
 from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter(prefix="/admin/kols", tags=["admin-kols"])
@@ -91,7 +91,17 @@ def _kol_to_dict(k: Kol, include_raw: bool = False) -> dict:
 # Request schemas
 # ---------------------------------------------------------------------------
 
-class CreateKolRequest(BaseModel):
+class _AdminKolWriteRequest(BaseModel):
+    @model_validator(mode="before")
+    @classmethod
+    def reject_positioning_fields(cls, values: object) -> object:
+        if isinstance(values, dict) and {"persona", "content_plan"} & values.keys():
+            raise ValueError("人格档案和内容规划只能在红人工作台维护")
+        return values
+
+
+class CreateKolRequest(_AdminKolWriteRequest):
+
     name: str
     account_name: str | None = None
     category: str | None = None
@@ -101,14 +111,13 @@ class CreateKolRequest(BaseModel):
     avatar_url: str | None = None
     follower_count: int | None = None
     video_count: int | None = None
-    persona: str | None = None
-    content_plan: str | None = None
     style_note: str | None = None   # 前端字段名，映射到 style_notes
     owner: str | None = None         # 负责人姓名
     owner_id: int | None = None
 
 
-class UpdateKolRequest(BaseModel):
+class UpdateKolRequest(_AdminKolWriteRequest):
+
     name: str | None = None
     account_name: str | None = None
     category: str | None = None
@@ -118,8 +127,6 @@ class UpdateKolRequest(BaseModel):
     avatar_url: str | None = None
     follower_count: int | None = None
     video_count: int | None = None
-    persona: str | None = None
-    content_plan: str | None = None
     style_note: str | None = None   # 前端字段名
     owner: str | None = None         # 负责人姓名
     owner_id: int | None = None
@@ -227,8 +234,6 @@ async def create_kol(
         avatar_url=body.avatar_url,
         follower_count=body.follower_count,
         video_count=body.video_count,
-        persona=body.persona,
-        content_plan=body.content_plan,
         style_notes=body.style_note,    # 映射前端 style_note → DB style_notes
         owner=body.owner,               # 负责人姓名
         owner_id=body.owner_id,
@@ -293,7 +298,6 @@ async def update_kol(
             "name", "account_name", "category", "platform",
             "douyin_id", "sec_uid", "avatar_url",
             "follower_count", "video_count",
-            "persona", "content_plan",
             "owner", "owner_id",
         ):
             v = getattr(body, field)
@@ -415,15 +419,21 @@ async def _require_operator_kols(current_user: User = Depends(get_current_user))
 
 
 class PersonaDetailsRequest(BaseModel):
-    background: Optional[str] = None
-    experience: Optional[str] = None
-    relationships: Optional[str] = None
-    unique_story: Optional[str] = None
-    extra_notes: Optional[str] = None
+    model_config = ConfigDict(extra="forbid")
+
+    persona: str | None = None
+    content_plan: str | None = None
+    background: str | None = None
+    experience: str | None = None
+    relationships: str | None = None
+    unique_story: str | None = None
+    extra_notes: str | None = None
 
 
 def _persona_dict(kol: Kol) -> dict:
-    return {
+    fields = {
+        "persona": kol.persona,
+        "content_plan": kol.content_plan,
         "kol_id": kol.id,
         "background": kol.background,
         "experience": kol.experience,
@@ -432,6 +442,12 @@ def _persona_dict(kol: Kol) -> dict:
         "extra_notes": kol.extra_notes,
         "updated_at": _ts(kol.updated_at),
     }
+    fields["filled_count"] = sum(
+        bool((fields[field] or "").strip())
+        for field in ("persona", "content_plan", *FACT_FIELDS)
+    )
+    fields["total_count"] = 7
+    return fields
 
 
 @_operator_router.get("/{kol_id}/persona-details", response_model=None)
@@ -464,22 +480,120 @@ async def update_persona_details(
         if not kol:
             return error_response(ErrorCode.RESOURCE_NOT_FOUND, "达人不存在")
 
-        # PATCH 语义：只更新非 None 字段
-        updates = {k: v for k, v in body.model_dump().items() if v is not None}
-        updates["updated_at"] = datetime.now(timezone.utc)
+        submitted_fields = body.model_fields_set
+        if len(submitted_fields) != 1:
+            return error_response(ErrorCode.VALIDATION_ERROR, "一次必须且只能提交一个档案字段")
+        field = next(iter(submitted_fields))
 
-        await session.execute(
-            update(Kol).where(Kol.id == kol_id).values(**updates)
+        # 在实际写入前再次读取未删除正式达人，避免并发删除后误写。
+        row = await session.execute(
+            select(Kol).where(Kol.id == kol_id, Kol.deleted_at.is_(None))
+            .execution_options(populate_existing=True)
+            .with_for_update()
         )
+        kol = row.scalar_one_or_none()
+        if not kol:
+            return error_response(ErrorCode.RESOURCE_NOT_FOUND, "达人不存在")
+
+        setattr(kol, field, getattr(body, field))
+        kol.updated_at = datetime.now(timezone.utc)
         session.add(OperationLog(
             user_id=current_user.id,
             username=current_user.username,
             role=current_user.role,
-            action="update_kol_persona_details",
+            action="update_kol_persona_field",
             target_type="kol",
             target_id=kol_id,
+            detail={"field": field},
             ip=_get_ip(request),
+            user_agent=request.headers.get("user-agent"),
         ))
         await session.commit()
         await session.refresh(kol)
         return success_response(data=_persona_dict(kol))
+
+
+async def _extract_grounded_facts(
+    profile_result: str, current_user: User,
+) -> dict[str, str]:
+    # 延迟导入避免 admin/persona 路由加载顺序形成循环依赖。
+    from app.routers.persona import _extract_grounded_facts as extract
+    return await extract(profile_result, current_user)
+
+
+@_operator_router.post("/{kol_id}/persona-details/fill-empty", response_model=None)
+async def fill_empty_persona_facts(
+    kol_id: int,
+    request: Request,
+    current_user: User = Depends(_require_operator_kols),
+):
+    async with AsyncSessionLocal() as session:
+        kol = (await session.execute(
+            select(Kol).where(Kol.id == kol_id, Kol.deleted_at.is_(None))
+        )).scalar_one_or_none()
+        if kol is None:
+            return error_response(ErrorCode.RESOURCE_NOT_FOUND, "达人不存在")
+        report = (await session.execute(
+            select(PersonaReport)
+            .where(PersonaReport.operator_id == current_user.id)
+            .where(PersonaReport.kol_id == kol_id)
+            .where(PersonaReport.status == "ready")
+            .where(PersonaReport.deleted_at.is_(None))
+            .where(PersonaReport.profile_result.is_not(None))
+            .where(PersonaReport.profile_result != "")
+            .order_by(PersonaReport.created_at.desc(), PersonaReport.id.desc())
+            .limit(1)
+        )).scalar_one_or_none()
+        if report is None:
+            return error_response(ErrorCode.RESOURCE_NOT_FOUND, "没有可用的人格报告")
+        report_id = report.id
+        profile_result = report.profile_result
+
+    try:
+        facts = await _extract_grounded_facts(profile_result, current_user)
+    except Exception:
+        # 延迟导入避免 admin/persona 路由加载顺序形成循环依赖。
+        from app.routers.persona import _record_fact_sync_failure
+        await _record_fact_sync_failure(report_id, current_user, request)
+        return error_response(ErrorCode.INTERNAL_ERROR, "人物事实提取失败，请稍后重试")
+
+    async with AsyncSessionLocal() as session:
+        # 提取期间可能发生删除，写入前重新验证正式达人。
+        kol = (await session.execute(
+            select(Kol).where(Kol.id == kol_id, Kol.deleted_at.is_(None))
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        )).scalar_one_or_none()
+        if kol is None:
+            return error_response(ErrorCode.RESOURCE_NOT_FOUND, "达人不存在")
+        filled_fields = [
+            field for field in FACT_FIELDS
+            if facts.get(field) and not (getattr(kol, field) or "").strip()
+        ]
+        for field in filled_fields:
+            setattr(kol, field, facts[field])
+        if filled_fields:
+            kol.updated_at = datetime.now(timezone.utc)
+        session.add(OperationLog(
+            user_id=current_user.id,
+            username=current_user.username,
+            role=current_user.role,
+            action="fill_kol_persona_facts",
+            target_type="persona_report",
+            target_id=report_id,
+            detail={
+                "kol_id": kol_id,
+                "report_id": report_id,
+                "fields": filled_fields,
+            },
+            ip=_get_ip(request),
+            user_agent=request.headers.get("user-agent"),
+        ))
+        await session.commit()
+
+    return success_response(data={
+        "kol_id": kol_id,
+        "report_id": report_id,
+        "filled_fields": filled_fields,
+        "preserved_fields": [field for field in FACT_FIELDS if field not in filled_fields],
+    })

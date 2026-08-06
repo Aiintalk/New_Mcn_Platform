@@ -134,23 +134,21 @@ sudo nginx -t && sudo systemctl reload nginx
 | 旧系统库 | mcn_platform（保留，不操作）|
 | psql 路径（Windows）| `D:\ProtgreSQL\bin\psql.exe` |
 
-> ⚠️ 默认密码（`admin123`）仅供本地开发参考，**不得用于任何服务器环境**。  
-> 服务器部署时必须在 `backend/.env` 中设置强密码，由 `DB_PASSWORD` 环境变量传入脚本。
->
-> ⚠️ 生产/测试服部署时必须通过环境变量覆盖默认密码（`export DB_PASSWORD=<强密码>`），切勿使用默认值 `admin123`。
+> `deploy/scripts/init-db.sh` 不再内置数据库账号或密码，只读取 `DATABASE_URL` 环境变量或 `backend/.env`。生产/测试服必须使用各自的强凭证，禁止把 `.env` 提交到 Git。
 
-### 建表步骤
+### 迁移步骤
 
 ```bash
-# 执行建表脚本（由后端 Sprint 1 生成，路径相对于项目根目录）
+# 已有 schema_migrations 账本：按顺序执行所有未登记迁移
 bash deploy/scripts/init-db.sh
 
-# 或手动执行（Windows）：
-# D:\ProtgreSQL\bin\psql.exe -U postgres -h localhost -d mcn_m1 -f backend/migrations/001_init.sql
-
-# 验证（应看到 11 张表）
-# D:\ProtgreSQL\bin\psql.exe -U postgres -h localhost -d mcn_m1 -c "\dt"
+# 既有数据库首次纳管：先备份并核对 049 及之前结构，再登记基线
+bash deploy/scripts/init-db.sh --baseline-through 49
 ```
+
+执行器按“数字前缀 + 完整文件名”排序，以 `schema_migrations` 记录校验和。已登记文件不会重放，因此 migration 内的 seed 不会重复执行。检测到既有业务表但没有账本时，脚本会停止并要求显式基线，禁止猜测。
+
+> 当前历史迁移 031 的 seed 依赖管理端模型 ID 已预先存在，因此空数据库的完整初始化仍需独立梳理，不得把 `--baseline-through` 当成建表工具。本文本轮只批准既有数据库的安全接管与后续增量迁移。
 
 ---
 
@@ -177,8 +175,9 @@ pip install -r requirements.txt
 cp .env.example .env
 vim .env
 
-# 5. 初始化数据库（建表 + 迁移）
-bash ../deploy/scripts/init-db.sh
+# 5. 数据库准备
+# 新建空库：按当期首次部署清单准备基础表和模型，再运行迁移。
+# 既有库：按 §3.3 备份、核对并纳入迁移账本。
 
 # 6. 启动后端
 bash ../deploy/scripts/start.sh
@@ -217,18 +216,45 @@ git pull origin main
 cd backend && source .venv/bin/activate
 pip install -r requirements.txt  # 如有新依赖
 bash ../deploy/scripts/stop.sh
+
+# 数据库迁移必须在新代码启动前完成；失败即停，不启动不匹配的新代码
+bash ../deploy/scripts/init-db.sh
+
 bash ../deploy/scripts/start.sh
 
 # 前端（如有变更）
 cd ../frontend && npm install && npm run build
 sudo cp -r dist/* /var/www/mcn/
 
-# 数据库迁移（如有新 migration）
-# bash ../deploy/scripts/init-db.sh  或手动执行新迁移
-
 # 验证
 bash ../deploy/scripts/health-check.sh
 ```
+
+### 3.3 既有生产数据库首次纳管与 050 修复
+
+本步骤只供 PM 批准后的生产变更窗口执行。本开发分支不执行生产命令。
+
+1. 停止写流量或进入维护窗口，记录当前代码提交、数据库版本和接口 500 证据。
+2. 使用受控备份目录执行 `pg_dump --format=custom --file=<备份文件> <数据库连接>`，确认命令退出码为 0，并用 `pg_restore --list <备份文件>` 验证备份可读。
+3. 只读检查：
+   - `kol_references` 表存在；
+   - 049 的 `uq_kol_active_products_kol` 唯一约束存在；
+   - 050 的 8 个媒体字段当前是否缺失；
+   - 053/054 的表或字段是否已经由旧流程人工执行。
+4. 根据检查结果组装一次性首次纳管命令：
+   - 001–049 已存在：传 `--baseline-through 49`；
+   - 053/054 已存在：分别追加 `--adopt-existing 053_eval_core.sql`、`--adopt-existing 054_eval_case_jobs.sql`；
+   - 未存在的后续迁移不要登记，由执行器真实执行。
+5. 运行 `bash deploy/scripts/init-db.sh ...`。任一迁移失败会回滚该文件并停止，禁止启动新代码。
+6. 再运行同一命令：预期“执行 0”，用于证明幂等和 seed 不重放。
+7. 启动后端后复验 `/api/health`、素材库列表、至少 4 个红人详情，以及红人 43 的创建、编辑和旧记录读取；页面不再出现 500。
+
+失败处理：
+
+- 迁移失败：保持服务停止，保存完整日志，不手工插入账本，不跳过失败文件。
+- 050 未提交前失败：该文件事务已回滚，可修正前置条件后重试。
+- 050 已成功但应用复验失败：不要删除 050 新增的可空字段；优先回滚代码并保留兼容字段。若必须恢复整库，使用本次变更前的备份在隔离实例验证后再执行恢复。
+- 任何恢复或生产 SQL 都需 PM 单独批准。
 
 ---
 
@@ -281,16 +307,15 @@ bash deploy/scripts/health-check.sh
 
 ### 5.2 数据库回滚
 
-> Sprint 1 及以后通过迁移脚本管理 schema，届时补充回滚命令。
-
-目前可通过 PostgreSQL 备份还原：
+结构迁移默认采用“向前修复”，不自动删除新增列。生产执行前必须先完成可恢复备份：
 
 ```bash
-# 备份（在部署前执行）
-pg_dump mcn_db > /tmp/mcn_db_backup_$(date +%Y%m%d_%H%M%S).sql
+# 备份为 PostgreSQL custom 格式，并验证目录可读
+pg_dump --format=custom --file=<备份文件> <数据库连接>
+pg_restore --list <备份文件>
 
-# 还原
-psql mcn_db < /tmp/mcn_db_backup_<timestamp>.sql
+# 恢复前先在隔离实例验证；生产恢复需 PM 单独批准
+pg_restore --clean --if-exists --dbname=<恢复目标> <备份文件>
 ```
 
 ---
@@ -305,7 +330,7 @@ deploy/
 │   ├── start.sh          # 启动后端（uvicorn + nohup）+ 重载 Nginx
 │   ├── stop.sh           # 停止后端进程
 │   ├── health-check.sh   # 调用 /api/health 验证服务状态
-│   ├── init-db.sh        # 执行建表迁移脚本
+│   ├── init-db.sh        # 调用账本执行器，顺序执行未登记迁移
 │   └── logrotate-mcn.conf # 日志轮转配置（copytruncate，14天保留）
 ├── logs/                 # uvicorn 运行日志（自动创建，不入 git，logrotate 管理）
 ├── pids/                 # 进程 PID 文件（自动创建，不入 git）

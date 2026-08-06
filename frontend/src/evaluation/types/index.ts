@@ -12,7 +12,7 @@ export type EvalToolCode = 'qianchuan-writer';
 export type EvalTriggerType = 'manual' | 'auto' | 'schedule';
 
 /** 运行状态机 */
-export type EvalRunStatus = 'pending' | 'running' | 'completed' | 'failed' | 'partial';
+export type EvalRunStatus = 'pending' | 'running' | 'completed' | 'failed' | 'partial' | 'cancelled';
 
 /** 通用分页结构 */
 export interface EvalPagination {
@@ -215,6 +215,9 @@ export interface EvalRun {
   started_at: string | null;
   finished_at: string | null;
   created_at: string | null;
+  /** 仅 GET /runs/{id} 详情返回（list 不返回）：ETA 估算 */
+  eta_secs?: number | null;
+  avg_case_duration_secs?: number | null;
 }
 
 export interface EvalTriggerRunRequest {
@@ -222,6 +225,14 @@ export interface EvalTriggerRunRequest {
   filter_tags?: string[];
   name?: string;
   trigger_type?: EvalTriggerType;
+}
+
+/** GET /runs 列表查询参数 */
+export interface EvalRunListParams {
+  page?: number;
+  page_size?: number;
+  status?: EvalRunStatus;
+  version_id?: number;
 }
 
 export interface EvalScore {
@@ -237,6 +248,41 @@ export interface EvalScore {
   human_feedback: string | null;
   created_at: string | null;
   updated_at: string | null;
+}
+
+/** GET /runs/{id}/case-results — 单 case 生成结果（含 generated_output，供「查看输出」） */
+export interface EvalCaseResult {
+  id: number;
+  test_case_id: number;
+  test_case_name: string;
+  generated_output: string | null;
+  output_payload: Record<string, unknown> | null;
+  input_snapshot: Record<string, unknown> | null;
+  created_at: string | null;
+}
+
+/** GET /admin/evaluation/queue-stats — 队列健康度 */
+export interface EvalQueueStats {
+  pending: number;
+  running: number;
+  failed_dead_letter: number;
+  done: number;
+  cancelled: number;
+  oldest_pending_secs: number | null;
+  runs_active: number;
+}
+
+/** GET /admin/evaluation/runs/{id}/jobs — 单 run 的 job 明细 */
+export interface EvalRunJob {
+  id: number;
+  test_case_id: number;
+  status: string;
+  attempts: number;
+  max_attempts: number;
+  last_error: string | null;
+  enqueued_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
 }
 
 export interface EvalHumanLabelRequest {

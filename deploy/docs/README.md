@@ -12,7 +12,7 @@ deploy/
 │   ├── start.sh                       #   启动服务（后端 uvicorn + 前端 npm）
 │   ├── stop.sh                        #   停止服务
 │   ├── health-check.sh                #   健康检查
-│   └── init-db.sh                     #   数据库初始化
+│   └── init-db.sh                     #   顺序执行未登记迁移（调用后端迁移账本执行器）
 ├── nginx/
 │   └── mcn-m1.conf                    #   Nginx 反向代理配置
 ├── sql/
@@ -23,13 +23,14 @@ deploy/
 │
 ├── docs/                              # ===== 本目录 =====
 │   ├── README.md                      #   本文件（架构 + 文档索引）
-│   └── tasks/                         #   任务单 + 验收文档（8 个）
+│   └── tasks/                         #   任务单 + 验收文档（9 个）
 │       ├── M1_Sprint0.md              #     基础环境搭建
 │       ├── M1_Sprint1.md              #     用户模块部署
 │       ├── M1_Sprint4.md              #     AI 模块部署
 │       ├── M1_Sprint5_TikHub_独立池化.md #  TikHub 独立池化部署
 │       ├── M2_Sprint1_kol_intake.md   #     入驻问卷部署
 │       ├── M2_测试服首次部署.md         #     测试服首次部署
+│       ├── M2_Sprint24_运维端任务_顺序数据库迁移_v1_修复Bug.md
 │       └── M2_Sprint24_运维端任务_外部KOL只读API部署配置_v1.md # 外部 KOL API 部署配置
 │
 └── README.md                          # 部署说明
@@ -81,7 +82,8 @@ deploy/docs/
 
 ## 关键约定
 
-- 数据库初始化：`bash backend/scripts/init_db.sh`（默认 postgres/admin123/mcn_m1）
+- 数据库迁移：`bash deploy/scripts/init-db.sh`；连接只读 `DATABASE_URL` 或 `backend/.env`，脚本不内置密码
+- 既有数据库首次纳管：先备份并核对基线，再显式执行 `bash deploy/scripts/init-db.sh --baseline-through 49`
 - 健康检查：`bash deploy/scripts/health-check.sh`
 - 日志轮转：确认 logs/ 不写满磁盘
 - 端口安全：仅开放 80/443，5432 不对外暴露

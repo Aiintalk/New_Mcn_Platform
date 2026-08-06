@@ -19,6 +19,7 @@ RUN_STATUS_RUNNING = "running"
 RUN_STATUS_COMPLETED = "completed"
 RUN_STATUS_FAILED = "failed"
 RUN_STATUS_CANCELLING = "cancelling"  # cancel 进行中（Phase 4）
+RUN_STATUS_CANCELLED = "cancelled"    # 已取消（POST /runs/{id}/cancel 直接收尾）
 
 # eval_case_jobs.status 取值（异步运行，按 case 拆 job）
 JOB_STATUS_PENDING = "pending"

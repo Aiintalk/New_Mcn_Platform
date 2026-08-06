@@ -2,26 +2,23 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { App } from 'antd';
+import { MemoryRouter, Route, Routes, useParams, useSearchParams } from 'react-router-dom';
 
 // Mock API — operator
 const mockGetKols = vi.fn();
 const mockGetKolDetail = vi.fn();
-const mockUpdateKolProfile = vi.fn();
 const mockCreateKolReference = vi.fn();
 const mockDeleteKolReference = vi.fn();
 const mockGetKolIntake = vi.fn();
-const mockGenerateSoul = vi.fn();
 
 vi.mock('../../../api/materialLibrary', () => ({
   getMaterialLibraryKols: (...args: unknown[]) => mockGetKols(...args),
   materialLibraryKolItems: (response: { items: unknown[] } | unknown[]) =>
     Array.isArray(response) ? response : response.items,
   getMaterialLibraryKolDetail: (...args: unknown[]) => mockGetKolDetail(...args),
-  updateKolProfile: (...args: unknown[]) => mockUpdateKolProfile(...args),
   createKolReference: (...args: unknown[]) => mockCreateKolReference(...args),
   deleteKolReference: (...args: unknown[]) => mockDeleteKolReference(...args),
   getKolIntake: (...args: unknown[]) => mockGetKolIntake(...args),
-  generateSoul: (...args: unknown[]) => mockGenerateSoul(...args),
   getMaterialLibraryConfigs: vi.fn(),
   updateMaterialLibraryConfig: vi.fn(),
 }));
@@ -36,6 +33,17 @@ vi.mock('antd', async () => {
 });
 
 import MaterialLibraryPage from '../../../pages/operator/MaterialLibraryPage';
+
+const jsdomGetComputedStyle = window.getComputedStyle;
+vi.spyOn(window, 'getComputedStyle').mockImplementation((element) => jsdomGetComputedStyle(element));
+
+function WorkspacePersonaTabProbe() {
+  const { kolId } = useParams();
+  const [searchParams] = useSearchParams();
+  return searchParams.get('tab') === 'persona'
+    ? <div>{kolId} 号红人的人物档案标签已激活</div>
+    : <div>人物档案标签未激活</div>;
+}
 
 const sampleKols = [
   {
@@ -85,7 +93,19 @@ const sampleDetail = {
 };
 
 function renderWithApp(ui: React.ReactElement) {
-  return render(<App>{ui}</App>);
+  return render(
+    <App>
+      <MemoryRouter
+        initialEntries={['/']}
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+      >
+        <Routes>
+          <Route path="/" element={ui} />
+          <Route path="/kol-workspace/:kolId" element={<WorkspacePersonaTabProbe />} />
+        </Routes>
+      </MemoryRouter>
+    </App>,
+  );
 }
 
 type UserInstance = ReturnType<typeof userEvent.setup>;
@@ -111,10 +131,8 @@ describe('MaterialLibraryPage', () => {
     vi.clearAllMocks();
     mockGetKols.mockResolvedValue(sampleKols);
     mockGetKolDetail.mockResolvedValue(sampleDetail);
-    mockUpdateKolProfile.mockResolvedValue({ success: true });
     mockCreateKolReference.mockResolvedValue({ id: 99 });
     mockDeleteKolReference.mockResolvedValue({ success: true });
-    mockGenerateSoul.mockResolvedValue({ soul_md: '# 孙静人格档案\nAI 生成的初稿' });
   });
 
   // Test 1: 左右分栏渲染 — 红人列表 + 详情区
@@ -153,28 +171,24 @@ describe('MaterialLibraryPage', () => {
     await waitFor(() => expect(mockGetKols).toHaveBeenCalled());
     await waitFor(() => expect(mockGetKolDetail).toHaveBeenCalledWith(1));
 
-    // persona 内容应在文本区显示
+    // persona 内容应以只读摘要显示
     await waitFor(() => {
-      expect(screen.getByDisplayValue('我是孙静，美妆博主')).toBeInTheDocument();
+      expect(screen.getByText('我是孙静，美妆博主')).toBeInTheDocument();
     });
   });
 
-  // Test 3: 保存人格档案
-  it('calls updateKolProfile when save persona clicked', async () => {
+  // Test 3: 人格档案和内容规划只读，并统一跳工作台编辑
+  it('shows read-only profile summaries and jumps to the unified workspace editor', async () => {
     const user = userEvent.setup();
-    mockUpdateKolProfile.mockResolvedValue({ success: true });
     renderWithApp(<MaterialLibraryPage />);
 
-    await waitFor(() => screen.getByDisplayValue('我是孙静，美妆博主'));
+    expect(await screen.findByText('我是孙静，美妆博主')).toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: /人格档案/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^保\s*存$/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /从入驻问卷生成/ })).not.toBeInTheDocument();
 
-    // 人格档案 Tab 默认激活，找保存按钮（同 Tab 内有两个：人格档案 + 内容规划，但内容规划 Tab 隐藏）
-    const saveButtons = screen.getAllByRole('button').filter((b) => /^保\s*存$/.test(b.textContent || ''));
-    expect(saveButtons.length).toBeGreaterThan(0);
-    await user.click(saveButtons[0]);
-
-    await waitFor(() => {
-      expect(mockUpdateKolProfile).toHaveBeenCalledWith(1, expect.objectContaining({ persona: expect.any(String) }));
-    });
+    await user.click(screen.getByRole('button', { name: '前往红人工作台编辑' }));
+    expect(await screen.findByText('1 号红人的人物档案标签已激活')).toBeInTheDocument();
   });
 
   // Test 4: 切到内容规划 Tab
@@ -188,6 +202,9 @@ describe('MaterialLibraryPage', () => {
     await waitFor(() => {
       expect(screen.getByText('内容规划（content-plan.md）')).toBeInTheDocument();
     });
+
+    await user.click(screen.getByRole('button', { name: '前往红人工作台编辑' }));
+    expect(await screen.findByText('1 号红人的人物档案标签已激活')).toBeInTheDocument();
   });
 
   // Test 5: 切到参考素材 Tab，显示分组素材
@@ -291,36 +308,20 @@ describe('MaterialLibraryPage', () => {
     });
   });
 
-  // Test 9: 从入驻问卷生成 soul.md（无 persona → 直接调用，不走 Modal.confirm）
-  // 注：有 persona 时弹 Modal.confirm，但 AntD v5 静态方法在测试环境无法挂载，
-  // 改测无 persona 的直调分支（doGenerate() 内部调用 generateSoul API）。
-  it('calls generateSoul directly when persona is empty', async () => {
+  // Test 9: 六类参考素材的新增入口继续保留
+  it('keeps all six reference types editable', async () => {
     const user = userEvent.setup();
-    // 覆盖 detail，让 persona 为空字符串
-    mockGetKolDetail.mockResolvedValue({
-      ...sampleDetail,
-      persona: '',
-      references: {
-        '红人爆款文案': [], '风格参考': [], '红人喜欢的内容': [],
-        '千川爆款文案': [], '千川喜欢的内容': [], '千川风格参考': [],
-      },
-    });
     renderWithApp(<MaterialLibraryPage />);
 
-    await waitFor(() => {
-      // persona 文本区为空时仍能找到（getByDisplayValue 找不到空值，改查 placeholder）
-      const textarea = screen.getByPlaceholderText(/暂无人格档案/);
-      expect(textarea).toBeInTheDocument();
+    await user.click(await screen.findByRole('tab', { name: /参考素材/ }));
+    await user.click(screen.getByRole('button', { name: /添加素材/ }));
+    await act(async () => {
+      fireEvent.mouseDown(document.querySelector('.ant-select-selector') as HTMLElement);
     });
 
-    const genBtn = screen.getAllByRole('button').find((b) => /从入驻问卷生成/.test(b.textContent || ''));
-    expect(genBtn).toBeTruthy();
-    if (genBtn) await user.click(genBtn);
-
-    // 无 persona → 不弹 Modal.confirm，直接调 doGenerate
-    await waitFor(() => {
-      expect(mockGenerateSoul).toHaveBeenCalledWith(1);
-    });
+    for (const label of ['红人爆款文案', '红人喜欢的内容', '风格参考', '千川爆款文案', '千川喜欢的内容', '千川风格参考']) {
+      expect(await screen.findByText(new RegExp(`— ${label}$`))).toBeInTheDocument();
+    }
   });
 
   // Test 10: 切到入驻信息 Tab 加载问卷

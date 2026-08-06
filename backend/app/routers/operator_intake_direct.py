@@ -23,6 +23,7 @@ from app.core.database import AsyncSessionLocal, get_db
 from app.core.response import success_response, error_response, ErrorCode
 from app.middlewares.auth import get_current_user, get_current_user_optional
 from app.models.credential import AiModel
+from app.models.kol import Kol
 from app.models.kol_intake import (
     KolIntakeConfig, KolIntakeOperatorSession, KolIntakeQuestion,
 )
@@ -104,11 +105,26 @@ def _get_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
+async def _get_active_kol(db: AsyncSession, kol_id: int | None) -> Kol | None:
+    if kol_id is None:
+        return None
+    kol = (await db.execute(
+        select(Kol).where(Kol.id == kol_id).where(Kol.deleted_at.is_(None))
+    )).scalar_one_or_none()
+    if kol is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "RESOURCE_NOT_FOUND", "message": "达人不存在"},
+        )
+    return kol
+
+
 # ---------------------------------------------------------------------------
 # POST /start
 # ---------------------------------------------------------------------------
 
 class StartSessionRequest(BaseModel):
+    kol_id: int | None = None
     kol_name: str | None = None
 
 
@@ -120,8 +136,10 @@ async def start_session(
     current_user: User = Depends(require_operator),
 ):
     """新建运营直发对话会话，返回 session_id。"""
+    await _get_active_kol(db, body.kol_id)
     session = KolIntakeOperatorSession(
         operator_id=current_user.id,
+        kol_id=body.kol_id,
         kol_name=body.kol_name,
     )
     db.add(session)
@@ -133,7 +151,7 @@ async def start_session(
         action="start_intake_session",
         target_type="session",
         target_id=session.id,
-        detail={"kol_name": body.kol_name},
+        detail={"kol_id": body.kol_id, "kol_name": body.kol_name},
         ip=_get_ip(request),
         user_agent=request.headers.get("user-agent"),
     ))
@@ -141,6 +159,7 @@ async def start_session(
     await db.refresh(session)
     return success_response(data={
         "session_id": session.id,
+        "kol_id":     session.kol_id,
         "kol_name":   session.kol_name,
     })
 

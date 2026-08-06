@@ -22,6 +22,7 @@
 | `tiktok_writer_configs` | TikTok 脚本仿写 AI 配置（Prompt + 模型） | Sprint 4 |
 | `qianchuan_review_configs` | 千川脚本复盘 AI 配置（Prompt + 模型） | Sprint 6 |
 | `qianchuan_edit_review_configs` | 千川剪辑预审 AI 配置（Prompt + 模型） | Sprint 7 |
+| `schema_migrations` | 数据库迁移账本（文件、版本、校验和、执行方式） | Sprint 24 运维修复 |
 
 > 各工具的产出记录统一复用 `outputs` 和 `task_jobs`，不单独建产出表。
 > 迁移文件清单见 §11（M2 数据迁移脚本，完整 006~029）。
@@ -112,6 +113,7 @@ config_key: conversation_bridge / report_generation
 | `id` | SERIAL | 是 | 链接 ID |
 | `token` | VARCHAR(64) | 是 | URL token（`secrets.token_urlsafe(32)`），全局唯一 |
 | `operator_id` | INTEGER | 是 | 生成链接的运营，关联 `users.id` |
+| `kol_id` | BIGINT | 否 | 明确绑定的正式达人，关联 `kols.id`，删除达人时置空；历史记录不回填 |
 | `kol_name` | VARCHAR(200) | 否 | 运营预填的博主姓名 |
 | `expires_at` | TIMESTAMPTZ | 是 | 链接有效期 |
 | `used_at` | TIMESTAMPTZ | 否 | 博主首次访问时间 |
@@ -132,6 +134,7 @@ config_key: conversation_bridge / report_generation
 ```sql
 CREATE UNIQUE INDEX idx_kol_intake_links_token ON kol_intake_links(token);
 CREATE INDEX idx_kol_intake_links_operator ON kol_intake_links(operator_id);
+CREATE INDEX idx_kol_intake_links_kol ON kol_intake_links(kol_id);
 CREATE INDEX idx_kol_intake_links_expires ON kol_intake_links(expires_at);
 ```
 
@@ -191,6 +194,20 @@ CREATE INDEX idx_kol_intake_submissions_created ON kol_intake_submissions(create
 
 ---
 
+## 5A. kol_intake_operator_sessions 运营直发会话表（Sprint 25 关联补充）
+
+既有表保留全部历史字段；Sprint 25 只新增以下关联：
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `kol_id` | BIGINT | 否 | 明确绑定的正式达人，关联 `kols.id`，删除达人时置空；历史记录和新建未绑定会话保持空值，不按姓名回填 |
+
+索引：`CREATE INDEX idx_kol_intake_operator_sessions_kol ON kol_intake_operator_sessions(kol_id);`
+
+人格定位读取入驻资料时必须同时满足 `kol_id` 相等、`operator_id` 为当前用户、`report_status='ready'` 且 `ai_report` 非空。
+
+---
+
 ## 6. M2 数据迁移脚本
 
 Migration 文件位于 `backend/alembic/versions/` 或 `backend/migrations/`，Sprint 1 需包含：
@@ -225,6 +242,7 @@ Migration 文件位于 `backend/alembic/versions/` 或 `backend/migrations/`，S
 |------|------|------|------|
 | `id` | BIGSERIAL | 是 | 报告 ID |
 | `operator_id` | BIGINT | 是 | 创建者，关联 `users.id` |
+| `kol_id` | BIGINT | 否 | 正式达人编号，关联 `kols.id`，删除达人时置空；应用层要求所有新人格报告必填，历史报告保留空值 |
 | `douyin_text` | TEXT | 否 | 用户输入的抖音分享文本 |
 | `douyin_nickname` | VARCHAR(200) | 否 | TikHub 解析出的昵称 |
 | `douyin_id` | TEXT | 否 | 抖音号或分享链接 |
@@ -256,6 +274,7 @@ generating → failed
 
 ```sql
 CREATE INDEX idx_persona_reports_operator ON persona_reports(operator_id);
+CREATE INDEX idx_persona_reports_kol ON persona_reports(kol_id);
 CREATE INDEX idx_persona_reports_status ON persona_reports(status);
 CREATE INDEX idx_persona_reports_created ON persona_reports(created_at DESC);
 ```
@@ -329,6 +348,7 @@ CREATE INDEX idx_tikhub_call_logs_created ON tikhub_call_logs(created_at DESC);
 | `007_kol_intake_operator_sessions.sql` | 运营直发会话表 | Sprint 1 |
 | `008_schema_catchup.sql` | 补全 001~007 缺失的表和字段 | 补丁 |
 | `009_persona_positioning.sql` | persona_reports 表 | Sprint 3 |
+| `055_kol_persona_profile_unification.sql` | persona_reports / kol_intake_links / kol_intake_operator_sessions 增加可空 `kol_id` 外键与索引；不回填历史数据 | Sprint 25 |
 | `010_tikhub_credentials.sql` | tikhub_credentials 表 | Sprint 3 |
 | `011_tikhub_call_logs.sql` | tikhub_call_logs 表 | Sprint 3 |
 | `012_migrate_tikhub_to_dedicated_pool.sql` | 迁移 TikHub Key 到独立池 | Sprint 3 |
@@ -1258,3 +1278,26 @@ migration 035 UPDATE：
 | `created_at` | TIMESTAMPTZ | 是 | 关联创建时间 |
 
 迁移文件：`049_kol_active_products_single_current_product.sql`。现有数据库升级时，迁移会先检测同一 `kol_id` 的历史重复关联；发现重复会明确中止，需人工确认后再清理，避免自动删除运营选择。应用层仍须在写入时整体替换旧关联，防止前端多选绕过业务规则。
+
+---
+
+## 37. schema_migrations 数据库迁移账本（M2 Sprint 24）
+
+由 `backend/scripts/run_migrations.py` 自动维护，用于保证迁移按“数字前缀、文件名”稳定排序，每个文件只执行一次。相同数字前缀的文件不会互相覆盖，例如两个 `044_*.sql` 会按完整文件名分别登记。
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `filename` | TEXT PK | 是 | 完整迁移文件名 |
+| `version` | INTEGER | 是 | 文件名前三位数字 |
+| `checksum_sha256` | CHAR(64) | 是 | 文件内容校验和；已登记文件被修改时拒绝继续 |
+| `execution_kind` | VARCHAR(16) | 是 | `applied`（真实执行）/ `baseline`（既有库确认后登记） |
+| `applied_at` | TIMESTAMPTZ | 是 | 执行或登记时间 |
+
+规则：
+
+- 每个待执行文件与账本写入处于同一数据库事务；失败时不登记。
+- 执行器使用 PostgreSQL advisory lock（数据库会话锁），防止两个部署进程并发迁移。
+- 已登记迁移只校验内容，不重新执行，因此历史 seed 不会重复写入或覆盖运营数据。
+- 检测到已有业务表但没有账本时，执行器拒绝猜测；运维必须先核对结构，再显式传 `--baseline-through N`。
+- 基线之后若有迁移已由旧流程人工执行，必须先逐项核对结构，再用 `--adopt-existing 文件名` 单独登记；禁止直接扩大基线跳过中间文件。
+- 现网首次接管以 `049` 为基线前，必须确认 049 的唯一约束等前置结构真实存在；随后 050 及之后迁移由账本顺序执行。

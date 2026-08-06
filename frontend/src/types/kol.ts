@@ -77,8 +77,6 @@ export interface CreateKolRequest {
   douyin_id?: string;
   sec_uid?: string;
   owner?: string;
-  persona?: string;
-  content_plan?: string;
 }
 
 export interface UpdateKolRequest {
@@ -87,7 +85,5 @@ export interface UpdateKolRequest {
   douyin_id?: string;
   sec_uid?: string;
   owner?: string;
-  persona?: string;
-  content_plan?: string;
   style_note?: string;
 }

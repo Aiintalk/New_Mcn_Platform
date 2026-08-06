@@ -24,7 +24,12 @@ async function handleResponse<T>(res: Response): Promise<T> {
   try {
     body = await res.json();
   } catch {
-    throw new Error('Invalid JSON response from server');
+    if (!res.ok) {
+      throw new Error(
+        `服务器请求失败（HTTP ${res.status}），后端返回了无法解析的内容，请联系管理员检查服务日志和数据库迁移`,
+      );
+    }
+    throw new Error('服务器返回了无法解析的内容，请稍后重试');
   }
 
   if (!body.success) {

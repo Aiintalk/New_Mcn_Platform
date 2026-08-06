@@ -1,11 +1,49 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { message } from 'antd';
-import type { PersonaStep, PersonaTab, UploadedFile, FetchDouyinResult, KolSubmission, PersonaReport, PersonaReportDetail } from '../../types/persona';
+import { Button, Modal, message } from 'antd';
+import type {
+  PersonaKol,
+  PersonaKolIntake,
+  PersonaPendingOverwrite,
+  PersonaSyncAction,
+  PersonaStep,
+  PersonaSyncDecision,
+  PersonaSyncField,
+  PersonaTab,
+  UploadedFile,
+  FetchDouyinResult,
+  PersonaReport,
+  PersonaReportDetail,
+} from '../../types/persona';
 import {
   fetchDouyin, parseFile, downloadQuestionnaireTemplate,
   generatePersona, optimizePersona, exportPersonaWord,
-  getKolSubmissions, getPersonaReports, getPersonaReportDetail, deletePersonaReport,
+  getPersonaKols, getPersonaKolIntake,
+  getPersonaReports, getPersonaReportDetail, syncPersonaReportDecisions, deletePersonaReport,
 } from '../../api/persona';
+
+const PERSONA_SYNC_FIELDS: PersonaSyncField[] = ['persona', 'content_plan'];
+const PERSONA_SYNC_FIELD_LABELS: Record<PersonaSyncField, string> = {
+  persona: '人格档案',
+  content_plan: '内容规划',
+};
+const PERSONA_SYNC_ACTION_LABELS: Record<PersonaSyncAction, string> = {
+  auto_written: '已自动写入',
+  overwritten: '已覆盖',
+  kept: '已保留',
+  unchanged: '未变化',
+  pending: '待确认',
+};
+
+function formatPersonaSyncFeedback(
+  fields: Partial<Record<PersonaSyncField, PersonaSyncAction>> | null | undefined,
+): string {
+  const summaries = PERSONA_SYNC_FIELDS.flatMap(field => {
+    const action = fields?.[field];
+    if (!action) return [];
+    return [`${PERSONA_SYNC_FIELD_LABELS[field]} ${PERSONA_SYNC_ACTION_LABELS[action] ?? '结果未知'}`];
+  });
+  return summaries.length > 0 ? `档案同步完成：${summaries.join('；')}` : '';
+}
 
 export default function PersonaPage() {
   // ── 步骤 ──
@@ -21,9 +59,20 @@ export default function PersonaPage() {
   const [influencerFiles, setInfluencerFiles] = useState<UploadedFile[]>([]);
   const [supplementNotes, setSupplementNotes] = useState('');
   const [supplementFiles, setSupplementFiles] = useState<UploadedFile[]>([]);
-  // KOL 导入
-  const [kolSubmissions, setKolSubmissions] = useState<KolSubmission[]>([]);
+  // 正式达人及其关联入驻资料
+  const [personaKols, setPersonaKols] = useState<PersonaKol[]>([]);
+  const [kolKeyword, setKolKeyword] = useState('');
+  const [kolPage, setKolPage] = useState(1);
+  const [kolTotalPages, setKolTotalPages] = useState(1);
+  const [kolListLoading, setKolListLoading] = useState(false);
+  const [kolListError, setKolListError] = useState('');
+  const kolListRequestRef = useRef(0);
   const [selectedKolId, setSelectedKolId] = useState<number | null>(null);
+  const [selectedKol, setSelectedKol] = useState<PersonaKol | null>(null);
+  const [kolIntake, setKolIntake] = useState<PersonaKolIntake | null>(null);
+  const [kolIntakeLoading, setKolIntakeLoading] = useState(false);
+  const [kolIntakeError, setKolIntakeError] = useState('');
+  const kolIntakeRequestRef = useRef(0);
 
   // ── Step 2 状态 ──
   const [benchmarkProfileFiles, setBenchmarkProfileFiles] = useState<UploadedFile[]>([]);
@@ -37,6 +86,14 @@ export default function PersonaPage() {
   const [exporting, setExporting] = useState(false);
   const [reportId, setReportId] = useState<number | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const reportDetailRequestRef = useRef(0);
+  const [pendingOverwrites, setPendingOverwrites] = useState<PersonaPendingOverwrite[]>([]);
+  const [syncReportId, setSyncReportId] = useState<number | null>(null);
+  const [syncDecisions, setSyncDecisions] = useState<Partial<Record<PersonaSyncField, PersonaSyncDecision>>>({});
+  const [syncSubmitting, setSyncSubmitting] = useState(false);
+  const syncSubmitRequestRef = useRef(0);
+  const [syncError, setSyncError] = useState('');
+  const [syncFeedback, setSyncFeedback] = useState('');
 
   // ── 优化对话状态 ──
   const [optimizeOpen, setOptimizeOpen] = useState(false);
@@ -50,10 +107,34 @@ export default function PersonaPage() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyList, setHistoryList] = useState<PersonaReport[]>([]);
 
-  // ── 加载 KOL 列表 ──
-  useEffect(() => {
-    getKolSubmissions().then(setKolSubmissions).catch(() => {});
+  // ── 加载正式达人列表 ──
+  const loadPersonaKols = useCallback(async (keyword = '', page = 1) => {
+    const requestId = ++kolListRequestRef.current;
+    setKolListLoading(true);
+    setKolListError('');
+    try {
+      const result = await getPersonaKols({
+        page,
+        page_size: 20,
+        keyword: keyword.trim() || undefined,
+      });
+      if (requestId === kolListRequestRef.current) {
+        setPersonaKols(result.items);
+        setKolPage(result.pagination.page);
+        setKolTotalPages(Math.max(result.pagination.total_pages, 1));
+      }
+    } catch {
+      if (requestId === kolListRequestRef.current) {
+        setKolListError('达人列表加载失败，请重试');
+      }
+    } finally {
+      if (requestId === kolListRequestRef.current) setKolListLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    void loadPersonaKols();
+  }, [loadPersonaKols]);
 
   // ── 组件卸载时中止进行中的请求 ──
   useEffect(() => {
@@ -102,7 +183,7 @@ export default function PersonaPage() {
     file: File,
     setter: React.Dispatch<React.SetStateAction<UploadedFile[]>>,
   ) {
-    setter(prev => [...prev, { name: file.name, text: '', status: 'uploading' }]);
+    setter(prev => [...prev, { name: file.name, text: '', status: 'uploading', source: 'manual' }]);
     try {
       const { text } = await parseFile(file);
       setter(prev => prev.map(f => f.name === file.name ? { ...f, text, status: 'done' as const } : f));
@@ -116,17 +197,49 @@ export default function PersonaPage() {
     setter(prev => prev.filter(f => f.name !== name));
   }
 
-  // ── KOL 导入 ──
+  // ── 正式达人选择与关联入驻资料导入 ──
+  const loadKolIntake = useCallback(async (kolId: number) => {
+    const requestId = ++kolIntakeRequestRef.current;
+    setKolIntakeLoading(true);
+    setKolIntakeError('');
+    setKolIntake(null);
+    try {
+      const result = await getPersonaKolIntake(kolId);
+      if (requestId === kolIntakeRequestRef.current) setKolIntake(result);
+    } catch {
+      if (requestId === kolIntakeRequestRef.current) {
+        setKolIntakeError('关联入驻资料加载失败，请重试');
+      }
+    } finally {
+      if (requestId === kolIntakeRequestRef.current) setKolIntakeLoading(false);
+    }
+  }, []);
+
+  function handleSelectKol(value: string) {
+    const nextKolId = value ? Number(value) : null;
+    setSelectedKolId(nextKolId);
+    setSelectedKol(nextKolId === null
+      ? null
+      : personaKols.find(item => item.id === nextKolId) ?? selectedKol);
+    setKolIntake(null);
+    setKolIntakeError('');
+    setInfluencerFiles(prev => prev.filter(file => file.source !== 'intake'));
+    if (nextKolId !== null) void loadKolIntake(nextKolId);
+    else kolIntakeRequestRef.current += 1;
+  }
+
   function handleImportKol() {
-    const kol = kolSubmissions.find(k => k.id === selectedKolId);
-    if (!kol) return;
+    const kol = selectedKol;
+    if (!kol || !kolIntake || selectedKolId === null) return;
     const virtualFile: UploadedFile = {
-      name: `KOL入驻_${kol.nickname}`,
-      text: kol.formatted_answers + (kol.report ? `\n\n=== AI 入驻报告 ===\n${kol.report}` : ''),
+      name: `关联入驻资料_${kol.name}`,
+      text: kolIntake.formatted_answers + (kolIntake.report ? `\n\n=== AI 入驻报告 ===\n${kolIntake.report}` : ''),
       status: 'done',
+      source: 'intake',
+      kolId: selectedKolId,
     };
-    setInfluencerFiles(prev => [...prev, virtualFile]);
-    message.success(`已导入 ${kol.nickname} 的入驻数据`);
+    setInfluencerFiles(prev => [...prev.filter(file => file.source !== 'intake'), virtualFile]);
+    message.success(`已导入 ${kol.name} 的入驻数据`);
   }
 
   // ── 抖音号解析 ──
@@ -148,11 +261,23 @@ export default function PersonaPage() {
 
   // ── 生成 ──
   async function handleGenerate() {
+    if (selectedKolId === null) {
+      message.error('请先选择对应红人');
+      return;
+    }
     const influencerInfo = buildInfluencerInfo();
     if (!influencerInfo.trim()) {
       message.error('请上传达人资料文档或从 KOL 入驻导入');
       return;
     }
+    reportDetailRequestRef.current += 1;
+    syncSubmitRequestRef.current += 1;
+    setPendingOverwrites([]);
+    setSyncReportId(null);
+    setSyncDecisions({});
+    setSyncSubmitting(false);
+    setSyncError('');
+    setSyncFeedback('');
     setLoading(true);
     setProfileResult('');
     setPlanResult('');
@@ -162,6 +287,7 @@ export default function PersonaPage() {
 
     try {
       const { reader, reportId: rid } = await generatePersona({
+        kol_id: selectedKolId,
         influencer_info: influencerInfo,
         top10_content: top10Content || undefined,
         supplement_text: buildSupplementText() || undefined,
@@ -186,6 +312,7 @@ export default function PersonaPage() {
         setProfileResult(parts[0].trim());
         if (parts.length > 1) setPlanResult(parts[1].trim());
       }
+      if (rid !== null) await loadReportSync(rid);
     } catch (err) {
       if (err instanceof Error && err.name !== 'AbortError') {
         message.error('生成出错，请重试');
@@ -193,6 +320,92 @@ export default function PersonaPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function loadReportSync(id: number) {
+    const requestId = ++reportDetailRequestRef.current;
+    setSyncError('');
+    setSyncFeedback('');
+    try {
+      const detail = await getPersonaReportDetail(id);
+      if (requestId !== reportDetailRequestRef.current) return;
+      applyReportSyncDetail(id, detail);
+    } catch {
+      if (requestId === reportDetailRequestRef.current) {
+        setSyncFeedback('档案同步状态获取失败，请重试');
+      }
+    }
+  }
+
+  function applyReportSyncDetail(id: number, detail: PersonaReportDetail) {
+    if (detail.status === 'failed') {
+      setSyncReportId(null);
+      setPendingOverwrites([]);
+      setSyncDecisions({});
+      setProfileResult('');
+      setPlanResult('');
+      setSyncFeedback(
+        detail.failure_reason === 'kol_deleted'
+          ? '对应红人已不存在，本次结果未写入'
+          : '报告生成失败，请重试',
+      );
+      return;
+    }
+
+    const failureMessages = [
+      detail.positioning_sync_failed
+        ? '报告已生成，档案同步失败，请稍后重试'
+        : '',
+      detail.fact_sync_failed
+        ? '报告已生成，人物素材未能自动补全'
+        : '',
+    ].filter(Boolean);
+    if (detail.pending_overwrites.length > 0) {
+      setSyncReportId(id);
+      setPendingOverwrites(detail.pending_overwrites);
+      setSyncDecisions(Object.fromEntries(
+        detail.pending_overwrites.map(item => [item.field, 'keep']),
+      ) as Partial<Record<PersonaSyncField, PersonaSyncDecision>>);
+      setSyncFeedback(failureMessages.join('；'));
+      return;
+    }
+    setSyncReportId(null);
+    setPendingOverwrites([]);
+    setSyncDecisions({});
+    setSyncFeedback(
+      failureMessages.join('；')
+      || formatPersonaSyncFeedback(detail.sync_result)
+      || '报告已生成，正式档案无需覆盖确认',
+    );
+  }
+
+  async function submitSyncDecisions(decisions: Partial<Record<PersonaSyncField, PersonaSyncDecision>>) {
+    if (syncReportId === null) return;
+    const targetReportId = syncReportId;
+    const requestId = ++syncSubmitRequestRef.current;
+    setSyncSubmitting(true);
+    setSyncError('');
+    try {
+      const result = await syncPersonaReportDecisions(targetReportId, decisions);
+      if (requestId !== syncSubmitRequestRef.current) return;
+      setPendingOverwrites([]);
+      setSyncReportId(null);
+      setSyncFeedback(formatPersonaSyncFeedback(result.fields));
+    } catch {
+      if (requestId === syncSubmitRequestRef.current) {
+        setSyncError('档案同步失败，请重试');
+      }
+    } finally {
+      if (requestId === syncSubmitRequestRef.current) setSyncSubmitting(false);
+    }
+  }
+
+  function handleCloseSyncDialog() {
+    const keepAll = Object.fromEntries(
+      pendingOverwrites.map(item => [item.field, 'keep']),
+    ) as Partial<Record<PersonaSyncField, PersonaSyncDecision>>;
+    setSyncDecisions(keepAll);
+    void submitSyncDecisions(keepAll);
   }
 
   // ── 导出 Word ──
@@ -257,13 +470,16 @@ export default function PersonaPage() {
   }
 
   async function loadHistoryDetail(id: number) {
+    const requestId = ++reportDetailRequestRef.current;
     try {
       const detail: PersonaReportDetail = await getPersonaReportDetail(id);
-      if (detail.profile_result) setProfileResult(detail.profile_result);
-      if (detail.plan_result) setPlanResult(detail.plan_result);
+      if (requestId !== reportDetailRequestRef.current) return;
+      setProfileResult(detail.profile_result || '');
+      setPlanResult(detail.plan_result || '');
       setReportId(id);
       setHistoryOpen(false);
       setStep(3);
+      applyReportSyncDetail(id, detail);
       message.success('已加载历史报告');
     } catch { message.error('加载详情失败'); }
   }
@@ -280,30 +496,41 @@ export default function PersonaPage() {
   function handleReset() {
     abortRef.current?.abort();
     optimizeAbortRef.current?.abort();
+    reportDetailRequestRef.current += 1;
+    syncSubmitRequestRef.current += 1;
     setStep(1);
     setDouyinId(''); setFetchDyResult(null); setFetchDyError('');
     setTop10Content(''); setRecent30Content('');
     setInfluencerFiles([]); setSupplementNotes(''); setSupplementFiles([]);
-    setSelectedKolId(null);
+    setSelectedKolId(null); setSelectedKol(null);
+    kolIntakeRequestRef.current += 1;
+    setKolIntake(null); setKolIntakeError('');
     setBenchmarkProfileFiles([]); setBenchmarkPlanFiles([]);
     setProfileResult(''); setPlanResult('');
     setReportId(null); setLoading(false);
+    setPendingOverwrites([]); setSyncReportId(null); setSyncDecisions({}); setSyncSubmitting(false); setSyncError(''); setSyncFeedback('');
     setOptimizeOpen(false); setOptimizeMsgs([]);
   }
 
   // ── 验证条件 ──
-  const hasInfluencerData = influencerFiles.some(f => f.status === 'done') || !!selectedKolId;
+  const hasInfluencerData = influencerFiles.some(f => f.status === 'done');
   const hasParsedDouyin = !douyinId.trim() || !!fetchDyResult;
-  const canGoStep2 = hasInfluencerData && hasParsedDouyin;
+  const canGoStep2 = selectedKolId !== null && hasInfluencerData && hasParsedDouyin;
   const hasBenchmarkData = benchmarkProfileFiles.some(f => f.status === 'done') || benchmarkPlanFiles.some(f => f.status === 'done');
+  const selectablePersonaKols = selectedKol && !personaKols.some(kol => kol.id === selectedKol.id)
+    ? [selectedKol, ...personaKols]
+    : personaKols;
 
   // ── 文件上传区组件 ──
-  function FileUploadArea({ files, setter, accept = '.docx,.pdf,.txt,.md' }: {
-    files: UploadedFile[]; setter: React.Dispatch<React.SetStateAction<UploadedFile[]>>; accept?: string;
+  function FileUploadArea({ files, setter, ariaLabel, accept = '.docx,.pdf,.txt,.md' }: {
+    files: UploadedFile[];
+    setter: React.Dispatch<React.SetStateAction<UploadedFile[]>>;
+    ariaLabel: string;
+    accept?: string;
   }) {
     return (
       <div>
-        <input type="file" multiple accept={accept} style={{ display: 'none' }}
+        <input type="file" multiple accept={accept} aria-label={ariaLabel} style={{ display: 'none' }}
           id={`file-upload-${Math.random().toString(36).slice(2)}`}
           onChange={e => { const files = e.target.files; if (files) Array.from(files).forEach(f => handleFileUpload(f, setter)); }} />
         <div className="upload-zone" onClick={e => { const input = e.currentTarget.previousElementSibling as HTMLInputElement; input?.click(); }}
@@ -378,23 +605,91 @@ export default function PersonaPage() {
           {/* 达人资料 */}
           <div style={{ background: 'var(--bg-card)', padding: 20, borderRadius: 8 }}>
             <div className="section-title">达人资料（必填）</div>
-            {/* KOL 导入 */}
-            {kolSubmissions.length > 0 && (
-              <div style={{ marginBottom: 12 }}>
-                <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6 }}>从 KOL 入驻导入：</div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <select value={selectedKolId ?? ''} onChange={e => setSelectedKolId(e.target.value ? Number(e.target.value) : null)}
-                    style={{ flex: 1, padding: '8px 12px', border: '1px solid var(--border)', borderRadius: 6, fontSize: 13 }}>
-                    <option value="">选择已完成的 KOL 入驻...</option>
-                    {kolSubmissions.map(k => <option key={k.id} value={k.id}>{k.nickname}</option>)}
-                  </select>
-                  <button className="btn btn-ghost" disabled={!selectedKolId} onClick={handleImportKol}>导入</button>
+            <p className="persona-target-help">目标达人决定报告归属；入驻资料和上传文件只是本次分析的输入。</p>
+            <div className="persona-target-block">
+              <label className="persona-control-label" htmlFor="persona-kol-search">搜索正式达人</label>
+              <input
+                id="persona-kol-search"
+                className="persona-control"
+                value={kolKeyword}
+                placeholder="搜索达人名称、账号或抖音号"
+                onChange={event => {
+                  const keyword = event.target.value;
+                  setKolKeyword(keyword);
+                  setKolPage(1);
+                  void loadPersonaKols(keyword, 1);
+                }}
+              />
+              {kolListError ? (
+                <div className="persona-load-error" role="alert">
+                  <span>{kolListError}</span>
+                  <button className="btn btn-ghost btn-sm" onClick={() => void loadPersonaKols(kolKeyword, kolPage)}>重试加载达人</button>
                 </div>
+              ) : (
+                <>
+                  <label className="persona-control-label" htmlFor="persona-kol-select">目标达人（必填）</label>
+                  <select
+                    id="persona-kol-select"
+                    className="persona-control"
+                    aria-label="目标达人（必填）"
+                    value={selectedKolId ?? ''}
+                    disabled={kolListLoading}
+                    onChange={event => handleSelectKol(event.target.value)}
+                  >
+                    <option value="">{kolListLoading ? '达人加载中...' : '请选择正式达人'}</option>
+                    {selectablePersonaKols.map(kol => (
+                      <option key={kol.id} value={kol.id}>
+                        {kol.name} · {kol.account_name || '未填写账号'} · {kol.douyin_id || '未填写抖音号'} · 档案完整度 {kol.profile_filled_count}/{kol.profile_total}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="persona-kol-pagination" aria-label="达人列表分页">
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      disabled={kolListLoading || kolPage <= 1}
+                      onClick={() => void loadPersonaKols(kolKeyword, kolPage - 1)}
+                    >上一页</button>
+                    <span>第 {kolPage} / {kolTotalPages} 页</span>
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      disabled={kolListLoading || kolPage >= kolTotalPages}
+                      onClick={() => void loadPersonaKols(kolKeyword, kolPage + 1)}
+                    >下一页</button>
+                  </div>
+                  {selectedKol && (
+                    <div className="persona-selected-kol">
+                      当前已选：{selectedKol.name} · {selectedKol.account_name || '未填写账号'}
+                    </div>
+                  )}
+                </>
+              )}
+
+              <div className="persona-intake-state" aria-live="polite">
+                {selectedKolId === null ? (
+                  <span>选择目标达人后，系统按正式达人编号查找已完成的入驻资料。</span>
+                ) : kolIntakeLoading ? (
+                  <span>正在查找关联入驻资料...</span>
+                ) : kolIntakeError ? (
+                  <div className="persona-load-error" role="alert">
+                    <span>{kolIntakeError}</span>
+                    <button className="btn btn-ghost btn-sm" onClick={() => void loadKolIntake(selectedKolId)}>重试加载资料</button>
+                  </div>
+                ) : kolIntake ? (
+                  <div className="persona-intake-found">
+                    <div>
+                      <strong>已找到最近完成的入驻资料</strong>
+                      <span>{kolIntake.completed_at ? new Date(kolIntake.completed_at).toLocaleString('zh-CN') : '完成时间未记录'}</span>
+                    </div>
+                    <button className="btn btn-ghost btn-sm" onClick={handleImportKol}>导入资料</button>
+                  </div>
+                ) : (
+                  <span>未找到已关联的入驻资料，可继续上传文件</span>
+                )}
               </div>
-            )}
-            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6 }}>或上传文件：</div>
+            </div>
+            <div className="persona-upload-divider">或上传文件</div>
             <button className="btn btn-ghost btn-sm" style={{ marginBottom: 8 }} onClick={() => downloadQuestionnaireTemplate()}>下载问卷模板</button>
-            <FileUploadArea files={influencerFiles} setter={setInfluencerFiles} />
+            <FileUploadArea files={influencerFiles} setter={setInfluencerFiles} ariaLabel="上传达人资料" />
           </div>
 
           {/* 补充信息 */}
@@ -403,7 +698,7 @@ export default function PersonaPage() {
             <textarea value={supplementNotes} onChange={e => setSupplementNotes(e.target.value)}
               placeholder="输入补充说明..."
               style={{ width: '100%', minHeight: 80, padding: '8px 12px', border: '1px solid var(--border)', borderRadius: 6, fontSize: 13, resize: 'vertical', marginBottom: 12, boxSizing: 'border-box' }} />
-            <FileUploadArea files={supplementFiles} setter={setSupplementFiles} />
+            <FileUploadArea files={supplementFiles} setter={setSupplementFiles} ariaLabel="上传补充资料" />
           </div>
 
           <div style={{ textAlign: 'right' }}>
@@ -418,11 +713,11 @@ export default function PersonaPage() {
           <div style={{ background: 'var(--bg-card)', padding: 20, borderRadius: 8 }}>
             <div className="section-title">对标人格档案（选填）</div>
             <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 8 }}>上传同赛道已验证成功的达人方案，AI 会参照对标风格为目标达人定制方案。</div>
-            <FileUploadArea files={benchmarkProfileFiles} setter={setBenchmarkProfileFiles} />
+            <FileUploadArea files={benchmarkProfileFiles} setter={setBenchmarkProfileFiles} ariaLabel="上传对标人格档案" />
           </div>
           <div style={{ background: 'var(--bg-card)', padding: 20, borderRadius: 8 }}>
             <div className="section-title">对标内容规划（选填）</div>
-            <FileUploadArea files={benchmarkPlanFiles} setter={setBenchmarkPlanFiles} />
+            <FileUploadArea files={benchmarkPlanFiles} setter={setBenchmarkPlanFiles} ariaLabel="上传对标内容规划" />
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
             <button className="btn btn-ghost" onClick={() => setStep(1)}>上一步</button>
@@ -437,6 +732,14 @@ export default function PersonaPage() {
       {/* Step 3: 生成结果 */}
       {step === 3 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {syncFeedback && (
+            <div className="persona-sync-feedback" role="status">
+              <span>{syncFeedback}</span>
+              {syncFeedback === '档案同步状态获取失败，请重试' && reportId !== null && (
+                <button className="btn btn-ghost btn-sm" onClick={() => void loadReportSync(reportId)}>重试同步状态</button>
+              )}
+            </div>
+          )}
           {/* 顶部操作栏 */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ display: 'flex', gap: 8 }}>
@@ -484,6 +787,63 @@ export default function PersonaPage() {
           </div>
         </div>
       )}
+
+      <Modal
+        open={pendingOverwrites.length > 0}
+        title="确认同步人格定位结果"
+        width={760}
+        closable={!syncSubmitting}
+        keyboard={!syncSubmitting}
+        maskClosable={!syncSubmitting}
+        onCancel={handleCloseSyncDialog}
+        footer={(
+          <>
+            <Button disabled={syncSubmitting} onClick={handleCloseSyncDialog}>关闭并保留</Button>
+            <Button type="primary" disabled={syncSubmitting} onClick={() => void submitSyncDecisions(syncDecisions)}>
+              {syncSubmitting ? '提交中...' : '确认同步'}
+            </Button>
+          </>
+        )}
+      >
+        <p className="persona-sync-intro">报告已生成，只需决定是否覆盖已有正式档案。每个字段默认保留原内容。</p>
+        <div className="persona-sync-body">
+          {pendingOverwrites.map(item => {
+            const label = item.field === 'persona' ? '人格档案' : '内容规划';
+            return (
+              <fieldset className="persona-sync-field" key={item.field}>
+                <legend>{label}</legend>
+                <div className="persona-sync-compare">
+                  <div><strong>当前正式内容</strong><p>{item.current_summary || '暂无摘要'}</p></div>
+                  <div><strong>本次报告内容</strong><p>{item.report_summary || '暂无摘要'}</p></div>
+                </div>
+                <div className="persona-sync-choices">
+                  <label>
+                    <input
+                      type="radio"
+                      name={`sync-${item.field}`}
+                      aria-label={`${label}：保留原内容`}
+                      checked={(syncDecisions[item.field] ?? 'keep') === 'keep'}
+                      onChange={() => setSyncDecisions(prev => ({ ...prev, [item.field]: 'keep' }))}
+                    />
+                    保留原内容
+                  </label>
+                  <label>
+                    <input
+                      type="radio"
+                      name={`sync-${item.field}`}
+                      aria-label={`${label}：覆盖为新报告`}
+                      checked={syncDecisions[item.field] === 'overwrite'}
+                      onChange={() => setSyncDecisions(prev => ({ ...prev, [item.field]: 'overwrite' }))}
+                    />
+                    覆盖为新报告
+                  </label>
+                </div>
+              </fieldset>
+            );
+          })}
+          {syncError && <div className="persona-load-error" role="alert">{syncError}</div>}
+        </div>
+      </Modal>
 
       {/* 优化对话 Overlay — 全局，不绑定 Step */}
       {optimizeOpen && (

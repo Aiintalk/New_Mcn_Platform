@@ -20,6 +20,7 @@ from app.models.kol_intake import (
     KolIntakeOperatorSession,
     KolIntakeSubmission,
 )
+from app.models.persona_report import PersonaReport
 
 
 def _get_columns(model_class) -> dict:
@@ -255,6 +256,11 @@ class TestKolIntakeLinkModel:
     def test_tablename(self):
         assert KolIntakeLink.__tablename__ == "kol_intake_links"
 
+    def test_kol_id_is_nullable_foreign_key(self):
+        col = _get_column(KolIntakeLink, "kol_id")
+        assert col.nullable is True
+        assert next(iter(col.foreign_keys)).ondelete == "SET NULL"
+
 
 class TestKolIntakeSubmissionModel:
     def test_messages_is_jsonb(self):
@@ -294,3 +300,15 @@ class TestKolIntakeOperatorSessionModel:
 
     def test_tablename(self):
         assert KolIntakeOperatorSession.__tablename__ == "kol_intake_operator_sessions"
+
+    def test_kol_id_is_nullable_foreign_key(self):
+        col = _get_column(KolIntakeOperatorSession, "kol_id")
+        assert col.nullable is True
+        assert next(iter(col.foreign_keys)).ondelete == "SET NULL"
+
+
+class TestPersonaReportModel:
+    def test_kol_id_is_nullable_foreign_key(self):
+        col = _get_column(PersonaReport, "kol_id")
+        assert col.nullable is True
+        assert next(iter(col.foreign_keys)).ondelete == "SET NULL"

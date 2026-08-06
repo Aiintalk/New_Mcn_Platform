@@ -58,6 +58,7 @@ const EvalComparePage = lazy(() => import('./evaluation/pages/Compare'));
 const EvalVersionsPage = lazy(() => import('./evaluation/pages/Versions'));
 const EvalDimensionsPage = lazy(() => import('./evaluation/pages/Dimensions'));
 const EvalSchedulesPage = lazy(() => import('./evaluation/pages/Schedules'));
+const EvalObservabilityPage = lazy(() => import('./evaluation/pages/Observability'));
 
 function Page403() {
   return (
@@ -170,6 +171,7 @@ export default function App() {
                 <Route path="/admin/evaluation/versions" element={<EvalVersionsPage />} />
                 <Route path="/admin/evaluation/dimensions" element={<EvalDimensionsPage />} />
                 <Route path="/admin/evaluation/schedules" element={<EvalSchedulesPage />} />
+                <Route path="/admin/evaluation/observability" element={<EvalObservabilityPage />} />
               </Route>
             </Route>
           </Route>

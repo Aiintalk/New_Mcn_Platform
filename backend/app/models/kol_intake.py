@@ -43,6 +43,7 @@ class KolIntakeLink(Base):
     id           = Column(Integer,     primary_key=True, autoincrement=True)
     token        = Column(String(64),  nullable=False, unique=True)
     operator_id  = Column(Integer,     ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    kol_id       = Column(BigInteger,  ForeignKey("kols.id", ondelete="SET NULL"), nullable=True)
     kol_name     = Column(String(200), nullable=True)
     expires_at   = Column(TIMESTAMP(timezone=True), nullable=False)
     used_at      = Column(TIMESTAMP(timezone=True), nullable=True)
@@ -57,6 +58,7 @@ class KolIntakeOperatorSession(Base):
 
     id                  = Column(Integer,     primary_key=True, autoincrement=True)
     operator_id         = Column(Integer,     ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    kol_id              = Column(BigInteger,  ForeignKey("kols.id", ondelete="SET NULL"), nullable=True)
     kol_name            = Column(String(200), nullable=True)
     messages            = Column(JSONB,       nullable=False, default=list)
     ai_report           = Column(Text,        nullable=True)

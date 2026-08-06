@@ -3,6 +3,10 @@
 > 本目录存放后端相关的所有文档。开发后端时，不出 `backend/` 目录即可找到全部所需内容。
 
 > 2026-07-14：红人工作台旧版核心流程还原的接口、数据库与测试证据见 `base/MCN_M2_Base_API.md`、`base/MCN_M2_Base_Database.md` 和 `tests/M2_红人工作台旧版功能还原_测试报告.md`。
+>
+> 2026-07-28：新增 `scripts/run_migrations.py` 与 `schema_migrations` 账本，部署不再只执行 001；既有数据库需显式核对并登记基线，之后按顺序、事务化执行未执行迁移，历史 seed 不重放。素材库 050 前后与二次执行证据见 `tests/M2_Sprint24_测试报告_红人工作台生产迁移链路_v1_修复Bug.md`。
+
+> 2026-08-04：Sprint25 达人档案统一以正式 `kols.id` 贯通人格定位、当前运营关联入驻资料、报告历史、七字段档案同步和下游上下文；迁移 055 保留历史未绑定记录。PM 独立验收返修后，只有结构完整的“人格档案 + 内容规划”双段输出可归档，人物事实补全状态按同一报告最新结果展示。接口与数据库契约见 `base/MCN_M2_Base_API.md`、`base/MCN_M2_Base_Database.md`，测试证据见 `tests/M2_Sprint25_测试报告_达人档案统一_v1.md`。
 
 ---
 
@@ -89,7 +93,7 @@ backend/
 │   │   ├── operator_qianchuan_products.py # 千川产品库 CRUD（运营端，Sprint 18）
 │   │   ├── operator_workspace.py      #   红人工作台（首页/对标/在售商品，Sprint 18）
 │   │   ├── admin_kols.py + _operator_router # 红人管理（admin）+ persona-details（operator，Sprint 18）
-│   │   ├── persona.py                 #   人格定位（运营端）
+│   │   ├── persona.py                 #   人格定位（正式达人分页/入驻绑定/报告同步，运营端）
 │   │   ├── intake_public.py           #   公开接口（博主填写问卷）
 │   │   ├── external_kols.py           #   外部只读 KOL API（X-API-Key 鉴权，读取 kols 表）
 │   │   ├── tool_chat_stream.py        #   工具：AI 流式对话
@@ -113,6 +117,7 @@ backend/
 │       ├── benchmark_report.py        #   对标分析报告生成
 │       ├── qianchuan_review_service.py #  千川复盘业务服务
 │       ├── persona_docx.py            #   人格定位报告导出
+│       ├── persona_profile_sync.py    #   定位字段覆盖决策 + 报告原文事实摘录校验
 │       ├── seeding_writer_prompt.py   #   种草仿写 Prompt 模板渲染（14 占位符）
 │       └── document_parser.py         #   文档解析（PDF/DOCX/XLSX/PPTX/TXT）
 │
@@ -123,7 +128,7 @@ backend/
 │   │   ├── MCN_M1_Base_Database.md    #     M1 阶段数据库契约
 │   │   ├── MCN_M2_Base_API.md         #     M2 阶段 API 契约
 │   │   └── MCN_M2_Base_Database.md    #     M2 阶段数据库契约
-│   ├── tasks/                         #   任务单 + 验收文档（57 个）
+│   ├── tasks/                         #   任务单 + 验收文档（59 个）
 │   │   ├── M1_Sprint0.md ~ Sprint4.md          #  M1 各 Sprint
 │   │   ├── M1_Sprint5_TikHub_独立池化.md        #  TikHub 独立池化
 │   │   ├── M2_Sprint1_kol_intake.md            #  入驻问卷主任务
@@ -157,6 +162,7 @@ backend/
 │       ├── M2_Sprint12_测试报告_qianchuan-collection_v1.md  #  M2 Sprint12 测试报告
 │       ├── M2_Sprint15_测试报告_persona-writer_v2_修复Bug.md  #  M2 Sprint15 Bug修复测试报告
 │       ├── M2_外部KOL只读API_测试报告.md              #  外部只读 KOL API 测试报告
+│       ├── M2_Sprint25_测试报告_达人档案统一_v1.md        #  M2 Sprint25 达人档案统一测试报告
 │       └── MCN_Integration_Test_Fix_Report_2026-06-11.md  #  集成测试修复报告
 │
 ├── tests/                             # 测试代码
@@ -177,7 +183,8 @@ backend/
 │   ├── init_db.sh                     #   一键初始化数据库
 │   ├── run_coverage.py                #   覆盖率门禁脚本
 │   ├── migrate_qianchuan_reports.py   #   旧千川复盘数据迁移
-│   └── migrate_material_library.py    #   旧素材库（soul.md/content-plan.md）迁移
+│   ├── migrate_material_library.py    #   旧素材库（soul.md/content-plan.md）迁移
+│   └── run_migrations.py              #   顺序迁移执行器（账本、校验和、事务、并发锁）
 ├── requirements.txt                   # Python 依赖
 ├── seed_local.sql                     # 本地种子数据
 └── pytest.ini                         # pytest 配置

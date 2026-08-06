@@ -18,6 +18,7 @@ from unittest.mock import AsyncMock, patch, MagicMock
 import pytest
 
 from app.models.persona_report import PersonaReport
+from app.models.kol import Kol
 
 
 # ── Auth tests ─────────────────────────────────────────────────────
@@ -172,20 +173,22 @@ class TestGenerate:
         resp = await test_client.post(
             "/api/persona/generate",
             headers=operator_headers,
-            json={"influencer_info": ""},
+            json={"kol_id": 1, "influencer_info": ""},
         )
         assert resp.status_code == 400
 
     @pytest.mark.asyncio
-    async def test_generate_missing_config(self, test_client, operator_headers):
+    async def test_generate_missing_config(self, test_client, operator_headers, test_session):
         """未配置 persona_generation 时返回 400。"""
+        kol = Kol(name="未配置测试达人")
+        test_session.add(kol)
+        await test_session.commit()
         resp = await test_client.post(
             "/api/persona/generate",
             headers=operator_headers,
-            json={"influencer_info": "达人资料内容"},
+            json={"kol_id": kol.id, "influencer_info": "达人资料内容"},
         )
-        # 如果没有 persona_generation 配置，应返回 400
-        assert resp.status_code in (400, 500)
+        assert resp.status_code == 400
 
 
 # ── fetch-douyin tests ─────────────────────────────────────────────

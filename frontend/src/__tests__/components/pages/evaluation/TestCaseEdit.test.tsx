@@ -6,12 +6,12 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { App as AntApp } from 'antd';
 import { MemoryRouter } from 'react-router-dom';
 
-const mockListTestCases = vi.fn();
+const mockGetTestCase = vi.fn();
 const mockCreateTestCase = vi.fn();
 const mockUpdateTestCase = vi.fn();
 
 vi.mock('../../../../evaluation/api', () => ({
-  listTestCases: (...args: unknown[]) => mockListTestCases(...args),
+  getTestCase: (...args: unknown[]) => mockGetTestCase(...args),
   createTestCase: (...args: unknown[]) => mockCreateTestCase(...args),
   updateTestCase: (...args: unknown[]) => mockUpdateTestCase(...args),
 }));
@@ -42,7 +42,7 @@ function renderWithProviders(ui: React.ReactElement, initialEntries: string[] = 
 
 describe('TestCaseEditPage (新建模式)', () => {
   beforeEach(() => {
-    mockListTestCases.mockReset();
+    mockGetTestCase.mockReset();
     mockCreateTestCase.mockReset();
     mockUpdateTestCase.mockReset();
     mockUseParams.mockReset();
@@ -59,7 +59,7 @@ describe('TestCaseEditPage (新建模式)', () => {
     expect(screen.getByText('对话上下文 messages')).toBeInTheDocument();
     expect(screen.getByText('标签')).toBeInTheDocument();
     // 新建模式不调用 list
-    expect(mockListTestCases).not.toHaveBeenCalled();
+    expect(mockGetTestCase).not.toHaveBeenCalled();
   });
 
   it('编辑模式加载已有样本', async () => {
@@ -84,30 +84,27 @@ describe('TestCaseEditPage (新建模式)', () => {
       updated_at: '2026-07-16T14:22:00Z',
       deleted_at: null,
     };
-    mockListTestCases.mockResolvedValue({
-      items: [sample],
-      pagination: { page: 1, page_size: 50, total: 1, total_pages: 1 },
-    });
+    mockGetTestCase.mockResolvedValue(sample);
     renderWithProviders(<TestCaseEditPage />, ['/evaluation/test-cases/5/edit']);
     await waitFor(() => {
-      expect(mockListTestCases).toHaveBeenCalled();
+      expect(mockGetTestCase).toHaveBeenCalledWith(5);
     });
   });
 
   it('加载失败时通过 message.error 提示（验证 API 调用）', async () => {
     mockUseParams.mockReturnValue({ id: '99' });
-    mockListTestCases.mockRejectedValue(new Error('网络错误'));
+    mockGetTestCase.mockRejectedValue(new Error('网络错误'));
     renderWithProviders(<TestCaseEditPage />, ['/evaluation/test-cases/99/edit']);
     // 编辑模式下应触发加载（不渲染错误文案到 DOM，而是通过 antd 通知）
     await waitFor(() => {
-      expect(mockListTestCases).toHaveBeenCalled();
+      expect(mockGetTestCase).toHaveBeenCalled();
     });
   });
 });
 
 describe('TestCaseEditPage — 表单提交与标签交互', () => {
   beforeEach(() => {
-    mockListTestCases.mockReset();
+    mockGetTestCase.mockReset();
     mockCreateTestCase.mockReset();
     mockUpdateTestCase.mockReset();
     mockUseParams.mockReset();
@@ -170,25 +167,20 @@ describe('TestCaseEditPage — 表单提交与标签交互', () => {
 
   it('编辑模式：加载后保存调用 updateTestCase', async () => {
     mockUseParams.mockReturnValue({ id: '5' });
-    mockListTestCases.mockResolvedValue({
-      items: [
-        {
-          id: 5,
-          tool_code: 'qianchuan-writer',
-          name: '原样本',
-          description: 'desc',
-          input_payload: { kol_name: '林小美', messages: [{ role: 'user', content: 'x' }] },
-          expected_output: null,
-          tags: ['美妆'],
-          is_active: true,
-          created_by: 1,
-          updated_by: 1,
-          created_at: '2026-07-16T14:22:00Z',
-          updated_at: '2026-07-16T14:22:00Z',
-          deleted_at: null,
-        },
-      ],
-      pagination: { page: 1, page_size: 50, total: 1, total_pages: 1 },
+    mockGetTestCase.mockResolvedValue({
+      id: 5,
+      tool_code: 'qianchuan-writer',
+      name: '原样本',
+      description: 'desc',
+      input_payload: { kol_name: '林小美', messages: [{ role: 'user', content: 'x' }] },
+      expected_output: null,
+      tags: ['美妆'],
+      is_active: true,
+      created_by: 1,
+      updated_by: 1,
+      created_at: '2026-07-16T14:22:00Z',
+      updated_at: '2026-07-16T14:22:00Z',
+      deleted_at: null,
     });
     mockUpdateTestCase.mockResolvedValue({ id: 5 });
     renderWithProviders(<TestCaseEditPage />, ['/evaluation/test-cases/5/edit']);
@@ -240,7 +232,7 @@ describe('TestCaseEditPage — 表单提交与标签交互', () => {
 
 describe('TestCaseEditPage — 边界与错误路径', () => {
   beforeEach(() => {
-    mockListTestCases.mockReset();
+    mockGetTestCase.mockReset();
     mockCreateTestCase.mockReset();
     mockUpdateTestCase.mockReset();
     mockUseParams.mockReset();
@@ -248,29 +240,12 @@ describe('TestCaseEditPage — 边界与错误路径', () => {
     mockUseParams.mockReturnValue({ id: 'new' });
   });
 
-  it('编辑模式样本不存在时提示并跳转（覆盖 not-found 分支）', async () => {
+  it('编辑模式样本不存在时提示错误（getTestCase 404 抛错）', async () => {
     mockUseParams.mockReturnValue({ id: '999' });
-    mockListTestCases.mockResolvedValue({
-      items: [
-        {
-          id: 5,
-          tool_code: 'qianchuan-writer',
-          name: '别的样本',
-          input_payload: {},
-          tags: ['x'],
-          is_active: true,
-          created_by: 1,
-          updated_by: 1,
-          created_at: 't',
-          updated_at: 't',
-          deleted_at: null,
-        },
-      ],
-      pagination: { page: 1, page_size: 50, total: 1, total_pages: 1 },
-    });
+    mockGetTestCase.mockRejectedValue(new Error('测试样本不存在'));
     renderWithProviders(<TestCaseEditPage />, ['/evaluation/test-cases/999/edit']);
     await waitFor(() => {
-      expect(mockNavigate).toHaveBeenCalledWith('/evaluation/test-cases');
+      expect(screen.getByText(/测试样本不存在/)).toBeInTheDocument();
     });
   });
 

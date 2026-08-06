@@ -163,6 +163,17 @@ class TestAggregateRunProgress:
         assert run.failed_cases == 2
         assert run.status == RUN_STATUS_FAILED
 
+    async def test_cancelled_run_not_flipped_by_late_aggregate(self, test_session, _isolate):
+        """已 cancel 的 run：in-flight job 跑完调 aggregate 不把它翻成 completed（防回归）。"""
+        run = await _make_run(test_session, 2)
+        run.status = "cancelled"   # 模拟 POST /cancel 已收尾
+        run.completed_cases = 1
+        await test_session.commit()
+        # 最后一个 in-flight job 完成 → aggregate(success) → completed 到 total
+        await aggregate_run_progress(test_session, run.id, success=True)
+        run = await _reload(test_session, EvalRun, run.id)
+        assert run.status == "cancelled"  # 守卫生效：没被翻成 completed
+
 
 class TestRunCaseJobLogic:
     async def test_stub_marks_done_and_aggregates(self, test_session, _isolate):

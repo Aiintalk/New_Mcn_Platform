@@ -16,6 +16,7 @@ import pytest
 from sqlalchemy import select, text
 
 from app.evaluation.models import (
+    EvalCaseJob,
     EvalCaseResult,
     EvalDimension,
     EvalHumanLabel,
@@ -131,6 +132,30 @@ async def _seed_version(test_session, name="v1"):
     await test_session.commit()
     await test_session.refresh(version)
     return version.id
+
+
+async def _seed_run(
+    test_session, version_id, strategy_id, *, name="run",
+    status="completed", total_cases=1, completed_cases=1, failed_cases=0,
+):
+    run = EvalRun(
+        version_id=version_id, strategy_id=strategy_id, name=name,
+        trigger_type="manual", status=status, filter_tags=[],
+        total_cases=total_cases, completed_cases=completed_cases,
+        failed_cases=failed_cases, metadata_={},
+    )
+    test_session.add(run)
+    await test_session.commit()
+    await test_session.refresh(run)
+    return run.id
+
+
+async def _seed_job(test_session, run_id, test_case_id, status="pending"):
+    job = EvalCaseJob(run_id=run_id, test_case_id=test_case_id, status=status)
+    test_session.add(job)
+    await test_session.commit()
+    await test_session.refresh(job)
+    return job.id
 
 
 @pytest.fixture(autouse=True)
@@ -292,6 +317,26 @@ class TestTestCases:
         names = [i["name"] for i in resp.json()["data"]["items"]]
         assert "del-case" not in names
 
+    @pytest.mark.asyncio
+    async def test_get_test_case_single(self, test_client, operator_headers, test_session):
+        tc_id = await _seed_test_case(test_session, name="single-tc")
+        resp = await test_client.get(
+            f"/api/operator/evaluation/test-cases/{tc_id}",
+            headers=operator_headers,
+        )
+        body = resp.json()
+        assert resp.status_code == 200, body
+        assert body["data"]["id"] == tc_id
+        assert body["data"]["name"] == "single-tc"
+
+    @pytest.mark.asyncio
+    async def test_get_test_case_404(self, test_client, operator_headers):
+        resp = await test_client.get(
+            "/api/operator/evaluation/test-cases/999999",
+            headers=operator_headers,
+        )
+        assert resp.status_code == 404
+
 
 # ---------------------------------------------------------------------------
 # Versions (read-only)
@@ -434,6 +479,248 @@ class TestRuns:
             headers=operator_headers,
         )
         assert resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_get_run_eta(self, test_client, operator_headers, test_session):
+        """get_run 返回 ETA：done job 平均耗时 × pending 数。"""
+        from datetime import datetime, timedelta, timezone
+
+        vid = await _seed_version(test_session, name="eta-v")
+        sid = await _seed_default_strategy(test_session)
+        tc1 = await _seed_test_case(test_session, name="eta-tc1")
+        tc2 = await _seed_test_case(test_session, name="eta-tc2")
+        tc3 = await _seed_test_case(test_session, name="eta-tc3")
+        run_id = await _seed_run(test_session, vid, sid, name="eta-run", status="running")
+
+        # 1 done（耗时 ~60s）+ 2 pending
+        j_done = EvalCaseJob(run_id=run_id, test_case_id=tc1, status="done")
+        j_done.started_at = datetime.now(timezone.utc) - timedelta(seconds=60)
+        j_done.finished_at = datetime.now(timezone.utc)
+        test_session.add(j_done)
+        test_session.add(EvalCaseJob(run_id=run_id, test_case_id=tc2, status="pending"))
+        test_session.add(EvalCaseJob(run_id=run_id, test_case_id=tc3, status="pending"))
+        await test_session.commit()
+
+        data = (await test_client.get(
+            f"/api/operator/evaluation/runs/{run_id}", headers=operator_headers
+        )).json()["data"]
+        assert data["avg_case_duration_secs"] is not None   # ~60s
+        assert 55 <= data["avg_case_duration_secs"] <= 65
+        assert data["eta_secs"] is not None                  # 2 pending × ~60 = ~120s
+        assert 110 <= data["eta_secs"] <= 130
+
+
+class TestRunsList:
+    """GET /runs 列表（分页 + status/version_id 过滤 + 权限 + 信封）。"""
+
+    @pytest.mark.asyncio
+    async def test_list_pagination(self, test_client, operator_headers, test_session):
+        vid = await _seed_version(test_session, name="list-v")
+        sid = await _seed_default_strategy(test_session)
+        for i in range(15):
+            await _seed_run(test_session, vid, sid, name=f"list-r-{i:02d}")
+
+        resp = await test_client.get(
+            "/api/operator/evaluation/runs?page=1&page_size=10",
+            headers=operator_headers,
+        )
+        body = resp.json()
+        assert resp.status_code == 200, body
+        assert body["success"] is True
+        assert body["data"]["pagination"]["page_size"] == 10
+        assert body["data"]["pagination"]["total"] >= 15
+        assert len(body["data"]["items"]) <= 10
+        assert body["data"]["pagination"]["total_pages"] >= 2
+        # id 倒序（最新在前）
+        ids = [it["id"] for it in body["data"]["items"]]
+        assert ids == sorted(ids, reverse=True)
+
+    @pytest.mark.asyncio
+    async def test_list_status_filter(self, test_client, operator_headers, test_session):
+        vid = await _seed_version(test_session, name="filt-v")
+        sid = await _seed_default_strategy(test_session)
+        await _seed_run(test_session, vid, sid, name="filt-pend", status="pending", total_cases=0, completed_cases=0)
+        await _seed_run(test_session, vid, sid, name="filt-done", status="completed")
+
+        resp = await test_client.get(
+            "/api/operator/evaluation/runs?status=completed",
+            headers=operator_headers,
+        )
+        body = resp.json()
+        # 过滤生效：返回的都是 completed（DB 跨测试可能累积，只验过滤约束）
+        assert all(it["status"] == "completed" for it in body["data"]["items"])
+        assert "filt-done" in [it["name"] for it in body["data"]["items"]]
+
+    @pytest.mark.asyncio
+    async def test_list_version_filter(self, test_client, operator_headers, test_session):
+        sid = await _seed_default_strategy(test_session)
+        va = await _seed_version(test_session, name="vfa")
+        vb = await _seed_version(test_session, name="vfb")
+        await _seed_run(test_session, va, sid, name="run-vfa")
+        await _seed_run(test_session, vb, sid, name="run-vfb")
+
+        resp = await test_client.get(
+            f"/api/operator/evaluation/runs?version_id={va}",
+            headers=operator_headers,
+        )
+        body = resp.json()
+        assert all(it["version_id"] == va for it in body["data"]["items"])
+        assert "run-vfa" in [it["name"] for it in body["data"]["items"]]
+
+    @pytest.mark.asyncio
+    async def test_list_page_size_clamp(self, test_client, operator_headers):
+        resp = await test_client.get(
+            "/api/operator/evaluation/runs?page=1&page_size=2",
+            headers=operator_headers,
+        )
+        assert resp.json()["data"]["pagination"]["page_size"] == 20
+
+    @pytest.mark.asyncio
+    async def test_list_no_token_401(self, test_client):
+        resp = await test_client.get("/api/operator/evaluation/runs")
+        assert resp.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_list_envelope(self, test_client, operator_headers):
+        resp = await test_client.get(
+            "/api/operator/evaluation/runs",
+            headers=operator_headers,
+        )
+        body = resp.json()
+        assert set(body.keys()) >= {"success", "code", "message", "data"}
+        assert set(body["data"].keys()) >= {"items", "pagination"}
+        assert set(body["data"]["pagination"].keys()) >= {"page", "page_size", "total", "total_pages"}
+
+
+class TestRunsCancel:
+    """POST /runs/{id}/cancel：pending job 标 cancelled + run 收尾 cancelled。worker 不参与。"""
+
+    async def _job_statuses(self, test_session, run_id):
+        rows = (await test_session.execute(
+            text("SELECT status FROM eval_case_jobs WHERE run_id = :r ORDER BY id"),
+            {"r": run_id},
+        )).all()
+        return [r[0] for r in rows]
+
+    @pytest.mark.asyncio
+    async def test_cancel_pending_run_marks_jobs_and_run(self, test_client, operator_headers, test_session):
+        vid = await _seed_version(test_session, name="cancel-v")
+        sid = await _seed_default_strategy(test_session)
+        run_id = await _seed_run(test_session, vid, sid, name="cancel-run", status="pending", total_cases=3, completed_cases=0)
+        # UNIQUE(run_id, test_case_id) → 每 job 一个独立 test_case
+        for i in range(3):
+            tc_id = await _seed_test_case(test_session, name=f"cancel-case-{i}")
+            await _seed_job(test_session, run_id, tc_id, status="pending")
+
+        resp = await test_client.post(
+            f"/api/operator/evaluation/runs/{run_id}/cancel",
+            headers=operator_headers,
+        )
+        body = resp.json()
+        assert resp.status_code == 200, body
+        assert body["data"]["status"] == "cancelled"
+        assert body["data"]["finished_at"] is not None
+        # pending jobs → cancelled
+        assert all(s == "cancelled" for s in await self._job_statuses(test_session, run_id))
+
+    @pytest.mark.asyncio
+    async def test_cancel_writes_op_log(self, test_client, operator_headers, test_session):
+        vid = await _seed_version(test_session, name="cancellog-v")
+        sid = await _seed_default_strategy(test_session)
+        run_id = await _seed_run(test_session, vid, sid, name="cancellog-run", status="running")
+        await test_client.post(
+            f"/api/operator/evaluation/runs/{run_id}/cancel",
+            headers=operator_headers,
+        )
+        log = (await test_session.execute(text(
+            "SELECT action FROM operation_logs WHERE action='evaluation_run_cancel'"
+        ))).fetchone()
+        assert log is not None
+
+    @pytest.mark.asyncio
+    async def test_cancel_only_pending_jobs_untouched_running_done(self, test_client, operator_headers, test_session):
+        vid = await _seed_version(test_session, name="cancelmix-v")
+        sid = await _seed_default_strategy(test_session)
+        run_id = await _seed_run(test_session, vid, sid, name="cancelmix-run", status="running", total_cases=3, completed_cases=1)
+        # UNIQUE(run_id, test_case_id) → 每 job 一个独立 test_case
+        tc_pend = await _seed_test_case(test_session, name="cancelmix-pend")
+        tc_run = await _seed_test_case(test_session, name="cancelmix-run")
+        tc_done = await _seed_test_case(test_session, name="cancelmix-done")
+        await _seed_job(test_session, run_id, tc_pend, status="pending")
+        await _seed_job(test_session, run_id, tc_run, status="running")
+        await _seed_job(test_session, run_id, tc_done, status="done")
+
+        await test_client.post(
+            f"/api/operator/evaluation/runs/{run_id}/cancel",
+            headers=operator_headers,
+        )
+        statuses = await self._job_statuses(test_session, run_id)
+        assert statuses.count("cancelled") == 1   # 只 pending → cancelled
+        assert statuses.count("running") == 1     # 在跑的不动
+        assert statuses.count("done") == 1         # 已完成的不动
+
+    @pytest.mark.asyncio
+    async def test_cancel_404(self, test_client, operator_headers):
+        resp = await test_client.post(
+            "/api/operator/evaluation/runs/999999/cancel",
+            headers=operator_headers,
+        )
+        assert resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_cancel_terminal_409(self, test_client, operator_headers, test_session):
+        vid = await _seed_version(test_session, name="cancel409-v")
+        sid = await _seed_default_strategy(test_session)
+        run_id = await _seed_run(test_session, vid, sid, name="cancel409-run", status="completed")
+        resp = await test_client.post(
+            f"/api/operator/evaluation/runs/{run_id}/cancel",
+            headers=operator_headers,
+        )
+        assert resp.status_code == 409
+
+    @pytest.mark.asyncio
+    async def test_cancel_no_token_401(self, test_client):
+        resp = await test_client.post("/api/operator/evaluation/runs/1/cancel")
+        assert resp.status_code == 401
+
+
+class TestRunCaseResults:
+    """GET /runs/{id}/case-results：case 生成结果（generated_output + 真实样本名）。"""
+
+    @pytest.mark.asyncio
+    async def test_returns_case_results_with_output(self, test_client, operator_headers, test_session):
+        vid = await _seed_version(test_session, name="cr-v")
+        sid = await _seed_default_strategy(test_session)
+        tc_id = await _seed_test_case(test_session, name="真实样本A")
+        run_id = await _seed_run(test_session, vid, sid, name="cr-run", status="completed")
+        test_session.add(EvalCaseResult(
+            run_id=run_id, test_case_id=tc_id, generated_output="这是 kimi 生成的文案",
+            output_payload={"text": "..."}, input_snapshot={"name": "达人"},
+        ))
+        await test_session.commit()
+
+        resp = await test_client.get(
+            f"/api/operator/evaluation/runs/{run_id}/case-results",
+            headers=operator_headers,
+        )
+        body = resp.json()
+        assert resp.status_code == 200, body
+        items = body["data"]
+        assert any(it["generated_output"] == "这是 kimi 生成的文案" for it in items)
+        assert any(it["test_case_name"] == "真实样本A" for it in items)  # join 出真实样本名
+
+    @pytest.mark.asyncio
+    async def test_case_results_404(self, test_client, operator_headers):
+        resp = await test_client.get(
+            "/api/operator/evaluation/runs/999999/case-results",
+            headers=operator_headers,
+        )
+        assert resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_case_results_no_token_401(self, test_client):
+        resp = await test_client.get("/api/operator/evaluation/runs/1/case-results")
+        assert resp.status_code == 401
 
 
 # ---------------------------------------------------------------------------
