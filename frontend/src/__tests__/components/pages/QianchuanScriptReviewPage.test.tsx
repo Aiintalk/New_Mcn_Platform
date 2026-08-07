@@ -136,6 +136,27 @@ describe('QianchuanScriptReviewPage — QianchuanScriptReviewModule', () => {
     expect(screen.queryByRole('button', { name: '保存到历史' })).not.toBeInTheDocument();
   });
 
+  it('审核中修改输入后忽略旧请求的迟到失败', async () => {
+    const user = userEvent.setup();
+    let rejectReview!: (reason?: unknown) => void;
+    mockSubmitReview.mockReturnValueOnce(new Promise((_, reject) => { rejectReview = reject; }));
+    renderModule();
+    const original = screen.getByPlaceholderText('粘贴原版千川脚本...');
+    const adapted = screen.getByPlaceholderText('粘贴待审核的仿写脚本...');
+    await user.type(original, '原版');
+    await user.type(adapted, '仿写');
+    await user.click(screen.getByRole('button', { name: /开始预审/ }));
+    await waitFor(() => expect(mockSubmitReview).toHaveBeenCalledTimes(1));
+
+    await user.type(adapted, '新输入');
+    await act(async () => rejectReview(new Error('旧请求失败')));
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /开始预审/ })).not.toBeDisabled());
+    expect(adapted).toHaveValue('仿写新输入');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.queryByText('旧请求失败')).not.toBeInTheDocument();
+  });
+
   // Test 1: 页面渲染 — 两个 TextArea、脚本类型切换按钮
   it('渲染两个脚本输入区和类型切换按钮', async () => {
     renderModule();

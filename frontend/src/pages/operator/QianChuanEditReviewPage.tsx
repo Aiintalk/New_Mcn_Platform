@@ -99,6 +99,20 @@ export default function QianChuanEditReviewPage() {
   const [activeModelId, setActiveModelId] = useState<number | null>(null)
   const reportRef = useRef<HTMLDivElement>(null)
   const inputRevisionRef = useRef(0)
+  const processingGenerationRef = useRef({ original: 0, ours: 0 })
+
+  function invalidateProcessing(side: 'original' | 'ours') {
+    processingGenerationRef.current[side] += 1
+  }
+
+  function beginProcessing(side: 'original' | 'ours') {
+    invalidateProcessing(side)
+    return processingGenerationRef.current[side]
+  }
+
+  function isCurrentProcessing(side: 'original' | 'ours', generation: number) {
+    return processingGenerationRef.current[side] === generation
+  }
 
   function invalidateAnalysis() {
     inputRevisionRef.current += 1
@@ -119,20 +133,25 @@ export default function QianChuanEditReviewPage() {
     const setter = side === 'original' ? setOriginal : setOurs
     if (!data.file) { message.error('请先上传视频文件'); return }
 
+    const generation = beginProcessing(side)
     invalidateAnalysis()
     setter(prev => ({ ...prev, status: 'extracting', error: '', frames: [] }))
     try {
       const frameResult = await extractFrames(data.file, 8)
+      if (!isCurrentProcessing(side, generation)) return
       if (!frameResult.frames.length) throw new Error('未提取到有效画面')
       setter(prev => ({ ...prev, frames: frameResult.frames, duration: frameResult.duration, status: 'transcribing' }))
       try {
         const transResult = await transcribeVideo(data.file, 'zh')
+        if (!isCurrentProcessing(side, generation)) return
         if (!transResult.text.trim()) throw new Error('转录结果为空')
         setter(prev => ({ ...prev, transcript: transResult.text, status: 'ready', error: '' }))
       } catch {
+        if (!isCurrentProcessing(side, generation)) return
         setter(prev => ({ ...prev, status: 'failed', error: '转录失败，尚未就绪' }))
       }
     } catch (e) {
+      if (!isCurrentProcessing(side, generation)) return
       setter(prev => ({ ...prev, frames: [], duration: 0, status: 'failed', error: '截帧失败，尚未就绪' }))
       message.error(e instanceof Error ? e.message : '截帧失败')
     }
@@ -142,13 +161,16 @@ export default function QianChuanEditReviewPage() {
     const data = side === 'original' ? original : ours
     const setter = side === 'original' ? setOriginal : setOurs
     if (!data.file) return
+    const generation = beginProcessing(side)
     invalidateAnalysis()
     setter(prev => ({ ...prev, status: 'transcribing', error: '' }))
     try {
       const result = await transcribeVideo(data.file, 'zh')
+      if (!isCurrentProcessing(side, generation)) return
       if (!result.text.trim()) throw new Error('转录结果为空')
       setter(prev => ({ ...prev, transcript: result.text, status: 'ready', error: '' }))
     } catch {
+      if (!isCurrentProcessing(side, generation)) return
       setter(prev => ({ ...prev, status: 'failed', error: '转录失败，尚未就绪' }))
     }
   }
@@ -301,6 +323,7 @@ export default function QianChuanEditReviewPage() {
               e.preventDefault()
               const f = e.dataTransfer.files[0]
               if (f && f.type.startsWith('video/')) {
+                invalidateProcessing(side)
                 invalidateAnalysis()
                 setter({ ...EMPTY_SIDE, file: f, status: 'pending' })
               }
@@ -310,6 +333,7 @@ export default function QianChuanEditReviewPage() {
               id={`file-${side}`} aria-label={`上传${label}视频`} type="file" accept="video/*" style={{ display: 'none' }}
               onChange={e => {
                 const f = e.target.files?.[0] || null
+                invalidateProcessing(side)
                 invalidateAnalysis()
                 if (f) setter({ ...EMPTY_SIDE, file: f, status: 'pending' })
                 else setter({ ...EMPTY_SIDE })
@@ -320,7 +344,7 @@ export default function QianChuanEditReviewPage() {
                 {data.file.name} <span style={{ color: '#9ca3af' }}>({(data.file.size / 1024 / 1024).toFixed(1)}MB)</span>
                 {data.duration > 0 && <span style={{ color: '#9ca3af' }}> · {data.duration}秒</span>}
                 <button style={{ marginLeft: 8, color: '#f87171', background: 'none', border: 'none', cursor: 'pointer' }}
-                  onClick={e => { e.stopPropagation(); invalidateAnalysis(); setter({ ...EMPTY_SIDE }) }}>✕</button>
+                  onClick={e => { e.stopPropagation(); invalidateProcessing(side); invalidateAnalysis(); setter({ ...EMPTY_SIDE }) }}>✕</button>
               </div>
             ) : (
               <div style={{ fontSize: 13, color: '#9ca3af' }}>拖入或点击上传视频（最大25MB）</div>
@@ -371,15 +395,25 @@ export default function QianChuanEditReviewPage() {
             placeholder="点击上方按钮自动提取，或直接粘贴文案..."
             value={data.transcript}
             onChange={e => {
+              invalidateProcessing(side)
               invalidateAnalysis()
               setter(prev => {
                 const transcript = e.target.value
                 const hasProcessedVideo = prev.file !== null && prev.frames.length > 0
+                const status = hasProcessedVideo
+                  ? (transcript.trim() ? 'ready' : 'failed')
+                  : prev.file
+                    ? 'pending'
+                    : prev.status
                 return {
                   ...prev,
                   transcript,
-                  status: hasProcessedVideo ? (transcript.trim() ? 'ready' : 'failed') : prev.status,
-                  error: hasProcessedVideo ? (transcript.trim() ? '' : '文案为空，尚未就绪') : prev.error,
+                  status,
+                  error: hasProcessedVideo
+                    ? (transcript.trim() ? '' : '文案为空，尚未就绪')
+                    : prev.file
+                      ? ''
+                      : prev.error,
                 }
               })
             }}

@@ -1,7 +1,7 @@
 # M2 Sprint26 运营反馈缺陷修复——开发验收报告 v1
 
 > 日期：2026-08-06
-> 状态：开发实现与相关技术回归完成，等待产品经理业务验收
+> 状态：产品经理第一轮验收返修已实现，独立技术复审 APPROVED，等待再次业务验收
 > 工作树：`/Users/zhangchong/.codex/worktrees/3214/New_Mcn_Platform`
 > 分支：`feature/sprint26-operations-bug-fixes`
 > 实际 main 基线：`95b25302b67dd436a5929feebcaf4bc30002e840`
@@ -25,6 +25,7 @@ BUG-01 至 BUG-04 已实现；VERIFY-01 在最新版本地代码的 Chrome 中�
 - 无法修复时任务进入真实失败终态，不吞异常、不伪装成功。
 - 前端保留输入、持续显示失败原因、支持原地重试；仅成功任务可保存。
 - 成功后修改脚本、类型或商品会使旧结果失效，不能把新输入与旧结论一起保存。
+- 审核进行中修改任一输入后，旧请求即使迟到失败也不会把错误面板写到新输入。
 
 ### BUG-03 千川脚本复盘
 
@@ -39,6 +40,8 @@ BUG-01 至 BUG-04 已实现；VERIFY-01 在最新版本地代码的 Chrome 中�
 - 两侧分别维护未上传、待处理、截帧中、转录中、已就绪和失败状态。
 - 就绪必须同时具备文件、有效帧、非空文案和 `ready` 终态。
 - 半完成、重新处理、转录重试期间均不能分析；失败后提供明确恢复入口。
+- 左右两侧分别维护处理请求代次；选择、删除、替换文件或人工修改文案会立即作废旧请求，截帧、转录及重试转录的每个异步写回点均核对代次。
+- 旧文件迟到响应不能写入新文件的帧、时长、文案或就绪状态，开始预审保持禁用。
 - 空报告或错误报告不开放保存/导出；任一输入变化立即使旧报告失效。
 
 ### VERIFY-01 最新版文案直接粘贴
@@ -49,19 +52,19 @@ BUG-01 至 BUG-04 已实现；VERIFY-01 在最新版本地代码的 Chrome 中�
 
 ## 三、测试与独立复审
 
-- 后端聚焦：54/54 通过；独立复审整改后的 BUG-03 文件 20/20 通过。
-- 后端全量：1538 通过、1 跳过、14 条既有警告；整体覆盖率 70.7%。仓库既有分模块覆盖率线仍未达：服务层 73.2%/目标 80%，路由层 61.3%/目标 70%。
-- 前端相关：5 文件 35/35 通过。
-- 前端完整覆盖率：522/523 通过；唯一未改动评测维度页异步超时，单文件复跑 17/17 通过。
+- 后端相关：55/55 通过。
+- 整个 `backend/tests` 直接收集在收集 1547 项后，被既有 `backend/tests/intake/conftest.py` 的非顶层 `pytest_plugins` 声明阻断；该问题在主分支既有，本次不修改历史模块。最大可运行回归以 `tests/unit/` 与 `tests/integration/` 为范围，1538 通过、1 跳过、14 条既有警告；不再把它表述为整个后端测试目录全量通过。
+- 前端相关：5 文件 44/44 通过，其中新增竞态测试 5/5。
+- 前端完整覆盖率：55 文件、528/528 通过。
 - TypeScript 类型检查、生产构建、`git diff --check` 均通过。
-- 独立只读技术复审首轮发现 3 个高优先级和 3 个中优先级问题：配置异常悬挂任务、重新处理误判就绪、旧报告未失效、跨达人历史去向、脚本旧结果未失效、测试任务号污染；均已修复并增加回归测试，第二轮结论见最终回传。
+- 独立只读技术复审首轮发现 3 个高优先级和 3 个中优先级问题，产品返修后的复审又发现“处理中人工改文案后状态卡死”和后端报告范围误述 2 个中优先级问题；均已修复并增加回归或证据校验。最终复审结论为 `APPROVED`，无遗留高、中优先级问题；复审独立实跑相关前端 44/44 和 `git diff --check` 均通过。
 
 ## 四、页面入口与截图
 
 入口：
 
 - 红人入口：`/kol-hub`
-- 人格定位：`/persona`
+- 人格定位：`/workspace/persona-positioning`
 - 千川脚本预审：`/workspace/qianchuan-script-review`
 - 千川脚本复盘：`/workspace/qianchuan-review`
 - 千川剪辑预审：`/workspace/qianchuan-edit-review`
@@ -71,10 +74,11 @@ BUG-01 至 BUG-04 已实现；VERIFY-01 在最新版本地代码的 Chrome 中�
 产品经理重点查看：
 
 1. `bug01-operator-kol-hub-1440x900.png` 与 `bug01-admin-kol-hub-1440x900.png`。
-2. `bug02-script-review-failed-input-preserved-1024x768.png` 与 `bug02-script-review-success-save-enabled-1440x900.png`。
+2. `bug02-script-review-failed-input-preserved-1024x768-final.png` 与 `bug02-script-review-success-save-enabled-1440x900.png`。
 3. `bug03-review-failed-task-save-blocked-1024x768.png` 与 `bug03-review-success-save-enabled-1440x900.png`。
-4. `bug04-half-ready-analysis-blocked-1024x768.png`、`bug04-both-sides-ready-1440x900.png`、`bug04-analysis-error-save-blocked-1024x768.png`、`bug04-analysis-success-save-enabled-1440x900.png`。
+4. `bug04-half-ready-analysis-blocked-1024x768.png`、`bug04-both-sides-ready-1440x900.png`、`bug04-analysis-error-save-blocked-1024x768-final.png`、`bug04-analysis-success-save-enabled-1440x900.png`。
 5. `verify01-chrome-paste-long-edit-upload-fallback-1440x900.png`。
+6. `bug01-persona-complete-kol43-actions-1440x900.png`；点击“进入红人工作台”后的真实地址为 `/kol-workspace/43?tab=persona`，`kol_id=43`。
 
 ## 五、产品验收清单
 
@@ -90,4 +94,5 @@ BUG-01 至 BUG-04 已实现；VERIFY-01 在最新版本地代码的 Chrome 中�
 
 - 浏览器 AI 正常/失败状态使用本地可控响应，证明前端状态和门禁，不证明真实付费模型质量。
 - Safari 与线上部署版本尚未核验，VERIFY-01 仍有环境验收项。
+- 独立复审保留一个既有低优先级观察：剪辑分析请求的迟到异常可能在输入变化后显示旧错误，但不会开放保存门禁；本次按冻结范围不扩大修改。
 - 未合并、未部署、未执行生产数据库操作、未上线。

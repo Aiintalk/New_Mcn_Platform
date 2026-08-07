@@ -83,6 +83,7 @@ export function QianchuanScriptReviewModule() {
       if (inputRevision !== inputRevisionRef.current) return;
       setResult(res);
     } catch (err: unknown) {
+      if (inputRevision !== inputRevisionRef.current) return;
       const errorMessage = err instanceof Error ? err.message : '审核请求失败';
       setReviewError(errorMessage);
       message.error(errorMessage);
