@@ -1225,12 +1225,26 @@ Request（JSON）：
 }
 ```
 
-Response：`text/event-stream`（SSE），Response Header 含 `X-Task-Id: {number}`
+Response：`text/event-stream`（SSE），Response Header 含 `X-Task-Id: {number}`。事件统一为：
+
+```text
+event: content
+data: {"text":"报告片段"}
+
+event: complete
+data: {"task_id":1}
+
+event: failed
+data: {"task_id":1,"code":"GENERATION_FAILED","message":"AI 生成失败，请重新生成"}
+```
 
 业务规则：
 - `scripts` 为空 → 400 INVALID_INPUT
 - `scripts.length > 30` → 400 SCRIPTS_LIMIT_EXCEEDED（"不能超过30条"）
-- 流开始前创建 task_jobs(status=processing)；流结束后更新 status=success
+- 携带投放数据但匹配数为 0 → 400 VALIDATION_ERROR；`data` 返回 `matched_count`、`unmatched_scripts`（脚本序号和标题）及 `unmatched_excel_rows`（Excel 行号和素材名），且不创建任务、不调用 AI。
+- 通过输入门禁后创建 `task_jobs(status=processing)`；任务记录只保存条数、是否含投放数据和匹配数，不保存完整脚本。
+- 只有报告非空、无生成异常并发送 `complete` 事件后，任务才更新为 `success`。
+- 空报告、生成异常或客户端中断分别更新为 `failed`，错误码为 `EMPTY_REPORT`、`GENERATION_FAILED` 或 `STREAM_INTERRUPTED`；错误通过 `failed` 事件返回，不把 `[ERROR]` 混入报告正文。
 
 ---
 
@@ -1246,7 +1260,12 @@ Response（200）：
 { "success": true, "code": "OK", "data": { "output_id": 1 } }
 ```
 
-错误：report 为空 → 400 INVALID_INPUT
+错误：
+- report 为空 → 400 INVALID_INPUT
+- report 含 `[ERROR]` → 400 INVALID_REPORT
+- task 不属于当前用户/工具，或任务终态不是 success → 409 TASK_NOT_SUCCESS
+
+保存成功后，`outputs.task_id` 与 `task_jobs.output_id` 双向关联。
 
 ---
 
@@ -2714,6 +2733,7 @@ Request Body：
 Response `data`：
 ```json
 {
+  "task_id": 1,
   "rating": "pass",
   "must_fix": [{ "type": "价格替换", "quote": "原文引用", "fix": "修改建议" }],
   "suggestions": ["可选优化建议"],
@@ -2723,6 +2743,12 @@ Response `data`：
 
 `rating` 取值：`pass`（可上线）/ `minor`（小改可上线）/ `fail`（需大改）。
 
+结果结构与任务规则：
+- `rating` 必须是上述三种值；`must_fix` 必须是数组且每项都有非空 `type`、`quote`、`fix`；`suggestions`、`passed` 必须是字符串数组；不接受额外字段。
+- 首次结果不合法时最多再做 2 次受控 JSON 格式修复；修复提示不得改变审核结论或补充审核内容。
+- 调用前创建 `task_jobs(status=processing)`，只记录脚本类型、两份脚本长度、达人/商品编号和模型编号，不记录脚本正文。
+- 严格校验通过后才把任务记为 `success`、写成功操作日志并返回 `task_id`；连续 3 次不合法或 AI 调用异常则任务为 `failed`，返回 `EXTERNAL_SERVICE_ERROR`，且不写成功日志。
+
 #### POST `/api/operator/qianchuan-script-review/save-output`
 
 保存预审结果到历史（手动触发，复用全局 `outputs` 表，`tool_code='qianchuan-script-review'`）。
@@ -2731,6 +2757,7 @@ Request Body：
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
+| `task_id` | int | 是 | review 接口成功返回的任务编号；必须属于当前用户且终态为 success |
 | `content` | string | 是 | 仿写脚本原文（便于还原上下文） |
 | `content_json` | object | 是 | 结构化评分（同 review 接口返回的 ReviewResult：rating/must_fix/suggestions/passed） |
 | `title` | string | 否 | 标题，默认自动生成（含 rating） |
@@ -2741,6 +2768,8 @@ Response `data`：
 ```
 
 写 OperationLog（action=`script_review_save_output`, target_type=`output`）。
+
+保存前再次按 review 的严格结构校验 `content_json`；无效结构返回 400 INVALID_REVIEW_RESULT，任务不存在、不属于当前用户或终态不是 success 返回 409 TASK_NOT_SUCCESS。保存成功后关联 `outputs.task_id` 和 `task_jobs.output_id`。
 
 历史查询走全局接口：`GET /api/outputs?tool_code=qianchuan-script-review`；删除走 `DELETE /api/outputs/{id}`（软删）。
 

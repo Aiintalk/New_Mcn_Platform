@@ -5,6 +5,7 @@ from app.services.qianchuan_review_service import (
     ScriptItem,
     ExcelRow,
     merge_scripts_and_excel,
+    merge_scripts_and_excel_with_diagnostics,
     build_user_message,
 )
 
@@ -107,6 +108,20 @@ def test_merge_no_spend_sorted_last():
     result = merge_scripts_and_excel(scripts, excel)
     assert result[0]["title"] == "有数据脚本完整"
     assert result[1]["title"] == "无数据脚本"
+
+
+def test_empty_normalized_title_is_not_counted_as_a_match():
+    """只有空白或标点的标题不能因空字符串包含关系被误判为匹配。"""
+    scripts = [ScriptItem(title="！！！", content="脚本正文")]
+    excel = [ExcelRow(video_theme="正常素材名称", spend="100")]
+
+    _, diagnostics = merge_scripts_and_excel_with_diagnostics(scripts, excel)
+
+    assert diagnostics == {
+        "matched_count": 0,
+        "unmatched_scripts": [{"index": 1, "title": "！！！"}],
+        "unmatched_excel_rows": [{"row": 2, "video_theme": "正常素材名称"}],
+    }
 
 
 # ---------- build_user_message ----------

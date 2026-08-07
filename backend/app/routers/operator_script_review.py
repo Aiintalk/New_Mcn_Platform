@@ -6,21 +6,25 @@ app/routers/operator_script_review.py
   POST /api/operator/qianchuan-script-review/save-output  — 保存预审结果到历史
 """
 import json
-from datetime import datetime
+import re
+import time
+from datetime import datetime, timezone
 from typing import Literal, Optional
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.adapters import yunwu as yunwu_adapter
-from app.core.database import AsyncSessionLocal, get_db
-from app.core.response import error_response, success_response
+from app.core.database import AsyncSessionLocal, get_db  # 测试夹具按路由统一替换，勿删
+from app.core.response import ErrorCode, error_response, success_response
 from app.middlewares.auth import get_current_user
 from app.models.log import OperationLog
 from app.models.output import Output
 from app.models.qianchuan_script_review import QianchuanScriptReviewConfig
+from app.models.task import TaskJob
 from app.models.user import User
 from app.services.kol_context import get_current_product, get_product_by_id
 from app.services.workspace_prompt import resolve_prompt
@@ -122,6 +126,63 @@ class ReviewRequest(BaseModel):
     product_id: int | None = None
 
 
+class MustFixItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: str = Field(min_length=1)
+    quote: str = Field(min_length=1)
+    fix: str = Field(min_length=1)
+
+    @field_validator("type", "quote", "fix")
+    @classmethod
+    def strip_required_text(cls, value: str) -> str:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("字段不能为空")
+        return value.strip()
+
+
+class ReviewResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    rating: Literal["pass", "minor", "fail"]
+    must_fix: list[MustFixItem]
+    suggestions: list[str]
+    passed: list[str]
+
+    @field_validator("suggestions", "passed")
+    @classmethod
+    def validate_text_items(cls, values: list[str]) -> list[str]:
+        if any(not isinstance(value, str) or not value.strip() for value in values):
+            raise ValueError("数组内容不能为空")
+        return [value.strip() for value in values]
+
+
+def _parse_review_result(raw: str) -> ReviewResult | None:
+    try:
+        payload = json.loads(raw)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        match = re.search(r"\{.*\}", raw, re.DOTALL)
+        if not match:
+            return None
+        try:
+            payload = json.loads(match.group())
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return None
+    try:
+        return ReviewResult.model_validate(payload)
+    except ValidationError:
+        return None
+
+
+def _repair_prompt(raw: str) -> str:
+    return f"""\
+只修复 JSON 结构，使它严格满足下面格式；不得改变审核结论，不得新增审核内容，不要输出解释或代码块：
+{{"rating":"pass|minor|fail","must_fix":[{{"type":"非空文字","quote":"非空文字","fix":"非空文字"}}],"suggestions":["非空文字"],"passed":["非空文字"]}}
+
+待修复内容：
+{raw}"""
+
+
 @router.post("/review")
 async def review_script(
     body: ReviewRequest,
@@ -177,29 +238,98 @@ async def review_script(
             adapted_script=body.adapted_script,
         )
 
-    raw = await _call_review_ai(prompt, model_id, provider)
+    started_at = datetime.now(timezone.utc)
+    started_monotonic = time.monotonic()
+    task_job = TaskJob(
+        task_no=f"SR-{int(time.time() * 1000)}-{uuid4().hex[:8]}",
+        tool_code=TOOL_CODE,
+        tool_name=TOOL_NAME,
+        status="processing",
+        input_payload={
+            "script_type": body.script_type,
+            "original_script_length": len(body.original_script),
+            "adapted_script_length": len(body.adapted_script),
+            "kol_id": body.kol_id,
+            "product_id": body.product_id,
+            "model_id": model_id,
+        },
+        started_at=started_at,
+        created_by=current_user.id,
+    )
+    db.add(task_job)
+    await db.commit()
+    await db.refresh(task_job)
 
+    attempts = 0
+    result: ReviewResult | None = None
+    raw = ""
     try:
-        result = json.loads(raw)
-    except (json.JSONDecodeError, ValueError):
-        # 尝试提取嵌在 markdown 代码块中的 JSON
-        import re
-        match = re.search(r"\{.*\}", raw, re.DOTALL)
-        if match:
-            try:
-                result = json.loads(match.group())
-            except (json.JSONDecodeError, ValueError):
-                return error_response("INTERNAL_ERROR", f"AI 返回格式解析失败: {raw[:200]}")
-        else:
-            return error_response("INTERNAL_ERROR", f"AI 返回格式解析失败: {raw[:200]}")
+        for attempts in range(1, 4):
+            call_prompt = prompt if attempts == 1 else _repair_prompt(raw)
+            raw = await _call_review_ai(call_prompt, model_id, provider)
+            result = _parse_review_result(raw)
+            if result is not None:
+                break
+    except Exception:
+        task_job.status = "failed"
+        task_job.error_code = "AI_CALL_FAILED"
+        task_job.error_message = "AI 审核失败，请重新审核"
+        task_job.finished_at = datetime.now(timezone.utc)
+        task_job.duration_ms = int((time.monotonic() - started_monotonic) * 1000)
+        task_job.result_summary = {"attempts": attempts, "failure_type": "ai_call_failed"}
+        db.add(OperationLog(
+            user_id=current_user.id,
+            username=current_user.username,
+            role=current_user.role,
+            action="qianchuan_script_review_failed",
+            target_type="task_job",
+            target_id=task_job.id,
+            detail={"attempts": attempts, "error_code": "AI_CALL_FAILED"},
+            ip=_get_ip(request),
+            user_agent=request.headers.get("user-agent"),
+        ))
+        await db.commit()
+        return error_response(ErrorCode.EXTERNAL_SERVICE_ERROR, "AI 审核失败，请重新审核")
+
+    if result is None:
+        failure_message = "AI 返回的审核结果结构不完整，请重新审核"
+        task_job.status = "failed"
+        task_job.error_code = "INVALID_AI_RESULT"
+        task_job.error_message = failure_message
+        task_job.finished_at = datetime.now(timezone.utc)
+        task_job.duration_ms = int((time.monotonic() - started_monotonic) * 1000)
+        task_job.result_summary = {"attempts": attempts, "failure_type": "invalid_structure"}
+        db.add(OperationLog(
+            user_id=current_user.id,
+            username=current_user.username,
+            role=current_user.role,
+            action="qianchuan_script_review_failed",
+            target_type="task_job",
+            target_id=task_job.id,
+            detail={"attempts": attempts, "error_code": "INVALID_AI_RESULT"},
+            ip=_get_ip(request),
+            user_agent=request.headers.get("user-agent"),
+        ))
+        await db.commit()
+        return error_response(ErrorCode.EXTERNAL_SERVICE_ERROR, failure_message)
+
+    result_data = result.model_dump()
+    task_job.status = "success"
+    task_job.finished_at = datetime.now(timezone.utc)
+    task_job.duration_ms = int((time.monotonic() - started_monotonic) * 1000)
+    task_job.result_summary = {
+        "attempts": attempts,
+        "rating": result.rating,
+        "must_fix_count": len(result.must_fix),
+    }
 
     db.add(OperationLog(
         user_id=current_user.id,
         username=current_user.username,
         role=current_user.role,
         action="qianchuan_script_review",
-        target_type="script_review",
-        target_id=None,
+        target_type="task_job",
+        target_id=task_job.id,
         detail={
             "kol_id": body.kol_id,
             "product_id": body.product_id,
@@ -213,12 +343,7 @@ async def review_script(
     ))
     await db.commit()
 
-    return success_response(data={
-        "rating": result.get("rating"),
-        "must_fix": result.get("must_fix", []),
-        "suggestions": result.get("suggestions", []),
-        "passed": result.get("passed", []),
-    })
+    return success_response(data={"task_id": task_job.id, **result_data})
 
 
 # ---------------------------------------------------------------------------
@@ -226,6 +351,7 @@ async def review_script(
 # ---------------------------------------------------------------------------
 
 class SaveOutputRequest(BaseModel):
+    task_id: int
     content: str  # 仿写脚本原文（便于查看历史时还原上下文）
     content_json: dict  # ReviewResult：{rating, must_fix[], suggestions[], passed[]}
     title: str = ""
@@ -249,16 +375,37 @@ async def save_output(
             status_code=400,
             detail={"code": "INVALID_INPUT", "message": "content_json 不能为空"},
         )
+    try:
+        review_result = ReviewResult.model_validate(body.content_json)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "INVALID_REVIEW_RESULT", "message": "预审结果结构不完整，不能保存"},
+        ) from exc
+
+    task_job = (await db.execute(
+        select(TaskJob)
+        .where(TaskJob.id == body.task_id)
+        .where(TaskJob.tool_code == TOOL_CODE)
+        .where(TaskJob.created_by == current_user.id)
+    )).scalar_one_or_none()
+    if task_job is None or task_job.status != "success":
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "TASK_NOT_SUCCESS", "message": "预审任务未成功，不能保存"},
+        )
 
     word_count = len(body.content.replace(" ", "").replace("\n", "").replace("\t", ""))
-    rating = body.content_json.get("rating", "")
+    content_json = review_result.model_dump()
+    rating = review_result.rating
     title = body.title or f"{TOOL_NAME} · {datetime.now().strftime('%Y-%m-%d')} [{rating}]"
     output = Output(
         title=title,
         tool_code=TOOL_CODE,
         tool_name=TOOL_NAME,
         content=body.content,
-        content_json=body.content_json,
+        content_json=content_json,
+        task_id=body.task_id,
         word_count=word_count,
         created_by=current_user.id,
     )
@@ -275,12 +422,13 @@ async def save_output(
         detail={
             "title": title,
             "rating": rating,
-            "must_fix_count": len(body.content_json.get("must_fix", [])),
+            "must_fix_count": len(review_result.must_fix),
             "word_count": word_count,
         },
         ip=_get_ip(request),
         user_agent=request.headers.get("user-agent"),
     ))
+    task_job.output_id = output.id
     await db.commit()
 
     return success_response(data={"output_id": output.id})

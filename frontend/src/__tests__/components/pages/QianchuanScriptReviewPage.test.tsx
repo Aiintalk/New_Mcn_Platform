@@ -6,10 +6,12 @@ import { App } from 'antd';
 // ── Mock API ──────────────────────────────────────────────────────────────────
 
 const mockSubmitReview = vi.fn();
+const mockSaveOutput = vi.fn();
 const mockGetQianchuanProducts = vi.fn();
 
 vi.mock('../../../api/scriptReview', () => ({
   submitReview: (...args: unknown[]) => mockSubmitReview(...args),
+  saveOutput: (...args: unknown[]) => mockSaveOutput(...args),
   getConfig: vi.fn().mockResolvedValue({
     id: 1,
     config_key: 'default',
@@ -77,11 +79,82 @@ describe('QianchuanScriptReviewPage — QianchuanScriptReviewModule', () => {
     vi.clearAllMocks();
     mockGetQianchuanProducts.mockResolvedValue(sampleProducts);
     mockSubmitReview.mockResolvedValue({
+      task_id: 101,
       rating: 'pass',
       must_fix: [],
       suggestions: [],
       passed: ['结构完整', '卖点清晰'],
     });
+  });
+
+  it('审核失败后持续显示原因、保留输入并允许原地重试', async () => {
+    const user = userEvent.setup();
+    mockSubmitReview
+      .mockRejectedValueOnce(new Error('AI 返回的审核结果结构不完整，请重新审核'))
+      .mockResolvedValueOnce({ task_id: 102, rating: 'pass', must_fix: [], suggestions: [], passed: [] });
+    renderModule();
+
+    const original = screen.getByPlaceholderText('粘贴原版千川脚本...');
+    const adapted = screen.getByPlaceholderText('粘贴待审核的仿写脚本...');
+    await user.type(original, '保留的原版脚本');
+    await user.type(adapted, '保留的仿写脚本');
+    await user.click(screen.getByRole('button', { name: /开始预审/ }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('AI 返回的审核结果结构不完整，请重新审核');
+    expect(original).toHaveValue('保留的原版脚本');
+    expect(adapted).toHaveValue('保留的仿写脚本');
+    expect(screen.queryByRole('button', { name: '保存到历史' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '重新审核' }));
+    expect(await screen.findByText('✅ 通过，可以上线')).toBeInTheDocument();
+    expect(mockSubmitReview).toHaveBeenCalledTimes(2);
+  });
+
+  it('前端拒绝结构不完整的成功响应且不开放保存', async () => {
+    const user = userEvent.setup();
+    mockSubmitReview.mockResolvedValue({ task_id: 103, rating: 'unknown', must_fix: 'bad' });
+    renderModule();
+    await user.type(screen.getByPlaceholderText('粘贴原版千川脚本...'), '原版');
+    await user.type(screen.getByPlaceholderText('粘贴待审核的仿写脚本...'), '仿写');
+    await user.click(screen.getByRole('button', { name: /开始预审/ }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('审核结果结构异常，请重新审核');
+    expect(screen.queryByRole('button', { name: '保存到历史' })).not.toBeInTheDocument();
+  });
+
+  it('审核成功后编辑输入会失效旧任务结果并关闭保存门禁', async () => {
+    const user = userEvent.setup();
+    renderModule();
+    const original = screen.getByPlaceholderText('粘贴原版千川脚本...');
+    const adapted = screen.getByPlaceholderText('粘贴待审核的仿写脚本...');
+    await user.type(original, '原版');
+    await user.type(adapted, '仿写');
+    await user.click(screen.getByRole('button', { name: /开始预审/ }));
+
+    expect(await screen.findByRole('button', { name: '保存到历史' })).toBeInTheDocument();
+    await user.type(adapted, '新增内容');
+    expect(screen.queryByRole('button', { name: '保存到历史' })).not.toBeInTheDocument();
+  });
+
+  it('审核中修改输入后忽略旧请求的迟到失败', async () => {
+    const user = userEvent.setup();
+    let rejectReview!: (reason?: unknown) => void;
+    mockSubmitReview.mockReturnValueOnce(new Promise((_, reject) => { rejectReview = reject; }));
+    renderModule();
+    const original = screen.getByPlaceholderText('粘贴原版千川脚本...');
+    const adapted = screen.getByPlaceholderText('粘贴待审核的仿写脚本...');
+    await user.type(original, '原版');
+    await user.type(adapted, '仿写');
+    await user.click(screen.getByRole('button', { name: /开始预审/ }));
+    await waitFor(() => expect(mockSubmitReview).toHaveBeenCalledTimes(1));
+
+    await user.type(adapted, '新输入');
+    await act(async () => rejectReview(new Error('旧请求失败')));
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /开始预审/ })).not.toBeDisabled());
+    expect(adapted).toHaveValue('仿写新输入');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.queryByText('旧请求失败')).not.toBeInTheDocument();
   });
 
   // Test 1: 页面渲染 — 两个 TextArea、脚本类型切换按钮
@@ -123,6 +196,7 @@ describe('QianchuanScriptReviewPage — QianchuanScriptReviewModule', () => {
   it('提交审核并返回 pass 评级时渲染绿色 Banner', async () => {
     const user = userEvent.setup();
     mockSubmitReview.mockResolvedValue({
+      task_id: 104,
       rating: 'pass',
       must_fix: [],
       suggestions: [],
@@ -166,6 +240,7 @@ describe('QianchuanScriptReviewPage — QianchuanScriptReviewModule', () => {
   it('提交审核并返回 fail 评级时渲染红色 Banner 和 must_fix 列表', async () => {
     const user = userEvent.setup();
     mockSubmitReview.mockResolvedValue({
+      task_id: 105,
       rating: 'fail',
       must_fix: [
         { type: '违规词', quote: '最好的产品', fix: '删除绝对化用语' },
@@ -234,6 +309,7 @@ describe('QianchuanScriptReviewPage — QianchuanScriptReviewModule', () => {
   it('提交审核返回 minor 评级时渲染黄色 Banner', async () => {
     const user = userEvent.setup();
     mockSubmitReview.mockResolvedValue({
+      task_id: 106,
       rating: 'minor',
       must_fix: [],
       suggestions: ['建议优化开头节奏'],

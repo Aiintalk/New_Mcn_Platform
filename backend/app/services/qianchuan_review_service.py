@@ -50,6 +50,8 @@ def _normalize(text: str) -> str:
 
 def _is_match(a_norm: str, b_norm: str) -> bool:
     """双向 includes 判断（与原始 JS 逻辑等价）。"""
+    if not a_norm or not b_norm:
+        return False
     return (
         a_norm[:MATCH_SUB_LEN] in b_norm
         or b_norm[:MATCH_SUB_LEN] in a_norm
@@ -68,10 +70,20 @@ def merge_scripts_and_excel(
     4. Excel 中有但脚本无对应的行：追加到末尾，content 为空
     5. 整体按 spend 降序排列，无消耗排后面
     """
+    merged, _ = merge_scripts_and_excel_with_diagnostics(scripts, excel_data)
+    return merged
+
+
+def merge_scripts_and_excel_with_diagnostics(
+    scripts: list[ScriptItem],
+    excel_data: list[ExcelRow],
+) -> tuple[list[dict], dict]:
+    """合并脚本与投放数据，并返回可供运营修正名称的匹配诊断。"""
     merged: list[dict] = []
     matched_excel_indices: set[int] = set()
+    matched_script_indices: set[int] = set()
 
-    for script in scripts:
+    for script_index, script in enumerate(scripts):
         script_norm = _normalize(script.title)
         matched_row: ExcelRow | None = None
         matched_idx: int | None = None
@@ -87,6 +99,7 @@ def merge_scripts_and_excel(
 
         if matched_row is not None and matched_idx is not None:
             matched_excel_indices.add(matched_idx)
+            matched_script_indices.add(script_index)
             merged.append({
                 "title": matched_row.video_theme,
                 "content": script.content,
@@ -139,7 +152,20 @@ def merge_scripts_and_excel(
             return 0.0
 
     merged.sort(key=_spend_key, reverse=True)
-    return merged
+    diagnostics = {
+        "matched_count": len(matched_script_indices),
+        "unmatched_scripts": [
+            {"index": index + 1, "title": script.title}
+            for index, script in enumerate(scripts)
+            if index not in matched_script_indices
+        ],
+        "unmatched_excel_rows": [
+            {"row": index + 2, "video_theme": row.video_theme}
+            for index, row in enumerate(excel_data)
+            if index not in matched_excel_indices and row.video_theme
+        ],
+    }
+    return merged, diagnostics
 
 
 def build_user_message(items: list[dict]) -> str:

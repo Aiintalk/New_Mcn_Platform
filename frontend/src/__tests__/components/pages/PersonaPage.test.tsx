@@ -1,6 +1,7 @@
 import { App } from 'antd';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const originalGetComputedStyle = window.getComputedStyle.bind(window);
@@ -54,6 +55,12 @@ vi.mock('../../../api/persona', () => ({
 
 import PersonaPage from '../../../pages/operator/PersonaPage';
 
+function WorkspaceProbe() {
+  const { kolId } = useParams();
+  const location = useLocation();
+  return <div>{`工作台红人 ${kolId} ${location.search}`}</div>;
+}
+
 const formalKols = {
   items: [
     {
@@ -77,7 +84,11 @@ const formalKols = {
 };
 
 function renderPage() {
-  return render(<App><PersonaPage /></App>);
+  return render(<App><MemoryRouter initialEntries={['/workspace/persona-positioning']}><Routes>
+    <Route path="/workspace/persona-positioning" element={<PersonaPage />} />
+    <Route path="/kol-workspace/:kolId" element={<WorkspaceProbe />} />
+    <Route path="/kol-hub" element={<div>红人列表已刷新</div>} />
+  </Routes></MemoryRouter></App>);
 }
 
 function doneReader() {
@@ -119,6 +130,19 @@ describe('PersonaPage 正式达人绑定', () => {
       pending_overwrites: [],
     });
     mockSyncPersonaReportDecisions.mockResolvedValue({});
+  });
+
+  it('生成和同步成功后可进入同一 kol_id 工作台或返回列表', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await selectKolAndUpload(user);
+    await user.click(screen.getByRole('button', { name: '下一步' }));
+    await user.click(screen.getByRole('button', { name: '跳过，直接生成' }));
+
+    expect(await screen.findByRole('button', { name: '进入红人工作台' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '返回红人列表' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '进入红人工作台' }));
+    expect(await screen.findByText('工作台红人 43 ?tab=persona')).toBeInTheDocument();
   });
 
   it('达人列表失败可见可重试，并保留已经输入的补充信息', async () => {
@@ -451,6 +475,35 @@ describe('PersonaPage 正式达人绑定', () => {
     expect(within(dialog).getByRole('radio', { name: '人格档案：保留原内容' })).toBeChecked();
     expect(within(dialog).getByRole('radio', { name: '内容规划：保留原内容' })).toBeChecked();
     expect(screen.getAllByText('历史新人格')).toHaveLength(2);
+  });
+
+  it('打开其他达人的历史报告后进入报告绑定的同一 kol_id 工作台', async () => {
+    const user = userEvent.setup();
+    mockGetPersonaReports.mockResolvedValueOnce([{
+      id: 77,
+      kol_id: 56,
+      influencer_name: '韩国欧尼慧敏',
+      douyin_nickname: null,
+      status: 'ready',
+      created_at: '2026-08-03T09:00:00+08:00',
+    }]);
+    mockGetPersonaReportDetail.mockResolvedValueOnce({
+      id: 77,
+      kol_id: 56,
+      status: 'ready',
+      profile_result: '慧敏人格',
+      plan_result: '慧敏规划',
+      sync_result: { persona: 'auto_written', content_plan: 'auto_written' },
+      pending_overwrites: [],
+    });
+    renderPage();
+    await screen.findByRole('option', { name: /mini兔兔/ });
+    await user.selectOptions(screen.getByLabelText('目标达人（必填）'), '43');
+    await user.click(screen.getByRole('button', { name: '历史记录' }));
+    await user.click(await screen.findByText('韩国欧尼慧敏'));
+
+    await user.click(await screen.findByRole('button', { name: '进入红人工作台' }));
+    expect(await screen.findByText('工作台红人 56 ?tab=persona')).toBeInTheDocument();
   });
 
   it('重新开始后丢弃旧报告详情的迟到响应，并只向新报告提交同步决定', async () => {

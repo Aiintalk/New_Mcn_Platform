@@ -108,6 +108,20 @@ function extractTitle(text: string): string {
 let _nextId = 0;
 function genId() { return `s-${++_nextId}`; }
 
+type StreamPayload = { text?: string; task_id?: number; code?: string; message?: string };
+
+function parseStreamBlock(block: string): { event: string; payload: StreamPayload } | null {
+  const lines = block.split(/\r?\n/);
+  const event = lines.find(line => line.startsWith('event:'))?.slice(6).trim();
+  const data = lines.filter(line => line.startsWith('data:')).map(line => line.slice(5).trim()).join('\n');
+  if (!event || !data) return null;
+  try {
+    return { event, payload: JSON.parse(data) as StreamPayload };
+  } catch {
+    return null;
+  }
+}
+
 /* ── 主组件 ── */
 export default function QianchuanReviewPage() {
   const [step, setStep] = useState<1 | 2 | 3>(1);
@@ -126,6 +140,7 @@ export default function QianchuanReviewPage() {
   // Step 3
   const [report, setReport] = useState('');
   const [reportLoading, setReportLoading] = useState(false);
+  const [generationStatus, setGenerationStatus] = useState<'idle' | 'loading' | 'success' | 'failed'>('idle');
   const [taskId, setTaskId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [savedOutputId, setSavedOutputId] = useState<number | null>(null);
@@ -194,6 +209,8 @@ export default function QianchuanReviewPage() {
 
     setStep(3);
     setReportLoading(true);
+    setGenerationStatus('loading');
+    setError('');
     setReport('');
     setTaskId(null);
     setSavedOutputId(null);
@@ -203,7 +220,16 @@ export default function QianchuanReviewPage() {
         scripts: scripts.map(s => ({ title: s.title, content: s.content })),
         excel_data: withExcel ? excelData : [],
       });
-      if (!resp.ok) throw new Error(`请求失败: ${resp.status}`);
+      if (!resp.ok) {
+        const payload = await resp.json().catch(() => null) as {
+          message?: string;
+          data?: { matched_count?: number; unmatched_scripts?: Array<{ index: number; title: string }>; unmatched_excel_rows?: Array<{ row: number; video_theme: string }> };
+        } | null;
+        const diagnostics = payload?.data
+          ? `；匹配 ${payload.data.matched_count ?? 0} 条；未匹配脚本：${payload.data.unmatched_scripts?.map(item => `${item.index}.${item.title}`).join('、') || '无'}；未匹配数据：${payload.data.unmatched_excel_rows?.map(item => `第${item.row}行 ${item.video_theme}`).join('、') || '无'}`
+          : '';
+        throw new Error(`${payload?.message ?? `请求失败: ${resp.status}`}${diagnostics}`);
+      }
 
       const tid = resp.headers.get('X-Task-Id');
       if (tid) setTaskId(Number(tid));
@@ -212,14 +238,39 @@ export default function QianchuanReviewPage() {
       if (!reader) throw new Error('无响应流');
       const decoder = new TextDecoder();
       let text = '';
+      let buffer = '';
+      let completed = false;
+      let failedMessage = '';
       while (true) {
         const { done, value } = await reader.read();
+        buffer += done ? decoder.decode() : decoder.decode(value, { stream: true });
+        const blocks = buffer.split(/\r?\n\r?\n/);
+        buffer = blocks.pop() ?? '';
+        if (done && buffer.trim()) {
+          blocks.push(buffer);
+          buffer = '';
+        }
+        for (const block of blocks) {
+          const parsed = parseStreamBlock(block);
+          if (!parsed) continue;
+          if (parsed.payload.task_id) setTaskId(parsed.payload.task_id);
+          if (parsed.event === 'content' && typeof parsed.payload.text === 'string') {
+            text += parsed.payload.text;
+            setReport(text);
+            if (reportRef.current) reportRef.current.scrollTop = reportRef.current.scrollHeight;
+          } else if (parsed.event === 'complete') {
+            completed = true;
+          } else if (parsed.event === 'failed') {
+            failedMessage = parsed.payload.message || '生成报告失败，请重新生成';
+          }
+        }
         if (done) break;
-        text += decoder.decode(value, { stream: true });
-        setReport(text);
-        if (reportRef.current) reportRef.current.scrollTop = reportRef.current.scrollHeight;
       }
+      if (failedMessage) throw new Error(failedMessage);
+      if (!completed || !text.trim()) throw new Error('生成未正常完成，请重新生成');
+      setGenerationStatus('success');
     } catch (err) {
+      setGenerationStatus('failed');
       setError(err instanceof Error ? err.message : '生成报告失败');
     } finally {
       setReportLoading(false);
@@ -304,9 +355,13 @@ export default function QianchuanReviewPage() {
 
       {/* Error */}
       {error && (
-        <div style={{ background: 'var(--danger-bg)', border: '1px solid var(--danger)', borderRadius: 'var(--radius-md)', padding: '10px 14px', fontSize: 13, color: 'var(--danger)', marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          {error}
-          <button className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)' }} onClick={() => setError('')}>✕</button>
+        <div role="alert" style={{ background: 'var(--danger-bg)', border: '1px solid var(--danger)', borderRadius: 'var(--radius-md)', padding: '10px 14px', fontSize: 13, color: 'var(--danger)', marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+          <span>{error}{generationStatus === 'failed' && taskId !== null ? `（任务编号：${taskId}）` : ''}</span>
+          {generationStatus === 'failed' && step === 3 ? (
+            <button className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)' }} onClick={() => handleGenerate(excelData.length > 0)}>重新生成</button>
+          ) : (
+            <button className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)' }} onClick={() => setError('')}>✕</button>
+          )}
         </div>
       )}
 
@@ -494,7 +549,7 @@ export default function QianchuanReviewPage() {
             </div>
           </div>
 
-          {!reportLoading && report && (
+          {!reportLoading && generationStatus === 'success' && report.trim() && (
             <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
               {savedOutputId ? (
                 <span style={{ padding: '6px 16px', background: 'var(--success-bg)', border: '1px solid var(--success)', borderRadius: 'var(--radius-md)', fontSize: 13, color: 'var(--success)' }}>已保存</span>

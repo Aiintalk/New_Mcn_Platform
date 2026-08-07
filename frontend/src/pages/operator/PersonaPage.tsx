@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, Modal, message } from 'antd';
+import { useNavigate } from 'react-router-dom';
 import type {
   PersonaKol,
   PersonaKolIntake,
@@ -46,6 +47,7 @@ function formatPersonaSyncFeedback(
 }
 
 export default function PersonaPage() {
+  const navigate = useNavigate();
   // ── 步骤 ──
   const [step, setStep] = useState<PersonaStep>(1);
 
@@ -94,6 +96,7 @@ export default function PersonaPage() {
   const syncSubmitRequestRef = useRef(0);
   const [syncError, setSyncError] = useState('');
   const [syncFeedback, setSyncFeedback] = useState('');
+  const [completionReady, setCompletionReady] = useState(false);
 
   // ── 优化对话状态 ──
   const [optimizeOpen, setOptimizeOpen] = useState(false);
@@ -278,6 +281,7 @@ export default function PersonaPage() {
     setSyncSubmitting(false);
     setSyncError('');
     setSyncFeedback('');
+    setCompletionReady(false);
     setLoading(true);
     setProfileResult('');
     setPlanResult('');
@@ -339,6 +343,7 @@ export default function PersonaPage() {
 
   function applyReportSyncDetail(id: number, detail: PersonaReportDetail) {
     if (detail.status === 'failed') {
+      setCompletionReady(false);
       setSyncReportId(null);
       setPendingOverwrites([]);
       setSyncDecisions({});
@@ -361,6 +366,7 @@ export default function PersonaPage() {
         : '',
     ].filter(Boolean);
     if (detail.pending_overwrites.length > 0) {
+      setCompletionReady(false);
       setSyncReportId(id);
       setPendingOverwrites(detail.pending_overwrites);
       setSyncDecisions(Object.fromEntries(
@@ -377,6 +383,7 @@ export default function PersonaPage() {
       || formatPersonaSyncFeedback(detail.sync_result)
       || '报告已生成，正式档案无需覆盖确认',
     );
+    setCompletionReady(failureMessages.length === 0);
   }
 
   async function submitSyncDecisions(decisions: Partial<Record<PersonaSyncField, PersonaSyncDecision>>) {
@@ -391,8 +398,10 @@ export default function PersonaPage() {
       setPendingOverwrites([]);
       setSyncReportId(null);
       setSyncFeedback(formatPersonaSyncFeedback(result.fields));
+      setCompletionReady(true);
     } catch {
       if (requestId === syncSubmitRequestRef.current) {
+        setCompletionReady(false);
         setSyncError('档案同步失败，请重试');
       }
     } finally {
@@ -476,6 +485,10 @@ export default function PersonaPage() {
       if (requestId !== reportDetailRequestRef.current) return;
       setProfileResult(detail.profile_result || '');
       setPlanResult(detail.plan_result || '');
+      setSelectedKolId(detail.kol_id);
+      setSelectedKol(detail.kol_id === null
+        ? null
+        : personaKols.find(item => item.id === detail.kol_id) ?? null);
       setReportId(id);
       setHistoryOpen(false);
       setStep(3);
@@ -509,6 +522,7 @@ export default function PersonaPage() {
     setProfileResult(''); setPlanResult('');
     setReportId(null); setLoading(false);
     setPendingOverwrites([]); setSyncReportId(null); setSyncDecisions({}); setSyncSubmitting(false); setSyncError(''); setSyncFeedback('');
+    setCompletionReady(false);
     setOptimizeOpen(false); setOptimizeMsgs([]);
   }
 
@@ -746,6 +760,12 @@ export default function PersonaPage() {
               <button className="btn btn-ghost btn-sm" disabled={loading || !reportId} onClick={() => handleExportWord('profile')}>导出人格档案</button>
               <button className="btn btn-ghost btn-sm" disabled={loading || !reportId} onClick={() => handleExportWord('plan')}>导出内容规划</button>
               {exporting && <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>导出中...</span>}
+              {completionReady && selectedKolId !== null && (
+                <>
+                  <button className="btn btn-primary btn-sm" onClick={() => navigate(`/kol-workspace/${selectedKolId}?tab=persona`)}>进入红人工作台</button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => navigate('/kol-hub', { state: { refresh: true } })}>返回红人列表</button>
+                </>
+              )}
             </div>
             <button className="btn btn-ghost btn-sm" onClick={handleReset}>重新开始</button>
           </div>
