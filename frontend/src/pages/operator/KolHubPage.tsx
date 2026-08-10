@@ -6,6 +6,7 @@ import { getKols, getKol, fetchTikhub } from '../../api/kols';
 import type { Kol, KolDetail, KolListParams, KolStatus, TikhubFansData } from '../../types/kol';
 import type { PagedData } from '../../types/api';
 import { message } from 'antd';
+import { useAuthStore } from '../../store/authStore';
 
 const PAGE_SIZE = 20;
 
@@ -164,6 +165,7 @@ const PLATFORMS = ['抖音', '快手', '小红书', 'B站'];
 
 export default function KolHubPage() {
   const navigate = useNavigate();
+  const user = useAuthStore(state => state.user);
   const [data, setData] = useState<PagedData<Kol> | null>(null);
   const [filters, setFilters] = useState<KolListParams>({ page: 1, page_size: PAGE_SIZE });
   const [loading, setLoading] = useState(false);
@@ -228,8 +230,13 @@ export default function KolHubPage() {
           <p className="page-desc">查看平台合作红人信息，进入工作台开始创作</p>
         </div>
         <div className="page-actions">
+          {user?.role === 'admin' && (
+            <button className="btn btn-ghost" onClick={() => navigate('/admin/kols')}>
+              前往红人管理新增
+            </button>
+          )}
           <button className="btn btn-primary" onClick={() => navigate('/workspace/persona-positioning')}>
-            + 新增红人
+            人格定位
           </button>
         </div>
       </div>

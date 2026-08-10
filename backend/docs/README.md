@@ -243,7 +243,7 @@ BugFix：      BugFix_{序号}_{描述}.md
 |---------|---------|------------|------------|
 | tiktok-writer | TikTok脚本仿写 | operator_tiktok_writer.py / admin_tiktok_writer.py | Sprint 4 |
 | selling-point-extractor | 产品卖点提取器 | operator_selling_point.py / admin_selling_point.py | Sprint 5 |
-| qianchuan-review | 千川脚本复盘 | operator_qianchuan_review.py | Sprint 6 |
+| qianchuan-review | 千川脚本复盘（结构化流终态、匹配诊断、成功任务保存门禁） | operator_qianchuan_review.py | Sprint 6；Sprint 26 缺陷闭环 |
 | qianchuan-edit-review | 千川剪辑预审 | tool_qianchuan_edit_review.py | Sprint 7 |
 | livestream-writer | 直播脚本仿写 | operator_livestream_writer.py / admin_livestream_writer.py | Sprint 8 |
 | livestream-review | 直播间脚本复盘 | operator_livestream_review.py / admin_livestream_review.py | Sprint 9 |
@@ -256,29 +256,12 @@ BugFix：      BugFix_{序号}_{描述}.md
 | material-library | 素材库（红人素材中枢） | operator_material_library.py / admin_material_library.py | Sprint 18（迁移） |
 | subtitle | 字幕提取（单条异步+批量+思维导图+统一历史+软删除） | operator_subtitle.py / admin_subtitle.py | Sprint 19（迁移）；Sprint 21（异步任务化+软删除） |
 | values-writer | 价值观仿写（4步向导 + save-output 历史） | operator_values_writer.py / admin_values_writer.py | Sprint 20；历史功能 2026-07-01 补齐 |
-| qianchuan-script-review | 千川脚本预审（直销/价值观双模式 + save-output 历史） | operator_script_review.py / admin_script_review.py | Sprint 21；历史功能 2026-07-01 补齐 |
+| qianchuan-script-review | 千川脚本预审（直销/价值观双模式 + 严格结果结构 + 成功任务保存门禁） | operator_script_review.py / admin_script_review.py | Sprint 21；Sprint 26 缺陷闭环 |
 | retrospective | 复盘（工作台子模块，多维材料+AI分析+导出） | operator_retrospective.py / admin_retrospective.py | Sprint 22 |
 
 ---
 
 ## 最近改动
-
-### 2026-08-07 外部录屏主播同步 API
-
-**背景**：远程设备项目需要统一读取本平台要自动录屏/分析的主播，其中红人管理新增的是“红人主播”，工作台对标账号里只有“直播对标”需要进入远程录屏系统，“内容对标”不进入。
-
-**改动**：
-
-| 模块 | 文件 | 变更 |
-|------|------|------|
-| 后端 - 路由 | `app/routers/external_recording_anchors.py` | 新增 `GET /api/external/recording-anchors`，合并 `kols` 与 `kol_benchmarks(account_type='livestream')`，返回 `source_type` / `source_label` / `sync_ready` |
-| 后端 - 工作台 | `app/routers/operator_workspace.py` | 对标账号创建/返回补充 `account_input` / `sec_uid` / `avatar_url` / `follower_count` |
-| 后端 - 模型/迁移 | `app/models/kol_benchmark.py` / `migrations/056_external_recording_anchors.sql` | 为 `kol_benchmarks` 增加远程录屏同步所需可空字段 |
-| 后端 - 入口 | `app/main.py` | 注册 external_recording_anchors router |
-| 后端 - 契约 | `base/MCN_M2_Base_API.md` / `base/MCN_M2_Base_Database.md` | 补外部录屏主播接口与数据库字段说明 |
-| 后端 - 测试 | `tests/integration/routers/test_external_recording_anchors.py` / `test_operator_workspace.py` | 覆盖鉴权、来源合并、内容对标排除、缺标识 ready_only、对标新字段返回 |
-
-**本地调用**：`GET http://localhost:8000/api/external/recording-anchors`，请求头 `X-API-Key: <EXTERNAL_KOLS_API_KEY>`。
 
 ### 2026-08-05 外部只读 KOL API
 

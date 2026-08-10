@@ -95,13 +95,13 @@ frontend/
 │   │   │   ├── TasksPage.tsx          #     任务中心
 │   │   │   ├── OutputsPage.tsx        #     产出中心
 │   │   │   ├── WorkspacePage.tsx      #     创作中心
-│   │   │   ├── PersonaPage.tsx        #     人格定位（三步流程 + 正式达人选择 + 字段级同步确认）
+│   │   │   ├── PersonaPage.tsx        #     人格定位（三步流程 + 正式达人选择 + 字段级同步确认；Sprint 26 成功后可进入同一 kol_id 工作台或返回列表）
 │   │   │   ├── PersonaWriterPage.tsx  #     人设定位（旧版入口）
 │   │   │   ├── BenchmarkPage.tsx      #     对标分析助手
 │   │   │   ├── TiktokWriterPage.tsx   #     TikTok 脚本仿写
 │   │   │   ├── SellingPointPage.tsx   #     产品卖点提取器
-│   │   │   ├── QianchuanReviewPage.tsx #    千川脚本复盘
-│   │   │   ├── QianChuanEditReviewPage.tsx # 千川剪辑预审
+│   │   │   ├── QianchuanReviewPage.tsx #    千川脚本复盘（Sprint 26：结构化流终态、持久错误、输入保留和成功保存门禁）
+│   │   │   ├── QianChuanEditReviewPage.tsx # 千川剪辑预审（Sprint 26：双侧处理状态和就绪门禁）
 │   │   │   ├── LivestreamWriterPage.tsx #   直播脚本仿写
 │   │   │   ├── LivestreamReviewPage.tsx #   直播间脚本复盘
 │   │   │   ├── PersonaReviewPage.tsx  #     人设脚本复盘
@@ -115,7 +115,7 @@ frontend/
 │   │   │   （QianchuanWriterPage/SeedingWriterPage/PersonaWriterPage/LivestreamWriterPage/LivestreamReviewPage 均已拆出 XxxModule 组件供工作台内嵌，Sprint 19；2026-07-12 PersonaWriterModule/SeedingWriterModule 在工作台内启用 workspace-tool-module 紧凑布局，Persona/Seeding/Qianchuan/TikTok 写作步骤卡片统一补 workspace-step-card 内边距）
 │   │   │   （另有 FilmReviewModule — 千川成片预审模块，2026-07-14 PR #28 新增：上传原片+剪辑成片，调用 Gemini 完整视频分析，流式报告，保存到产出中心 + Word 导出；工作台内由 film-review tab 激活，独立页 FilmReviewPage.tsx 同源；不退化为关键帧模式）
 │   │   │   （另有 ValuesWriterPage.tsx — 价值观仿写，Sprint 20 新增：4 步向导=选价值观+情绪方向+生成内容+迭代优化，同时导出 ValuesWriterModule 供工作台内嵌；2026-07-01 加「保存到历史」按钮 + 历史抽屉，复用 components/OutputHistoryDrawer；2026-07-14 PR #28 还原旧版四步流程=输入爆款原文+选当前商品+推导情绪方向+生成脚本和报告+双字组合相似度算法）
-│   │   │   （另有 QianchuanScriptReviewPage.tsx — 千川脚本预审，Sprint 21 新增：直销/价值观双模式，结构化评分（rating/must_fix/suggestions/passed）；2026-07-01 加「保存到历史」按钮 + 历史抽屉（自定义 renderItem 渲染评分 Tag））
+│   │   │   （另有 QianchuanScriptReviewPage.tsx — 千川脚本预审，Sprint 21 新增：直销/价值观双模式，结构化评分（rating/must_fix/suggestions/passed）；2026-07-01 加「保存到历史」按钮 + 历史抽屉；Sprint 26 增加防御性结构校验、持久错误、原地重试和成功任务保存门禁）
 │   │   │   （另有 QianchuanWriterPage.tsx — 千川文案写作，Sprint 14 新增）
 │   │   │   （另有 PersonaWriterPage.tsx — 人设脚本仿写，Sprint 15 重写 placeholder 上线）
 │   │   │   （另有 SeedingWriterPage.tsx — 种草内容仿写，Sprint 16 新增：4 步向导=选达人+产品信息+对标验证+种草仿写）

@@ -2,7 +2,7 @@ import { get, put, post } from './request';
 import type {
   ScriptReviewConfig,
   ReviewRequest,
-  ReviewResult,
+  ReviewResponse,
   ScriptReviewSaveOutputRequest,
 } from '../types/scriptReview';
 
@@ -13,7 +13,7 @@ export const updateConfig = (body: Partial<ScriptReviewConfig>) =>
   put('/api/admin/qianchuan-script-review/config', body);
 
 export const submitReview = (body: ReviewRequest) =>
-  post<ReviewResult>('/api/operator/qianchuan-script-review/review', body);
+  post<ReviewResponse>('/api/operator/qianchuan-script-review/review', body);
 
 /** 保存脚本预审结果至历史（手动保存） */
 export const saveOutput = (body: ScriptReviewSaveOutputRequest) =>

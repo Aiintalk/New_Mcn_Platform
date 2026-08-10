@@ -25,6 +25,16 @@ _MOCK_AI_RESPONSE = json.dumps({
 })
 
 
+async def _create_success_task(test_session, user_id: int, task_no: str) -> int:
+    task_id = (await test_session.execute(text(
+        "INSERT INTO task_jobs (task_no, tool_code, tool_name, status, created_by) "
+        "VALUES (:task_no, 'qianchuan-script-review', '千川脚本预审', 'success', :uid) "
+        "RETURNING id"
+    ), {"task_no": task_no, "uid": user_id})).scalar_one()
+    await test_session.commit()
+    return task_id
+
+
 class TestAuth:
     @pytest.mark.asyncio
     async def test_no_token_admin_get(self, test_client):
@@ -194,13 +204,177 @@ class TestOperatorReview:
         )
         assert resp.status_code == 422
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "invalid_result",
+        [
+            {"must_fix": [], "suggestions": [], "passed": []},
+            {"rating": "unknown", "must_fix": [], "suggestions": [], "passed": []},
+            {"rating": "pass", "must_fix": "not-a-list", "suggestions": [], "passed": []},
+            {
+                "rating": "fail",
+                "must_fix": [{"type": "违规词", "quote": "原文"}],
+                "suggestions": [],
+                "passed": [],
+            },
+        ],
+    )
+    async def test_invalid_review_structure_fails_after_two_controlled_repairs(
+        self,
+        invalid_result,
+        test_client,
+        operator_headers,
+        operator_user,
+        test_session,
+    ):
+        """缺字段、非法评级或错误数组结构不能被当作成功结果。"""
+        mock_ai = AsyncMock(return_value=json.dumps(invalid_result, ensure_ascii=False))
+        with patch("app.routers.operator_script_review._call_review_ai", new=mock_ai):
+            resp = await test_client.post(
+                "/api/operator/qianchuan-script-review/review",
+                json={
+                    "script_type": "value",
+                    "original_script": "原版脚本",
+                    "adapted_script": "仿写脚本",
+                },
+                headers=operator_headers,
+            )
+
+        body = resp.json()
+        assert body["success"] is False
+        assert body["code"] == "EXTERNAL_SERVICE_ERROR"
+        assert body["message"] == "AI 返回的审核结果结构不完整，请重新审核"
+        assert mock_ai.await_count == 3
+
+        task = (await test_session.execute(text(
+            "SELECT id, status, error_code, error_message, input_payload, result_summary "
+            "FROM task_jobs WHERE tool_code = 'qianchuan-script-review' "
+            "AND created_by = :uid ORDER BY id DESC LIMIT 1"
+        ), {"uid": operator_user.id})).fetchone()
+        assert task.status == "failed"
+        assert task.error_code == "INVALID_AI_RESULT"
+        assert task.error_message == "AI 返回的审核结果结构不完整，请重新审核"
+        assert task.result_summary["attempts"] == 3
+        assert "原版脚本" not in str(task.input_payload)
+        assert "仿写脚本" not in str(task.input_payload)
+
+        success_logs = (await test_session.execute(text(
+            "SELECT COUNT(*) FROM operation_logs WHERE action = 'qianchuan_script_review' "
+            "AND user_id = :uid"
+        ), {"uid": operator_user.id})).scalar_one()
+        assert success_logs == 0
+        failure_log = (await test_session.execute(text(
+            "SELECT detail FROM operation_logs WHERE action = 'qianchuan_script_review_failed' "
+            "AND target_id = :task_id ORDER BY id DESC LIMIT 1"
+        ), {"task_id": task.id})).scalar_one()
+        assert failure_log == {"attempts": 3, "error_code": "INVALID_AI_RESULT"}
+
+    @pytest.mark.asyncio
+    async def test_review_accepts_valid_structure_from_first_controlled_repair(
+        self, test_client, operator_headers, operator_user, test_session
+    ):
+        """首次输出不可解析时，只修复格式；修复后的合法结构才可成功。"""
+        mock_ai = AsyncMock(side_effect=[
+            "```json\n{\"rating\":\"pass\"",
+            _MOCK_AI_RESPONSE,
+        ])
+        with patch("app.routers.operator_script_review._call_review_ai", new=mock_ai):
+            resp = await test_client.post(
+                "/api/operator/qianchuan-script-review/review",
+                json={
+                    "script_type": "value",
+                    "original_script": "原版脚本",
+                    "adapted_script": "仿写脚本",
+                },
+                headers=operator_headers,
+            )
+
+        body = resp.json()
+        assert body["success"] is True
+        assert body["data"]["rating"] == "pass"
+        assert isinstance(body["data"]["task_id"], int)
+        assert mock_ai.await_count == 2
+        repair_prompt = mock_ai.await_args_list[1].args[0]
+        assert "只修复 JSON 结构" in repair_prompt
+        assert "不得改变审核结论" in repair_prompt
+
+        task_status = (await test_session.execute(text(
+            "SELECT status FROM task_jobs WHERE id = :id AND created_by = :uid"
+        ), {"id": body["data"]["task_id"], "uid": operator_user.id})).scalar_one()
+        assert task_status == "success"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("invalid_raw", ["抱歉，我无法审核", '```json\n{"rating":"pass"'])
+    async def test_plain_refusal_or_truncated_json_is_a_failed_task(
+        self, invalid_raw, test_client, operator_headers, operator_user, test_session
+    ):
+        """纯文本拒答和连续截断 JSON 都不能被当作成功。"""
+        mock_ai = AsyncMock(return_value=invalid_raw)
+        with patch("app.routers.operator_script_review._call_review_ai", new=mock_ai):
+            resp = await test_client.post(
+                "/api/operator/qianchuan-script-review/review",
+                json={
+                    "script_type": "value",
+                    "original_script": "原版脚本",
+                    "adapted_script": "仿写脚本",
+                },
+                headers=operator_headers,
+            )
+
+        assert resp.json()["code"] == "EXTERNAL_SERVICE_ERROR"
+        assert mock_ai.await_count == 3
+        task = (await test_session.execute(text(
+            "SELECT status, error_code FROM task_jobs WHERE tool_code = 'qianchuan-script-review' "
+            "AND created_by = :uid ORDER BY id DESC LIMIT 1"
+        ), {"uid": operator_user.id})).fetchone()
+        assert task.status == "failed"
+        assert task.error_code == "INVALID_AI_RESULT"
+
+    @pytest.mark.asyncio
+    async def test_ai_call_exception_marks_task_failed_without_success_log(
+        self, test_client, operator_headers, operator_user, test_session
+    ):
+        mock_ai = AsyncMock(side_effect=RuntimeError("provider secret detail"))
+        with patch("app.routers.operator_script_review._call_review_ai", new=mock_ai):
+            resp = await test_client.post(
+                "/api/operator/qianchuan-script-review/review",
+                json={
+                    "script_type": "value",
+                    "original_script": "原版脚本",
+                    "adapted_script": "仿写脚本",
+                },
+                headers=operator_headers,
+            )
+
+        assert resp.json()["message"] == "AI 审核失败，请重新审核"
+        task = (await test_session.execute(text(
+            "SELECT id, status, error_code, error_message FROM task_jobs "
+            "WHERE tool_code = 'qianchuan-script-review' AND created_by = :uid "
+            "ORDER BY id DESC LIMIT 1"
+        ), {"uid": operator_user.id})).fetchone()
+        assert task.status == "failed"
+        assert task.error_code == "AI_CALL_FAILED"
+        assert "provider secret detail" not in task.error_message
+        success_logs = (await test_session.execute(text(
+            "SELECT COUNT(*) FROM operation_logs WHERE action = 'qianchuan_script_review' "
+            "AND user_id = :uid"
+        ), {"uid": operator_user.id})).scalar_one()
+        assert success_logs == 0
+        failure_log = (await test_session.execute(text(
+            "SELECT detail FROM operation_logs WHERE action = 'qianchuan_script_review_failed' "
+            "AND target_id = :task_id ORDER BY id DESC LIMIT 1"
+        ), {"task_id": task.id})).scalar_one()
+        assert failure_log == {"attempts": 1, "error_code": "AI_CALL_FAILED"}
+
 
 class TestSaveOutput:
     @pytest.mark.asyncio
     async def test_save_success(self, test_client, operator_headers, operator_user, test_session):
+        task_id = await _create_success_task(test_session, operator_user.id, "SR-SAVE-SUCCESS")
         resp = await test_client.post(
             "/api/operator/qianchuan-script-review/save-output",
             json={
+                "task_id": task_id,
                 "title": "脚本预审_测试",
                 "content": "仿写脚本原文",
                 "content_json": {
@@ -231,6 +405,7 @@ class TestSaveOutput:
         resp = await test_client.post(
             "/api/operator/qianchuan-script-review/save-output",
             json={
+                "task_id": 1,
                 "content": "   ",
                 "content_json": {"rating": "pass"},
             },
@@ -242,7 +417,7 @@ class TestSaveOutput:
     async def test_save_empty_content_json(self, test_client, operator_headers):
         resp = await test_client.post(
             "/api/operator/qianchuan-script-review/save-output",
-            json={"content": "脚本原文", "content_json": {}},
+            json={"task_id": 1, "content": "脚本原文", "content_json": {}},
             headers=operator_headers,
         )
         assert resp.status_code == 400
@@ -251,11 +426,18 @@ class TestSaveOutput:
     async def test_save_writes_operation_log(
         self, test_client, operator_headers, operator_user, test_session
     ):
+        task_id = await _create_success_task(test_session, operator_user.id, "SR-SAVE-LOG")
         resp = await test_client.post(
             "/api/operator/qianchuan-script-review/save-output",
             json={
+                "task_id": task_id,
                 "content": "脚本原文",
-                "content_json": {"rating": "minor", "must_fix": [{"type": "X", "quote": "y", "fix": "z"}]},
+                "content_json": {
+                    "rating": "minor",
+                    "must_fix": [{"type": "X", "quote": "y", "fix": "z"}],
+                    "suggestions": [],
+                    "passed": [],
+                },
             },
             headers=operator_headers,
         )
@@ -270,15 +452,17 @@ class TestSaveOutput:
 
     @pytest.mark.asyncio
     async def test_save_account_isolation(
-        self, test_client, operator_user, operator_token, admin_token
+        self, test_client, operator_user, operator_token, admin_token, test_session
     ):
         """operator 保存的预审结果，admin 通过全局 /outputs 看不到（账号隔离）。"""
+        task_id = await _create_success_task(test_session, operator_user.id, "SR-SAVE-ISOLATION")
         resp = await test_client.post(
             "/api/operator/qianchuan-script-review/save-output",
             json={
+                "task_id": task_id,
                 "title": "operator专属预审",
                 "content": "仿写脚本",
-                "content_json": {"rating": "pass"},
+                "content_json": {"rating": "pass", "must_fix": [], "suggestions": [], "passed": []},
             },
             headers={"Authorization": f"Bearer {operator_token}"},
         )
@@ -290,3 +474,50 @@ class TestSaveOutput:
         )
         titles = [item["title"] for item in resp.json()["data"]["items"]]
         assert "operator专属预审" not in titles
+
+    @pytest.mark.asyncio
+    async def test_save_rejects_invalid_review_structure(self, test_client, operator_headers):
+        resp = await test_client.post(
+            "/api/operator/qianchuan-script-review/save-output",
+            json={
+                "task_id": 1,
+                "content": "仿写脚本",
+                "content_json": {
+                    "rating": "pass",
+                    "must_fix": [{"type": "缺少 fix", "quote": "原文"}],
+                    "suggestions": [],
+                    "passed": [],
+                },
+            },
+            headers=operator_headers,
+        )
+        assert resp.status_code == 400
+        assert resp.json()["code"] == "INVALID_REVIEW_RESULT"
+
+    @pytest.mark.asyncio
+    async def test_save_rejects_failed_task(
+        self, test_client, operator_headers, operator_user, test_session
+    ):
+        task_id = (await test_session.execute(text(
+            "INSERT INTO task_jobs (task_no, tool_code, tool_name, status, created_by) "
+            "VALUES ('SR-FAILED-SAVE', 'qianchuan-script-review', '千川脚本预审', 'failed', :uid) "
+            "RETURNING id"
+        ), {"uid": operator_user.id})).scalar_one()
+        await test_session.commit()
+
+        resp = await test_client.post(
+            "/api/operator/qianchuan-script-review/save-output",
+            json={
+                "task_id": task_id,
+                "content": "仿写脚本",
+                "content_json": {
+                    "rating": "pass",
+                    "must_fix": [],
+                    "suggestions": [],
+                    "passed": [],
+                },
+            },
+            headers=operator_headers,
+        )
+        assert resp.status_code == 409
+        assert resp.json()["code"] == "TASK_NOT_SUCCESS"
