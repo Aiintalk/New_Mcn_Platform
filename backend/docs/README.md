@@ -7,6 +7,8 @@
 > 2026-07-28：新增 `scripts/run_migrations.py` 与 `schema_migrations` 账本，部署不再只执行 001；既有数据库需显式核对并登记基线，之后按顺序、事务化执行未执行迁移，历史 seed 不重放。素材库 050 前后与二次执行证据见 `tests/M2_Sprint24_测试报告_红人工作台生产迁移链路_v1_修复Bug.md`。
 
 > 2026-08-04：Sprint25 达人档案统一以正式 `kols.id` 贯通人格定位、当前运营关联入驻资料、报告历史、七字段档案同步和下游上下文；迁移 055 保留历史未绑定记录。PM 独立验收返修后，只有结构完整的“人格档案 + 内容规划”双段输出可归档，人物事实补全状态按同一报告最新结果展示。接口与数据库契约见 `base/MCN_M2_Base_API.md`、`base/MCN_M2_Base_Database.md`，测试证据见 `tests/M2_Sprint25_测试报告_达人档案统一_v1.md`。
+>
+> 2026-08-07：新增外部录屏主播同步接口 `/api/external/recording-anchors`，合并输出红人主播与直播对标主播，内容对标不返回；`kol_benchmarks` 通过 migration 056 补充 `account_input`、`sec_uid`、`avatar_url`、`follower_count`，用于远程录屏项目同步 TikHub 标识。
 
 ---
 
@@ -50,13 +52,14 @@ backend/
 │   │   ├── persona_writer.py          #   人设脚本仿写配置表（Sprint 15）
 │   │   ├── seeding_writer.py          #   种草内容仿写配置+产品+素材表（Sprint 16）
 │   │   ├── qianchuan_product.py       #   千川产品库（Sprint 18）
-│   │   ├── kol_benchmark.py           #   达人对标账号（Sprint 18）
+│   │   ├── kol_benchmark.py           #   达人对标账号（Sprint 18；2026-08-07 补远程录屏同步字段）
 │   │   ├── kol_active_product.py      #   达人在售商品关联（Sprint 18）
 │   │   └── ...                        #   log / file / output / session / task
 │   ├── routers/                       # API 路由（按角色分文件，67 个）
 │   │   ├── auth.py                    #   POST /api/auth/login、/change-password
 │   │   ├── admin_users.py             #   用户管理（admin）
 │   │   ├── admin_kols.py              #   红人管理（admin）
+│   │   ├── external_recording_anchors.py # 外部录屏主播同步：红人主播 + 直播对标主播
 │   │   ├── admin_ai.py                #   AI 密钥/模型管理（admin）
 │   │   ├── admin_credentials.py       #   凭证管理（admin）：CRUD + 启停 + 密钥轮换（PATCH api_key）+ OSS/ASR 连通性测试（保存 last_tested_at / last_latency_ms）
 │   │   ├── admin_workspace.py         #   工具配置（admin）
@@ -259,12 +262,6 @@ BugFix：      BugFix_{序号}_{描述}.md
 ---
 
 ## 最近改动
-
-### 2026-08-06 Sprint26 运营反馈缺陷修复（开发分支）
-
-- 千川脚本预审：严格校验评级和四组结果字段，最多两次受控格式修复；失败任务不写成功日志、不能保存。
-- 千川脚本复盘：改为内容/完成/失败三类结构化流事件；空流、异常流、中断和零匹配均有真实失败或输入门禁，保存接口只接受当前用户的成功任务。
-- 无数据库表结构和权限契约变更；当前仅完成开发侧验证，未合并、未部署、未上线。
 
 ### 2026-08-05 外部只读 KOL API
 

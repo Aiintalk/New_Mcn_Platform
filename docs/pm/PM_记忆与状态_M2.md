@@ -1,6 +1,10 @@
 # MCN_PM_Agent — 项目记忆与当前状态（M2）
 
+<<<<<<< HEAD
+> 2026-08-07 外部录屏主播同步接口（当前分支 `feature/kols‑unit‑test‑supplement`）：新增 `/api/external/recording-anchors`，复用 `X-API-Key`，合并输出 `kols` 红人主播与 `kol_benchmarks(account_type='livestream')` 直播对标主播，并用 `source_type` / `source_label` 区分来源；内容对标不返回。`kol_benchmarks` 通过 migration 056 补充 `account_input`、`sec_uid`、`avatar_url`、`follower_count`，前端对标确认添加时会一并保存 TikHub 解析信息。当前为本地测试接口，未部署、未上线。
+=======
 > 2026-08-06 Sprint26 运营反馈缺陷修复（分支 `feature/sprint26-operations-bug-fixes`，实际基线 `95b25302`）：BUG-01 至 BUG-04 已完成开发与相关技术回归；VERIFY-01 在本地 Chrome 最新代码未复现，未修改业务代码。后端相关 55/55；最大可运行回归 `tests/unit/` 与 `tests/integration/` 为 1538 通过、1 跳过，整个 `backend/tests/` 因主分支既有的 `intake/conftest.py` 插件声明位置错误而无法完整收集。前端相关 5 文件 44/44、前端完整覆盖率运行 55 文件 528/528，类型检查和生产构建通过。产品经理返修项及独立技术复审提出的高/中优先级问题均已按失败测试修复并回归，最终独立只读复审 `APPROVED`。仓库全局覆盖率脚本仍因服务层与路由层既有阈值不足返回失败；Safari 与线上 VERIFY-01 待产品环境验收。当前状态仅为**等待产品经理业务验收**，未合并、未部署、未执行生产数据库操作、未上线。详见 `docs/pm/M2_Sprint26_运营反馈缺陷修复_开发验收报告_v1.md`。
+>>>>>>> origin/main
 
 > 2026-08-04 Sprint25 达人档案统一（分支 `feature/kol-persona-profile-unification`，基线 `5264628d`）：PM 独立验收两项阻断已按测试先行完成最小返修。人格报告只有严格的非空双段结构才归档；事实补全以同一报告最新结果展示，成功但零写入也关闭旧失败。修复前新增 7 个场景全部失败，修复后定向 23/23、相关与邻接后端 848/848、受影响前端 24/24、前端全量 489/489、类型检查和生产构建均通过；迁移专项与 6 张双分辨率页面证据不受本轮无数据库/无前端字段变更影响。当前状态仅为**可供产品经理继续验收**，未合并、未部署、未执行生产迁移、未上线。详见 `docs/pm/M2_Sprint25_红人工作台达人档案统一_开发验收报告_v1.md`。
 

@@ -26,6 +26,10 @@ export interface KolBenchmark {
   id: number;
   kol_id: number;
   account_name: string;
+  account_input?: string | null;
+  sec_uid?: string | null;
+  avatar_url?: string | null;
+  follower_count?: number | null;
   account_type: 'content' | 'livestream';
   description: string | null;
   sort_order: number;
