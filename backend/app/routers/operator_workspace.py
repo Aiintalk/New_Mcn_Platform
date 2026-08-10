@@ -71,6 +71,10 @@ def _benchmark_to_dict(b: KolBenchmark) -> dict:
         "id": b.id,
         "kol_id": b.kol_id,
         "account_name": b.account_name,
+        "account_input": b.account_input,
+        "sec_uid": b.sec_uid,
+        "avatar_url": b.avatar_url,
+        "follower_count": b.follower_count,
         "account_type": b.account_type,
         "description": b.description,
         "sort_order": b.sort_order,
@@ -132,6 +136,10 @@ async def get_dashboard(kol_id: int, current_user: User = Depends(require_operat
 
 class BenchmarkRequest(BaseModel):
     account_name: str
+    account_input: Optional[str] = None
+    sec_uid: Optional[str] = None
+    avatar_url: Optional[str] = None
+    follower_count: Optional[int] = None
     account_type: Literal["content", "livestream"]
     description: Optional[str] = None
     sort_order: int = 0
@@ -215,6 +223,10 @@ async def create_benchmark(
         b = KolBenchmark(
             kol_id=kol_id,
             account_name=body.account_name,
+            account_input=body.account_input or body.account_name,
+            sec_uid=body.sec_uid,
+            avatar_url=body.avatar_url,
+            follower_count=body.follower_count,
             account_type=body.account_type,
             description=body.description,
             sort_order=body.sort_order,
@@ -256,6 +268,14 @@ async def update_benchmark(
                 detail={"code": ErrorCode.RESOURCE_NOT_FOUND, "message": "对标账号不存在"},
             )
         b.account_name = body.account_name
+        if "account_input" in body.model_fields_set:
+            b.account_input = body.account_input
+        if "sec_uid" in body.model_fields_set:
+            b.sec_uid = body.sec_uid
+        if "avatar_url" in body.model_fields_set:
+            b.avatar_url = body.avatar_url
+        if "follower_count" in body.model_fields_set:
+            b.follower_count = body.follower_count
         b.account_type = body.account_type
         b.description = body.description
         b.sort_order = body.sort_order

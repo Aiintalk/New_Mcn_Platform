@@ -3,6 +3,8 @@
 > 本目录存放前端相关的所有文档。开发前端时，不出 `frontend/` 目录即可找到全部所需内容。
 >
 > 2026-07-28：`request.ts` 对 HTTP 5xx 且非 JSON 的响应改为中文可行动诊断，保留状态码并提示检查后端日志与数据库迁移；不再把底层 JSON 解析错误直接展示给运营。
+>
+> 2026-08-07：红人工作台对标账号新增确认时，前端会把原始输入、TikHub `sec_user_id`、头像和粉丝数一并提交给后端，供外部录屏主播同步接口使用；内容对标仍只保留在本地工作台。
 
 ---
 
@@ -49,7 +51,7 @@ frontend/
 │   │   ├── materialLibrary.ts         #   素材库（Sprint 18 迁移）：10 个函数（7 运营端 + 3 管理端），全部走 request.ts
 │   │   ├── subtitle.ts                #   字幕提取（Sprint 19 迁移；Sprint 21 异步任务化：extract 返回 job_code，前端轮询；listHistory 统一历史 + deleteHistory 软删除）
 │   │   ├── qianchuanProducts.ts       #   千川产品库 CRUD（Sprint 18）
-│   │   ├── kolWorkspace.ts            #   红人工作台 API（dashboard/benchmarks/active-products/persona-details，Sprint 18）
+│   │   ├── kolWorkspace.ts            #   红人工作台 API（dashboard/benchmarks/active-products/persona-details，Sprint 18；2026-08-07 对标账号补同步字段）
 │   │   ├── valuesWriter.ts            #   价值观仿写（Sprint 20）：getConfig/updateConfig/extractValues/emotionDirectionStream/writeStream/iterateStream/saveOutput（saveOutput 2026-07-01 补齐）
 │   │   ├── filmReview.ts              #   千川成片预审：完整双视频上传、流式报告、保存和办公文档导出（M2 红人工作台还原）
 │   │   └── scriptReview.ts            #   千川脚本预审（Sprint 21）：getConfig/updateConfig/submitReview/saveOutput（saveOutput 2026-07-01 补齐）

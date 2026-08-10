@@ -15,6 +15,7 @@ MCN 红人孵化管理平台，支持多用户、多并发场景，集成 AI 能
 - **用户管理**：管理员 / 运营角色，JWT 鉴权，密码策略
 - **红人管理（KOL）**：TikHub 数据抓取，粉丝画像，红人档案
 - **外部 KOL 只读 API**：`/api/external/kols` 通过 `X-API-Key` 只读开放红人列表与详情，给其它项目读取 `kols` 表数据，不暴露数据库端口或账号
+- **外部录屏主播同步 API**：`/api/external/recording-anchors` 合并开放红人主播与直播对标主播清单，用 `source_type` 区分「红人主播」和「直播对标主播」，内容对标不进入远程录屏系统
 - **AI 服务**：多服务商 Key 池（云雾/硅基流动/GLM），并发调度，僵尸锁自动清理，模型管理，使用统计
 - **TikHub 管理**：独立 Key 池，端点统计，用户排行，调用日志
 - **OSS 对象存储**：阿里云 OSS adapter（上传/下载/删除），独立凭证池，4 张统计卡 + 操作分布饼图 + 7 天趋势折线图 + 3 子 Tab（凭证管理 / 操作统计 / 用户排行）+ 连通性测试
@@ -225,6 +226,6 @@ npx vitest
 | `ENCRYPTION_KEY` | 数据加密密钥，32 位随机字符串 |
 | `INITIAL_ADMIN_USERNAME` | 初始管理员账号（首次启动自动创建） |
 | `INITIAL_ADMIN_PASSWORD` | 初始管理员密码 |
-| `EXTERNAL_KOLS_API_KEY` | 外部 KOL 只读 API 密钥，用于 `X-API-Key` 鉴权 |
+| `EXTERNAL_KOLS_API_KEY` | 外部 KOL 只读 API / 外部录屏主播同步 API 密钥，用于 `X-API-Key` 鉴权 |
 | `LLM_API_KEY` | AI 服务 API Key（也可在管理后台配置 Key Pool） |
 | `TIKHUB_API_KEY` | TikHub API Key |

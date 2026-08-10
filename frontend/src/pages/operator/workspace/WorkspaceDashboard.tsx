@@ -297,6 +297,10 @@ export default function WorkspaceDashboard({ kolId, onKolLoaded }: WorkspaceDash
     try {
       await createBenchmark(kolId, {
         account_name: bmPreview.nickname,
+        account_input: bmPendingValues.account_input,
+        sec_uid: bmPreview.sec_user_id,
+        avatar_url: bmPreview.avatar_url,
+        follower_count: bmPreview.follower_count,
         account_type: bmPendingValues.account_type,
         description:  bmPendingValues.description || null,
         sort_order:   0,

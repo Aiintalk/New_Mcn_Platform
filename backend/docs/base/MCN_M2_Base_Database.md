@@ -27,6 +27,7 @@
 > 各工具的产出记录统一复用 `outputs` 和 `task_jobs`，不单独建产出表。
 > 迁移文件清单见 §11（M2 数据迁移脚本，完整 006~029）。
 > 2026-08-05 外部只读 KOL API（`/api/external/kols`）不新增数据库表，只读取 M1 `kols` 表；字段定义以 `MCN_M1_Base_Database.md` §6 为准，人物档案 5 分区字段来自 migration 039。
+> 2026-08-07 外部录屏主播同步 API（`/api/external/recording-anchors`）不新增同步表；读取 `kols` 与 `kol_benchmarks`。migration 056 为 `kol_benchmarks` 补充 `account_input` / `sec_uid` / `avatar_url` / `follower_count`，用于把直播对标账号的 TikHub 标识同步给远程录屏系统。
 
 ---
 
@@ -372,6 +373,7 @@ CREATE INDEX idx_tikhub_call_logs_created ON tikhub_call_logs(created_at DESC);
 | `050_material_library_media.sql` | `kol_references` 增加文档元数据与私有视频对象字段 | M2 红人工作台还原 |
 | `051_qianchuan_full_video_preview_config.sql` | 初始化完整视频成片预审独立 `full_video` 配置键 | M2 红人工作台还原 |
 | `052_enable_qianchuan_full_video_workspace_tab.sql` | 为既有工作台配置追加 `film-review` 页签 | M2 红人工作台还原 |
+| `056_external_recording_anchors.sql` | `kol_benchmarks` 补充远程录屏同步字段：`account_input` / `sec_uid` / `avatar_url` / `follower_count` | 外部录屏主播同步 |
 ### 完整视频成片预审的数据边界（M2 红人工作台还原）
 
 完整视频预审**不新增业务表**：复用 `qianchuan_preview_configs`（完整视频使用独立 `full_video` 配置键，Prompt + `ai_model_id`）、`ai_models`（必须选择 provider=`gemini` 的 active 模型）、`credentials`（provider=`gemini` 的统一凭证）、`task_jobs`、`outputs`、`external_service_logs`、`ai_call_logs` 和 `oss_call_logs`。
@@ -1278,6 +1280,26 @@ migration 035 UPDATE：
 | `created_at` | TIMESTAMPTZ | 是 | 关联创建时间 |
 
 迁移文件：`049_kol_active_products_single_current_product.sql`。现有数据库升级时，迁移会先检测同一 `kol_id` 的历史重复关联；发现重复会明确中止，需人工确认后再清理，避免自动删除运营选择。应用层仍须在写入时整体替换旧关联，防止前端多选绕过业务规则。
+
+---
+
+## 36A. kol_benchmarks 对标账号补充字段（外部录屏主播同步）
+
+`kol_benchmarks` 是红人工作台首页的对标账号表，migration 041 初始字段包含 `kol_id`、`account_name`、`account_type`、`description`、`sort_order` 等。migration 056 为直播对标同步远程录屏系统补充以下可空字段；内容对标仍保留在本地，不通过外部录屏主播接口返回。
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `account_input` | TEXT | 否 | 用户添加对标账号时输入的原始值，可为抖音号、主页链接或分享短链 |
+| `sec_uid` | VARCHAR(128) | 否 | TikHub 解析得到的 `sec_user_id`，对齐本平台 `kols.sec_uid` 命名 |
+| `avatar_url` | TEXT | 否 | TikHub 解析得到的头像地址 |
+| `follower_count` | BIGINT | 否 | TikHub 解析得到的粉丝数 |
+
+新增索引：
+
+```sql
+CREATE INDEX idx_kol_benchmarks_account_type ON kol_benchmarks(account_type);
+CREATE INDEX idx_kol_benchmarks_sec_uid ON kol_benchmarks(sec_uid) WHERE sec_uid IS NOT NULL;
+```
 
 ---
 

@@ -1,5 +1,7 @@
 # MCN_PM_Agent — 项目记忆与当前状态（M2）
 
+> 2026-08-07 外部录屏主播同步接口（当前分支 `feature/kols‑unit‑test‑supplement`）：新增 `/api/external/recording-anchors`，复用 `X-API-Key`，合并输出 `kols` 红人主播与 `kol_benchmarks(account_type='livestream')` 直播对标主播，并用 `source_type` / `source_label` 区分来源；内容对标不返回。`kol_benchmarks` 通过 migration 056 补充 `account_input`、`sec_uid`、`avatar_url`、`follower_count`，前端对标确认添加时会一并保存 TikHub 解析信息。当前为本地测试接口，未部署、未上线。
+
 > 2026-08-04 Sprint25 达人档案统一（分支 `feature/kol-persona-profile-unification`，基线 `5264628d`）：PM 独立验收两项阻断已按测试先行完成最小返修。人格报告只有严格的非空双段结构才归档；事实补全以同一报告最新结果展示，成功但零写入也关闭旧失败。修复前新增 7 个场景全部失败，修复后定向 23/23、相关与邻接后端 848/848、受影响前端 24/24、前端全量 489/489、类型检查和生产构建均通过；迁移专项与 6 张双分辨率页面证据不受本轮无数据库/无前端字段变更影响。当前状态仅为**可供产品经理继续验收**，未合并、未部署、未执行生产迁移、未上线。详见 `docs/pm/M2_Sprint25_红人工作台达人档案统一_开发验收报告_v1.md`。
 
 > 2026-07-28 红人工作台 P0 生产迁移链路修复（分支 `feature/kol-workspace-function-optimization`）：已确认生产“素材库列表 200、所有详情 500”的代码级根因是 ORM 读取 migration 050 新字段而生产库缺列；部署根因是旧 `init-db.sh` 固定只执行 001。开发侧新增顺序迁移账本、旧库显式基线、逐文件人工已执行登记、校验和/事务/并发锁，以及前端非 JSON 5xx 中文诊断。隔离库覆盖 050 前失败、后兼容、二次执行不破坏数据；生产数据库迁移与上线均未执行，待 PM 独立验收和单独批准。

@@ -64,6 +64,7 @@
 | 分类 | 接口数 | 路由前缀 |
 |------|--------|----------|
 | 外部系统只读接口 | 2 | `/api/external/kols` |
+| 外部录屏主播同步接口 | 1 | `/api/external/recording-anchors` |
 
 ---
 
@@ -72,7 +73,7 @@
 与 M1 完全一致，参见 `MCN_M1_Base_API.md` §2。关键点：
 
 - **响应格式**：`{ success, code, message, data }`
-- **鉴权**：Bearer Token（JWT），公开接口除外；外部只读 KOL API 例外，使用 `X-API-Key`
+- **鉴权**：Bearer Token（JWT），公开接口除外；外部只读 KOL API / 外部录屏主播同步接口例外，使用 `X-API-Key`
 - **字段命名**：响应全部使用 `snake_case`
 - **时间格式**：ISO 8601 with timezone（`+08:00`）
 
@@ -647,6 +648,120 @@ Response:
 - 阿里云部署：由运维通过 Nginx / HTTPS 暴露公网域名，例如 `https://api.example.com/api/external/kols`
 - 密钥只放在服务器环境变量或 `.env`，不得提交真实密钥到 GitHub
 - 生产环境不建议直接裸露 `8000` 端口，推荐只开放 `80/443`
+
+---
+
+## 6C. 外部录屏主播同步 API
+
+> 路由文件：`backend/app/routers/external_recording_anchors.py`
+>
+> 路由前缀：`/api/external/recording-anchors`
+>
+> 用途：给远程自动录屏 / 直播分析项目读取“需要进入录屏系统的主播清单”。接口合并读取 `kols` 与 `kol_benchmarks`，返回统一结构并通过 `source_type` 区分来源。
+>
+> 鉴权：请求头 `X-API-Key: <密钥>`；复用环境变量 `EXTERNAL_KOLS_API_KEY`。
+>
+> 数据来源：`kols` 全部未软删红人作为 `source_type=kol`；`kol_benchmarks` 仅返回 `account_type=livestream` 的直播对标账号作为 `source_type=live_benchmark`。`account_type=content` 的内容对标账号不返回、不进入远程录屏系统。
+
+### 6C.1 接口总览
+
+| 方法 | 路径 | 说明 | 鉴权 |
+|------|------|------|------|
+| GET | `/api/external/recording-anchors` | 录屏主播统一列表（红人主播 + 直播对标主播） | `X-API-Key` |
+
+### 6C.2 GET `/api/external/recording-anchors`
+
+**Query 参数**：
+
+| 参数 | 类型 | 默认 | 说明 |
+|------|------|------|------|
+| `page` | int | 1 | 页码，从 1 开始 |
+| `page_size` | int | 50 | 每页条数，范围 1~200 |
+| `keyword` | str | "" | 模糊匹配红人名称 / 账号昵称 / 抖音号 / sec_user_id / 对标原始输入 |
+| `platform` | str | "" | 平台筛选；直播对标当前固定为 `douyin`，传其他平台时不会返回直播对标 |
+| `source_type` | str | "" | 来源筛选：空 = 全部，`kol` = 红人主播，`live_benchmark` = 直播对标主播 |
+| `ready_only` | bool | false | true 时只返回已具备抖音账号 ID 或 `sec_user_id` 的记录 |
+
+**Response**（标准信封）：
+```json
+{
+  "success": true,
+  "code": "OK",
+  "message": "success",
+  "data": {
+    "items": [
+      {
+        "source_key": "kol:1",
+        "source_type": "kol",
+        "source_label": "红人主播",
+        "source_table": "kols",
+        "source_id": 1,
+        "parent_kol_id": 1,
+        "parent_kol_name": "搭搭",
+        "should_record": true,
+        "platform": "douyin",
+        "account_input": "dadahei",
+        "douyin_id": "dadahei",
+        "sec_user_id": "MS4wLjABAAAA...",
+        "sec_uid": "MS4wLjABAAAA...",
+        "nickname": "搭搭",
+        "name": "搭搭",
+        "avatar_url": "https://...",
+        "signature": "个人简介",
+        "follower_count": 12345,
+        "video_count": 67,
+        "description": "备注",
+        "sync_ready": true,
+        "sync_block_reason": null,
+        "created_at": "2026-08-07T10:00:00+08:00",
+        "updated_at": "2026-08-07T10:00:00+08:00"
+      },
+      {
+        "source_key": "live_benchmark:9",
+        "source_type": "live_benchmark",
+        "source_label": "直播对标主播",
+        "source_table": "kol_benchmarks",
+        "source_id": 9,
+        "parent_kol_id": 1,
+        "parent_kol_name": "搭搭",
+        "should_record": true,
+        "platform": "douyin",
+        "account_input": "live_douyin_id",
+        "douyin_id": "live_douyin_id",
+        "sec_user_id": "MS4wLjABAAAA...",
+        "sec_uid": "MS4wLjABAAAA...",
+        "nickname": "对标主播昵称",
+        "name": "对标主播昵称",
+        "avatar_url": "https://...",
+        "signature": null,
+        "follower_count": 8888,
+        "video_count": null,
+        "description": "直播对标说明",
+        "sync_ready": true,
+        "sync_block_reason": null,
+        "created_at": "2026-08-07T10:00:00+08:00",
+        "updated_at": "2026-08-07T10:00:00+08:00"
+      }
+    ],
+    "pagination": {
+      "page": 1,
+      "page_size": 50,
+      "total": 2,
+      "total_pages": 1
+    }
+  }
+}
+```
+
+说明：
+- 远程项目可将 `source_type=kol` 写作“红人主播”，将 `source_type=live_benchmark` 写作“直播对标主播”。
+- `sec_user_id` 与 `sec_uid` 返回同一值；前者对齐远程添加主播表单，后者对齐本平台既有字段名。
+- `sync_ready=false` 表示该记录缺少抖音账号 ID 与 `sec_user_id`，远程应暂不入库或放入待补全队列。
+
+**错误码**：
+- `400 VALIDATION_ERROR` — `source_type` 非法
+- `401 EXTERNAL_API_KEY_INVALID` — 缺少或传错 `X-API-Key`
+- `503 EXTERNAL_API_KEY_NOT_CONFIGURED` — 后端未配置 `EXTERNAL_KOLS_API_KEY`
 
 ---
 

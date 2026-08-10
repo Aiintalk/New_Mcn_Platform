@@ -10,6 +10,10 @@ class KolBenchmark(Base):
     id           = Column(BigInteger, primary_key=True, autoincrement=True)
     kol_id       = Column(BigInteger, ForeignKey("kols.id", ondelete="CASCADE"), nullable=False)
     account_name = Column(String(200), nullable=False)
+    account_input = Column(Text, nullable=True)
+    sec_uid      = Column(String(128), nullable=True)
+    avatar_url   = Column(Text, nullable=True)
+    follower_count = Column(BigInteger, nullable=True)
     account_type = Column(String(20), nullable=False)   # 'content' | 'livestream'
     description  = Column(Text, nullable=True)
     sort_order   = Column(Integer, nullable=False, default=0)

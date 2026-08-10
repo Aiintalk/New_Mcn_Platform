@@ -7,6 +7,7 @@ import { App } from 'antd';
 // ── Mock API ──────────────────────────────────────────────────────────────────
 const mockGetWorkspaceDashboard    = vi.fn();
 const mockGetBenchmarks            = vi.fn();
+const mockValidateBenchmarkAccount = vi.fn();
 const mockCreateBenchmark          = vi.fn();
 const mockUpdateBenchmark          = vi.fn();
 const mockDeleteBenchmark          = vi.fn();
@@ -19,6 +20,7 @@ const mockGetMaterialLibraryKolDetail = vi.fn();
 vi.mock('../../../api/kolWorkspace', () => ({
   getWorkspaceDashboard:  (...args: unknown[]) => mockGetWorkspaceDashboard(...args),
   getBenchmarks:          (...args: unknown[]) => mockGetBenchmarks(...args),
+  validateBenchmarkAccount: (...args: unknown[]) => mockValidateBenchmarkAccount(...args),
   createBenchmark:        (...args: unknown[]) => mockCreateBenchmark(...args),
   updateBenchmark:        (...args: unknown[]) => mockUpdateBenchmark(...args),
   deleteBenchmark:        (...args: unknown[]) => mockDeleteBenchmark(...args),
@@ -183,6 +185,12 @@ describe('KolWorkspacePage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetWorkspaceDashboard.mockResolvedValue(sampleDashboard);
+    mockValidateBenchmarkAccount.mockResolvedValue({
+      sec_user_id: 'MS4wLjABAAAA_mock',
+      nickname: '新账号',
+      avatar_url: null,
+      follower_count: null,
+    });
     mockGetQianchuanProducts.mockResolvedValue(sampleProducts);
     mockCreateBenchmark.mockResolvedValue({ id: 99, kol_id: 1, account_name: '新账号', account_type: 'content', description: null, sort_order: 0 });
     mockUpdateActiveProducts.mockResolvedValue({ active_product_ids: [10] });
@@ -373,6 +381,38 @@ describe('KolWorkspacePage', () => {
     await user.click(screen.getByText('添加对标账号'));
     await waitFor(() => {
       expect(screen.getByText('抖音账号')).toBeInTheDocument();
+    });
+  });
+
+  it('sends resolved account identifiers when creating a livestream benchmark', async () => {
+    const user = userEvent.setup();
+    mockValidateBenchmarkAccount.mockResolvedValueOnce({
+      sec_user_id: 'MS4wLjABAAAA_live',
+      nickname: '直播对标账号',
+      avatar_url: 'https://example.com/live.png',
+      follower_count: 12345,
+    });
+
+    renderWorkspacePage();
+    await user.click(await screen.findByText('添加对标账号'));
+    await user.type(screen.getByPlaceholderText('输入抖音号（如 douyin）、主页链接或分享短链'), 'live_douyin_id');
+    await user.click(screen.getByRole('radio', { name: '直播对标' }));
+    await user.click(screen.getByRole('button', { name: '查找账号' }));
+
+    expect(await screen.findByText('直播对标账号')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '确认添加' }));
+
+    await waitFor(() => {
+      expect(mockCreateBenchmark).toHaveBeenCalledWith(1, {
+        account_name: '直播对标账号',
+        account_input: 'live_douyin_id',
+        sec_uid: 'MS4wLjABAAAA_live',
+        avatar_url: 'https://example.com/live.png',
+        follower_count: 12345,
+        account_type: 'livestream',
+        description: null,
+        sort_order: 0,
+      });
     });
   });
 

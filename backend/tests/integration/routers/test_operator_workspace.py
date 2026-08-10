@@ -100,13 +100,66 @@ class TestBenchmarks:
         kid = await _create_kol(test_session)
         resp = await test_client.post(
             f"/api/operator/workspace/{kid}/benchmarks",
-            json={"account_name": "新账号", "account_type": "content", "description": "测试简介"},
+            json={
+                "account_name": "新账号",
+                "account_input": "new_douyin_id",
+                "sec_uid": "MS4wLjABAAAA_new",
+                "avatar_url": "https://example.com/new.png",
+                "follower_count": 12345,
+                "account_type": "content",
+                "description": "测试简介",
+            },
             headers=operator_headers,
         )
         body = resp.json()
         assert body["success"] is True
         assert body["data"]["account_name"] == "新账号"
+        assert body["data"]["account_input"] == "new_douyin_id"
+        assert body["data"]["sec_uid"] == "MS4wLjABAAAA_new"
+        assert body["data"]["avatar_url"] == "https://example.com/new.png"
+        assert body["data"]["follower_count"] == 12345
         assert body["data"]["account_type"] == "content"
+
+    @pytest.mark.asyncio
+    async def test_benchmark_recording_fields_are_returned_by_list_and_dashboard(
+        self, test_client, operator_headers, test_session
+    ):
+        kid = await _create_kol(test_session)
+        payload = {
+            "account_name": "直播对标账号",
+            "account_input": "live_douyin_id",
+            "sec_uid": "MS4wLjABAAAA_live",
+            "avatar_url": "https://example.com/live.png",
+            "follower_count": 67890,
+            "account_type": "livestream",
+            "description": "录屏同步字段",
+        }
+        create_resp = await test_client.post(
+            f"/api/operator/workspace/{kid}/benchmarks",
+            json=payload,
+            headers=operator_headers,
+        )
+        assert create_resp.json()["success"] is True
+
+        list_resp = await test_client.get(
+            f"/api/operator/workspace/{kid}/benchmarks",
+            headers=operator_headers,
+        )
+        list_item = list_resp.json()["data"]["livestream"][0]
+        assert list_item["account_input"] == "live_douyin_id"
+        assert list_item["sec_uid"] == "MS4wLjABAAAA_live"
+        assert list_item["avatar_url"] == "https://example.com/live.png"
+        assert list_item["follower_count"] == 67890
+
+        dashboard_resp = await test_client.get(
+            f"/api/operator/workspace/{kid}/dashboard",
+            headers=operator_headers,
+        )
+        dashboard_item = dashboard_resp.json()["data"]["benchmarks"]["livestream"][0]
+        assert dashboard_item["account_input"] == "live_douyin_id"
+        assert dashboard_item["sec_uid"] == "MS4wLjABAAAA_live"
+        assert dashboard_item["avatar_url"] == "https://example.com/live.png"
+        assert dashboard_item["follower_count"] == 67890
 
     @pytest.mark.asyncio
     async def test_create_benchmark_invalid_type(self, test_client, operator_headers, test_session):

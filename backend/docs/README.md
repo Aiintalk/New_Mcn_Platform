@@ -7,6 +7,8 @@
 > 2026-07-28：新增 `scripts/run_migrations.py` 与 `schema_migrations` 账本，部署不再只执行 001；既有数据库需显式核对并登记基线，之后按顺序、事务化执行未执行迁移，历史 seed 不重放。素材库 050 前后与二次执行证据见 `tests/M2_Sprint24_测试报告_红人工作台生产迁移链路_v1_修复Bug.md`。
 
 > 2026-08-04：Sprint25 达人档案统一以正式 `kols.id` 贯通人格定位、当前运营关联入驻资料、报告历史、七字段档案同步和下游上下文；迁移 055 保留历史未绑定记录。PM 独立验收返修后，只有结构完整的“人格档案 + 内容规划”双段输出可归档，人物事实补全状态按同一报告最新结果展示。接口与数据库契约见 `base/MCN_M2_Base_API.md`、`base/MCN_M2_Base_Database.md`，测试证据见 `tests/M2_Sprint25_测试报告_达人档案统一_v1.md`。
+>
+> 2026-08-07：新增外部录屏主播同步接口 `/api/external/recording-anchors`，合并输出红人主播与直播对标主播，内容对标不返回；`kol_benchmarks` 通过 migration 056 补充 `account_input`、`sec_uid`、`avatar_url`、`follower_count`，用于远程录屏项目同步 TikHub 标识。
 
 ---
 
@@ -50,13 +52,14 @@ backend/
 │   │   ├── persona_writer.py          #   人设脚本仿写配置表（Sprint 15）
 │   │   ├── seeding_writer.py          #   种草内容仿写配置+产品+素材表（Sprint 16）
 │   │   ├── qianchuan_product.py       #   千川产品库（Sprint 18）
-│   │   ├── kol_benchmark.py           #   达人对标账号（Sprint 18）
+│   │   ├── kol_benchmark.py           #   达人对标账号（Sprint 18；2026-08-07 补远程录屏同步字段）
 │   │   ├── kol_active_product.py      #   达人在售商品关联（Sprint 18）
 │   │   └── ...                        #   log / file / output / session / task
 │   ├── routers/                       # API 路由（按角色分文件，67 个）
 │   │   ├── auth.py                    #   POST /api/auth/login、/change-password
 │   │   ├── admin_users.py             #   用户管理（admin）
 │   │   ├── admin_kols.py              #   红人管理（admin）
+│   │   ├── external_recording_anchors.py # 外部录屏主播同步：红人主播 + 直播对标主播
 │   │   ├── admin_ai.py                #   AI 密钥/模型管理（admin）
 │   │   ├── admin_credentials.py       #   凭证管理（admin）：CRUD + 启停 + 密钥轮换（PATCH api_key）+ OSS/ASR 连通性测试（保存 last_tested_at / last_latency_ms）
 │   │   ├── admin_workspace.py         #   工具配置（admin）
@@ -259,6 +262,23 @@ BugFix：      BugFix_{序号}_{描述}.md
 ---
 
 ## 最近改动
+
+### 2026-08-07 外部录屏主播同步 API
+
+**背景**：远程设备项目需要统一读取本平台要自动录屏/分析的主播，其中红人管理新增的是“红人主播”，工作台对标账号里只有“直播对标”需要进入远程录屏系统，“内容对标”不进入。
+
+**改动**：
+
+| 模块 | 文件 | 变更 |
+|------|------|------|
+| 后端 - 路由 | `app/routers/external_recording_anchors.py` | 新增 `GET /api/external/recording-anchors`，合并 `kols` 与 `kol_benchmarks(account_type='livestream')`，返回 `source_type` / `source_label` / `sync_ready` |
+| 后端 - 工作台 | `app/routers/operator_workspace.py` | 对标账号创建/返回补充 `account_input` / `sec_uid` / `avatar_url` / `follower_count` |
+| 后端 - 模型/迁移 | `app/models/kol_benchmark.py` / `migrations/056_external_recording_anchors.sql` | 为 `kol_benchmarks` 增加远程录屏同步所需可空字段 |
+| 后端 - 入口 | `app/main.py` | 注册 external_recording_anchors router |
+| 后端 - 契约 | `base/MCN_M2_Base_API.md` / `base/MCN_M2_Base_Database.md` | 补外部录屏主播接口与数据库字段说明 |
+| 后端 - 测试 | `tests/integration/routers/test_external_recording_anchors.py` / `test_operator_workspace.py` | 覆盖鉴权、来源合并、内容对标排除、缺标识 ready_only、对标新字段返回 |
+
+**本地调用**：`GET http://localhost:8000/api/external/recording-anchors`，请求头 `X-API-Key: <EXTERNAL_KOLS_API_KEY>`。
 
 ### 2026-08-05 外部只读 KOL API
 

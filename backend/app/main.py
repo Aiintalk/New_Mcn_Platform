@@ -73,6 +73,7 @@ from app.routers import admin_script_review, operator_script_review
 from app.routers import admin_retrospective, operator_retrospective
 from app.routers import admin_kol_workspace
 from app.routers.external_kols import router as external_kols_router
+from app.routers.external_recording_anchors import router as external_recording_anchors_router
 from app.evaluation.routers.admin_evaluation import router as admin_eval_router
 from app.evaluation.routers.operator_evaluation import router as operator_eval_router
 
@@ -195,6 +196,7 @@ app.include_router(admin_retrospective.router, prefix="/api")
 app.include_router(operator_retrospective.router, prefix="/api")
 app.include_router(admin_kol_workspace.router, prefix="/api")
 app.include_router(external_kols_router, prefix="/api")
+app.include_router(external_recording_anchors_router, prefix="/api")
 app.include_router(admin_eval_router, prefix="/api")
 app.include_router(operator_eval_router, prefix="/api")
 
