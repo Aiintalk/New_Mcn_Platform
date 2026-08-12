@@ -115,3 +115,24 @@ npm run dev
 | 部署 | Nginx · PM2 · Ubuntu（生产）/ 本地开发 |
 
 > 文档约定：`docs/pm/` PM流程与状态 · `docs/standards/` 标准（测试/审核/迁移/Git）· `{端}/docs/` 各端任务与契约。
+
+---
+
+## 八、覆盖率门禁（CI 强制）
+
+CI（`.github/workflows/test.yml` 的 `Coverage gate` 步骤）跑 `scripts/run_coverage.py --gate`，**任一模块跌破目标线即 CI 失败、PR 不可合并**。
+
+| 模块 | 目标 |
+|---|---|
+| `app/core/` · `app/models/` · `app/middlewares/` | ≥ 90% |
+| `app/services/` | ≥ 80% |
+| `app/routers/` | ≥ 70% |
+| `app/adapters/` | ≥ 60% |
+| 整体 | ≥ 48% |
+
+**规矩**：
+1. 新增/改动代码必须带测试，且**不得让所在模块覆盖率跌破目标线**（跌破即 CI 红，先补测试再继续，不得以"后续补"跳过）。
+2. 每次重大需求迭代完成后，交付报告必须附最新覆盖率数据（`cd backend && python scripts/run_coverage.py`）。
+3. **路由测试用 direct-call**（直接 `await` 端点函数，传 `db=test_session`）——httpx.ASGITransport 下 coverage 对端点函数体追踪不稳定（同组测试可波动 ±20%）；service 层普通单测不受此影响。
+4. 测试 seed 共享表必须用 **prefix-scoped 清理**（`WHERE name LIKE 'cov_%'`），不能 `delete(table)`——后者会删其他测试依赖的遗留数据引发级联失败。
+5. 目标线若调整，需同步改 `scripts/run_coverage.py` 的 `COVERAGE_TARGETS` + 本表。
