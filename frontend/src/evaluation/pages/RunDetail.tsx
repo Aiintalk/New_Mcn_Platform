@@ -128,7 +128,7 @@ export default function RunDetailPage() {
     return Array.from(allIds).sort((a, b) => a - b).map((caseResultId) => {
       const scoreList = byCase.get(caseResultId) ?? [];
       const cr = crMap.get(caseResultId);
-      const aiScores = scoreList.map((s) => s.ai_score).filter((v): v is number => v !== null);
+      const aiScores = scoreList.map((s) => (s.ai_score === null ? null : Number(s.ai_score))).filter((v): v is number => v !== null);
       const aiAvg = aiScores.length > 0 ? aiScores.reduce((a, b) => a + b, 0) / aiScores.length : null;
       const anyHuman = scoreList.some((s) => s.human_score !== null);
       return {
@@ -161,7 +161,8 @@ export default function RunDetailPage() {
   }, [scores]);
 
   const overallAvg = useMemo(() => {
-    const all = scores.map((s) => s.ai_score).filter((v): v is number => v !== null);
+    // Number() 防御：后端 Decimal 曾序列化成字符串导致 a+b 拼接 + 雷达图 NaN
+    const all = scores.map((s) => (s.ai_score === null ? null : Number(s.ai_score))).filter((v): v is number => v !== null);
     return all.length > 0 ? all.reduce((a, b) => a + b, 0) / all.length : null;
   }, [scores]);
 
@@ -223,9 +224,9 @@ export default function RunDetailPage() {
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           {r.scores.map((s) => (
             <Tag key={s.id} style={{ margin: 0, fontFamily: 'var(--font-mono)', fontSize: 12 }}>
-              d{s.dimension_id}: <b>{s.ai_score !== null ? s.ai_score.toFixed(1) : '—'}</b>
+              d{s.dimension_id}: <b>{s.ai_score !== null ? Number(s.ai_score).toFixed(1) : '—'}</b>
               {s.human_score !== null ? (
-                <span style={{ color: 'var(--success)', marginLeft: 4 }}>★{s.human_score.toFixed(1)}</span>
+                <span style={{ color: 'var(--success)', marginLeft: 4 }}>★{Number(s.human_score).toFixed(1)}</span>
               ) : null}
             </Tag>
           ))}

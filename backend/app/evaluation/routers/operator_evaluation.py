@@ -157,17 +157,23 @@ def _run_to_dict(r: EvalRun) -> dict:
     }
 
 
+def _num(v):
+    """Numeric 列（Decimal）→ float。不转的话 FastAPI 会把 Decimal 序列化成 JSON 字符串，
+    前端按 number 消费（如 ai_score.toFixed）直接崩（RunDetail 白屏的根因）。"""
+    return float(v) if v is not None else None
+
+
 def _score_to_dict(s: EvalScore) -> dict:
     return {
         "id": s.id,
         "case_result_id": s.case_result_id,
         "dimension_id": s.dimension_id,
-        "weight_used": s.weight_used,
-        "ai_score": s.ai_score,
+        "weight_used": _num(s.weight_used),
+        "ai_score": _num(s.ai_score),
         "ai_reasoning": s.ai_reasoning,
         "ai_strengths": list(s.ai_strengths or []),
         "ai_weaknesses": list(s.ai_weaknesses or []),
-        "human_score": s.human_score,
+        "human_score": _num(s.human_score),
         "human_feedback": s.human_feedback,
         "created_at": _ts(s.created_at),
         "updated_at": _ts(s.updated_at),

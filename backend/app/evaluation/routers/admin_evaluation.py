@@ -98,7 +98,8 @@ def _dimension_to_dict(d: EvalDimension) -> dict:
         "name": d.name,
         "display_name": d.display_name,
         "description": d.description,
-        "default_weight": d.default_weight,
+        # Numeric(Decimal) → float：否则 FastAPI 序列化成字符串，前端按 number 消费会崩
+        "default_weight": float(d.default_weight) if d.default_weight is not None else None,
         "score_min": d.score_min,
         "score_max": d.score_max,
         "prompt_template": d.prompt_template,
