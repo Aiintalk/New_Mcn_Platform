@@ -26,13 +26,15 @@ import {
 } from '../components/primitives';
 
 interface FilterTab {
-  key: EvalRunStatus | 'all';
+  key: EvalRunStatus | 'all' | 'in_progress';
   label: string;
 }
 
 const FILTER_TABS: FilterTab[] = [
   { key: 'all', label: '全部' },
-  { key: 'running', label: '进行中' },
+  // 进行中 = pending（排队）+ running（执行中）：新触发的 run 先进 arq 队列（pending），
+  // 只筛 running 会让刚建的 run "消失"，误导用户以为创建失败
+  { key: 'in_progress', label: '进行中' },
   { key: 'completed', label: '已完成' },
   { key: 'failed', label: '失败' },
 ];
@@ -43,7 +45,7 @@ export default function RunsPage() {
 
   const [loading, setLoading] = useState(false);
   const [runs, setRuns] = useState<EvalRun[]>([]);
-  const [activeTab, setActiveTab] = useState<EvalRunStatus | 'all'>('all');
+  const [activeTab, setActiveTab] = useState<EvalRunStatus | 'all' | 'in_progress'>('all');
   const [triggerOpen, setTriggerOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [versions, setVersions] = useState<EvalVersion[]>([]);
@@ -94,6 +96,8 @@ export default function RunsPage() {
 
   const filteredRuns = useMemo(() => {
     if (activeTab === 'all') return runs;
+    // 进行中 = 排队中（pending）+ 执行中（running）
+    if (activeTab === 'in_progress') return runs.filter((r) => r.status === 'pending' || r.status === 'running');
     return runs.filter((r) => r.status === activeTab);
   }, [runs, activeTab]);
 
@@ -233,7 +237,7 @@ export default function RunsPage() {
         <div className="stat-card">
           <div className="stat-label">进行中</div>
           <div className="stat-value" style={{ color: 'var(--warning)' }}>
-            {counts.running}
+            {counts.pending + counts.running}
           </div>
         </div>
         <div className="stat-card accent">
