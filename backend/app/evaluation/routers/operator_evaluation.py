@@ -450,6 +450,7 @@ async def trigger_run(
 
     filter_tags = list(body.get("filter_tags") or [])
     trigger_type = body.get("trigger_type") or TRIGGER_TYPE_MANUAL
+    run_name = (str(body.get("name") or "").strip()) or None  # 用户自定义运行名（空则后端默认生成）
 
     # OperationLog（run_id 在 trigger_run 内部生成，这里先记录触发意图）
     db.add(OperationLog(
@@ -475,6 +476,7 @@ async def trigger_run(
         trigger_type=trigger_type,
         user_id=current_user.id,
         db=db,
+        name=run_name,
     )
     # run 现为 pending；执行由 worker 异步推进（不在此 await）
     run = await db.get(EvalRun, run_id)

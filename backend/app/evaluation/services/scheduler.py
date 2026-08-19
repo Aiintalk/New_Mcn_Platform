@@ -69,6 +69,7 @@ async def trigger_run(
     user_id: int | None,
     db: AsyncSession,
     enqueue=None,
+    name: str | None = None,
 ) -> int:
     """触发一次评测 run（异步，方案 C：arq+Redis，Phase 2）。
 
@@ -103,7 +104,7 @@ async def trigger_run(
         run = EvalRun(
             version_id=version.id,
             strategy_id=strategy.id,
-            name=f"run-{version.name}-{trigger_type}",
+            name=(name or "").strip() or f"run-{version.name}-{trigger_type}",
             trigger_type=trigger_type,
             status=RUN_STATUS_FAILED,
             filter_tags=list(filter_tags or []),
@@ -120,7 +121,7 @@ async def trigger_run(
     run = EvalRun(
         version_id=version.id,
         strategy_id=strategy.id,
-        name=f"run-{version.name}-{trigger_type}",
+        name=(name or "").strip() or f"run-{version.name}-{trigger_type}",
         trigger_type=trigger_type,
         status=RUN_STATUS_PENDING,
         filter_tags=list(filter_tags or []),
