@@ -23,6 +23,10 @@ from app.evaluation.services.rubric_resolver import build_scoring_prompt
 
 __all__ = ["ParsedScore", "parse_score_response", "score"]
 
+# 重试次数（首次 + 失败后纠错重评 1 次）。run21 实测：parse 失败会落兜底 1 分污染数据，
+# 重试一轮能消化绝大多数"长输入下 LLM 忘了 JSON 格式"的偶发。
+_MAX_ATTEMPTS = 2
+
 
 @dataclass
 class ParsedScore:
@@ -32,6 +36,8 @@ class ParsedScore:
     reasoning: str = ""
     strengths: list[str] = field(default_factory=list)
     weaknesses: list[str] = field(default_factory=list)
+    #: True = 经历过重试仍解析失败（兜底分，前端可标记"评分异常"）
+    parse_failed: bool = False
 
 
 def _clamp(val: float, lo: float, hi: float) -> float:
@@ -94,13 +100,14 @@ def parse_score_response(raw: str, score_min: int, score_max: int) -> ParsedScor
             except (json.JSONDecodeError, TypeError):
                 pass
 
-    # 全部解析失败 → 返回默认（score clamp 到 score_min）
+    # 全部解析失败 → 返回默认（score clamp 到 score_min）；调用方可据 parse_failed 重试
     if data is None:
         return ParsedScore(
             score=float(score_min),
             reasoning="Failed to parse AI response",
             strengths=[],
             weaknesses=[],
+            parse_failed=True,
         )
 
     # 字段提取 + 校验
@@ -148,8 +155,40 @@ async def score(
     full_context = {**(context or {}), "generated_output": generated_output or ""}
     scoring_prompt = build_scoring_prompt(dimension, rubrics, full_context)
 
-    raw = await score_fn(messages=[{"role": "user", "content": scoring_prompt}])
-
     score_min = getattr(dimension, "score_min", 1) or 1
     score_max = getattr(dimension, "score_max", 10) or 10
-    return parse_score_response(raw, score_min, score_max)
+
+    # 首尾双约束：DB 模板中部的"输出格式"声明在长输入下容易被 LLM 忽略（run21 实测
+    # 4/20 parse 失败落兜底 1 分）。首部一行声明 + 末尾强守卫（带实际分值范围与
+    # 字段模板），把格式要求放在离生成点最近的位置。
+    json_guard = (
+        f'\n\n【输出要求】只输出一个 JSON 对象，不要输出任何其他文字、解释或代码块标记。'
+        f'格式：{{"score": 整数{score_min}-{score_max}, "reasoning": "...", '
+        f'"strengths": [...], "weaknesses": [...]}}'
+    )
+    head_guard = (
+        f'【任务】你是评分评委。阅读完毕后，只输出一个 JSON 对象'
+        f'（score 为 {score_min}-{score_max} 的整数）。具体标准见下文。\n\n'
+    )
+
+    messages = [{"role": "user", "content": head_guard + scoring_prompt + json_guard}]
+    parsed = parse_score_response(
+        await score_fn(messages=messages), score_min, score_max
+    )
+
+    # 解析失败 → 纠错重试一次（把上次坏输出喂回去，明确要求纯 JSON）
+    if parsed.parse_failed and _MAX_ATTEMPTS > 1:
+        retry_prompt = (
+            "你上一次的输出无法被解析为 JSON，本次评分无效。"
+            "请重新评分，并严格遵守：只输出一个 JSON 对象，"
+            '格式：{"score": 整数' + f"{score_min}-{score_max}" + ', "reasoning": "...", '
+            '"strengths": [...], "weaknesses": [...]}。不要输出任何其他文字。\n\n'
+            "原始评分材料：\n" + scoring_prompt
+        )
+        parsed = parse_score_response(
+            await score_fn(messages=[{"role": "user", "content": retry_prompt}]),
+            score_min,
+            score_max,
+        )
+
+    return parsed
