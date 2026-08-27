@@ -155,8 +155,10 @@ async def score(
     full_context = {**(context or {}), "generated_output": generated_output or ""}
     scoring_prompt = build_scoring_prompt(dimension, rubrics, full_context)
 
-    score_min = getattr(dimension, "score_min", 1) or 1
-    score_max = getattr(dimension, "score_max", 10) or 10
+    score_min = getattr(dimension, "score_min", None)
+    score_min = 1 if score_min is None else score_min
+    score_max = getattr(dimension, "score_max", None)
+    score_max = 10 if score_max is None else score_max
 
     # 首尾双约束：DB 模板中部的"输出格式"声明在长输入下容易被 LLM 忽略（run21 实测
     # 4/20 parse 失败落兜底 1 分）。首部一行声明 + 末尾强守卫（带实际分值范围与
@@ -176,19 +178,28 @@ async def score(
         await score_fn(messages=messages), score_min, score_max
     )
 
-    # 解析失败 → 纠错重试一次（把上次坏输出喂回去，明确要求纯 JSON）
+    # 解析失败 → 告知失败并重发原始材料纠错重评一次。
+    # 重试 prompt 的格式守卫同样放材料之后（与首评同构，避免复刻"中部声明被忽略"的失效模式）。
     if parsed.parse_failed and _MAX_ATTEMPTS > 1:
-        retry_prompt = (
+        retry_head = (
             "你上一次的输出无法被解析为 JSON，本次评分无效。"
-            "请重新评分，并严格遵守：只输出一个 JSON 对象，"
-            '格式：{"score": 整数' + f"{score_min}-{score_max}" + ', "reasoning": "...", '
-            '"strengths": [...], "weaknesses": [...]}。不要输出任何其他文字。\n\n'
-            "原始评分材料：\n" + scoring_prompt
+            "请重新评分，严格遵守文末输出要求。\n\n"
+            "原始评分材料：\n"
         )
         parsed = parse_score_response(
-            await score_fn(messages=[{"role": "user", "content": retry_prompt}]),
+            await score_fn(
+                messages=[{"role": "user", "content": retry_head + scoring_prompt + json_guard}]
+            ),
             score_min,
             score_max,
+        )
+
+    # 两次均解析失败 → 抛错让本 case job 走失败路径（arq max_tries 重试 / 人工重跑），
+    # 不落兜底污染分（兜底分与真实低分无法区分，且会流入对比均值）。
+    if parsed.parse_failed:
+        raise RuntimeError(
+            f"score parse failed after {_MAX_ATTEMPTS} attempts for "
+            f"dimension={getattr(dimension, 'name', '?')}: 评委两次均未输出合法 JSON"
         )
 
     return parsed

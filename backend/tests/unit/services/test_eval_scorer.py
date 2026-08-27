@@ -314,15 +314,27 @@ class TestScoreJsonGuards:
         assert parsed.score == 9                             # 真实分，非兜底
         assert parsed.parse_failed is False
 
-    async def test_retry_also_fails_falls_back_with_flag(self):
-        """两次都解析失败 → 落兜底分且 parse_failed=True（可追溯异常评分）。"""
+    async def test_retry_also_fails_raises_no_pollution_score(self):
+        """两次都解析失败 → 抛错走 case 失败路径，不落兜底分（防污染均值）。"""
         async def bad_fn(messages):
             return "还是不给 JSON"
 
-        parsed = await score(bad_fn, _Dim(), [], "文本", {})
-        assert parsed.score == 1                             # 兜底 = score_min
-        assert parsed.parse_failed is True
-        assert parsed.reasoning == "Failed to parse AI response"
+        import pytest
+        with pytest.raises(RuntimeError, match="score parse failed"):
+            await score(bad_fn, _Dim(), [], "文本", {})
+
+    async def test_score_min_not_one_guards_and_clamp(self):
+        """score_min=3：守卫文本带实际范围，clamp 兜底也以 3 为下界。"""
+        captured = []
+
+        async def fn(messages):
+            captured.append(messages[0]["content"])
+            return '{"score": 1}'       # 低于 min → clamp 到 3
+
+        parsed = await score(fn, _Dim(score_min=3, score_max=10), [], "文本", {})
+        assert "整数3-10" in captured[0]                  # 守卫带实际范围
+        assert parsed.score == 3                          # clamp = score_min 非 1
+        assert parsed.parse_failed is False
 
     async def test_success_first_try_no_retry(self):
         """首次成功不重试（省一次模型调用）。"""
