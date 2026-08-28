@@ -13,7 +13,7 @@ import { PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import '../../styles/variables.css';
 import '../styles/eval.css';
-import { listRuns, listVersionsOperator, triggerRun } from '../api';
+import { listRuns, listTestCases, listVersionsOperator, triggerRun } from '../api';
 import type { EvalRun, EvalRunStatus, EvalTriggerType, EvalVersion } from '../types';
 import {
   Callout,
@@ -344,19 +344,29 @@ export default function RunsPage() {
 
           <Form.Item
             noStyle
-            shouldUpdate={(prev, next) => prev.scope !== next.scope}
-          >
-            {({ getFieldValue }) =>
-              getFieldValue('scope') === 'tags' ? (
-                <Form.Item name="tags" label="标签筛选">
-                  <Select
-                    mode="tags"
-                    placeholder="输入标签后回车，多个标签为交集"
-                    tokenSeparators={[',']}
-                  />
-                </Form.Item>
-              ) : null
+            shouldUpdate={(prev, next) =>
+              prev.scope !== next.scope || prev.tags !== next.tags
             }
+          >
+            {({ getFieldValue }) => {
+              const scope = getFieldValue('scope');
+              const tags: string[] = getFieldValue('tags') || [];
+              return (
+                <>
+                  {scope === 'tags' ? (
+                    <Form.Item name="tags" label="标签筛选">
+                      <Select
+                        mode="tags"
+                        placeholder="输入标签后回车，多个标签为交集"
+                        tokenSeparators={[',']}
+                      />
+                    </Form.Item>
+                  ) : null}
+                  {/* 命中预览：选了范围后实时显示将命中多少条测试例（PM 0819 需求） */}
+                  <SampleCountPreview scope={scope} tags={tags} />
+                </>
+              );
+            }}
           </Form.Item>
 
           <Callout variant="warn" icon="!">
@@ -364,6 +374,50 @@ export default function RunsPage() {
           </Callout>
         </Form>
       </Drawer>
+    </div>
+  );
+}
+
+/** 样本命中预览：scope=tags 且有标签 → 按首个标签查服务端命中数；all → 查总数。自持状态。 */
+function SampleCountPreview({ scope, tags }: { scope: 'all' | 'tags'; tags: string[] }) {
+  const [count, setCount] = useState<number | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (scope === 'tags' && tags.length === 0) {
+      setCount(null);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    (async () => {
+      try {
+        const params: { page: number; page_size: number; tag?: string } = { page: 1, page_size: 1 };
+        if (scope === 'tags' && tags[0]) params.tag = tags[0];
+        const data = await listTestCases(params);
+        if (!cancelled) setCount(data.pagination.total);
+      } catch {
+        if (!cancelled) setCount(null);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [scope, tags.join(',')]);
+
+  if (scope === 'tags' && tags.length === 0) {
+    return (
+      <div className="text-xs text-muted" style={{ marginTop: -8, marginBottom: 12 }}>
+        输入标签后将显示命中的测试例数量
+      </div>
+    );
+  }
+  const tagNote = scope === 'tags' && tags.length > 1 ? `（按首个标签「${tags[0]}」统计，多标签为交集过滤）` : '';
+  return (
+    <div className="text-xs text-muted" style={{ marginTop: -8, marginBottom: 12 }}>
+      {loading ? '正在统计命中的测试例…' : count !== null ? `将命中 ${count} 条测试例${tagNote}` : ' '}
     </div>
   );
 }

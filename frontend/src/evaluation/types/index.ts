@@ -239,6 +239,8 @@ export interface EvalScore {
   id: number;
   case_result_id: number;
   dimension_id: number;
+  /** 维度显示名（scores 端点附带；旧数据兜底用 d{id}） */
+  dimension_name?: string | null;
   weight_used: number;
   ai_score: number | null;
   ai_reasoning: string | null;

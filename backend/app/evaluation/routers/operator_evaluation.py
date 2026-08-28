@@ -46,6 +46,7 @@ from app.evaluation.constants import (
 )
 from app.evaluation.models import (
     EvalCaseResult,
+    EvalDimension,
     EvalHumanLabel,
     EvalRun,
     EvalScore,
@@ -535,7 +536,22 @@ async def list_run_scores(
         .order_by(EvalCaseResult.test_case_id.asc(), EvalScore.dimension_id.asc())
     )
     rows = (await db.execute(stmt)).scalars().all()
-    return success_response(data=[_score_to_dict(s) for s in rows])
+
+    # 维度 id → 显示名（徽章直接显示「开头钩子力」而非 d4；前端不再自行拉维度）
+    dim_ids = {s.dimension_id for s in rows}
+    dim_names: dict[int, str | None] = {}
+    if dim_ids:
+        dim_rows = (await db.execute(
+            select(EvalDimension).where(EvalDimension.id.in_(dim_ids))
+        )).scalars().all()
+        dim_names = {d.id: d.display_name or d.name for d in dim_rows}
+
+    data = []
+    for s in rows:
+        d = _score_to_dict(s)
+        d["dimension_name"] = dim_names.get(s.dimension_id)
+        data.append(d)
+    return success_response(data=data)
 
 
 @router.get("/runs/{run_id}/case-results")

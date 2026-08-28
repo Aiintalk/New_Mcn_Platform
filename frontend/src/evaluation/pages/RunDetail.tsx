@@ -145,6 +145,15 @@ export default function RunDetailPage() {
   }, [scores, caseResults]);
 
   // 维度聚合（雷达图 + 列表）
+  // 维度 id → 显示名（scores 端点附带；雷达图/徽章统一用，d{id} 兜底）
+  const dimNameMap = useMemo(() => {
+    const m = new Map<number, string>();
+    scores.forEach((s) => {
+      if (s.dimension_name) m.set(s.dimension_id, s.dimension_name);
+    });
+    return m;
+  }, [scores]);
+
   const dimensionAgg = useMemo(() => {
     const byDim = new Map<number, { sum: number; count: number }>();
     scores.forEach((s) => {
@@ -156,6 +165,7 @@ export default function RunDetailPage() {
     });
     return Array.from(byDim.entries()).map(([dimId, v]) => ({
       dimension_id: dimId,
+      name: dimNameMap.get(dimId) || `d${dimId}`,
       avg: v.count > 0 ? v.sum / v.count : null,
     }));
   }, [scores]);
@@ -223,8 +233,8 @@ export default function RunDetailPage() {
       render: (_, r) => (
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           {r.scores.map((s) => (
-            <Tag key={s.id} style={{ margin: 0, fontFamily: 'var(--font-mono)', fontSize: 12 }}>
-              d{s.dimension_id}: <b>{s.ai_score !== null ? Number(s.ai_score).toFixed(1) : '—'}</b>
+            <Tag key={s.id} style={{ margin: 0, fontSize: 12 }}>
+              {s.dimension_name || `d${s.dimension_id}`}: <b>{s.ai_score !== null ? Number(s.ai_score).toFixed(1) : '—'}</b>
               {s.human_score !== null ? (
                 <span style={{ color: 'var(--success)', marginLeft: 4 }}>★{Number(s.human_score).toFixed(1)}</span>
               ) : null}
@@ -263,7 +273,7 @@ export default function RunDetailPage() {
               type={s.human_score === null ? 'primary' : 'link'}
               onClick={() => openCalibrate(s)}
             >
-              校准 d{s.dimension_id}
+              校准 {s.dimension_name || `d${s.dimension_id}`}
             </Button>
           ))}
         </div>
@@ -378,7 +388,7 @@ export default function RunDetailPage() {
           ) : (
             <div className="radar-wrap">
               <RadarChart
-                labels={dimensionAgg.map((d) => `d${d.dimension_id}`)}
+                labels={dimensionAgg.map((d) => d.name)}
                 values={dimensionAgg.map((d) => d.avg ?? 0)}
               />
               <div className="radar-legend">

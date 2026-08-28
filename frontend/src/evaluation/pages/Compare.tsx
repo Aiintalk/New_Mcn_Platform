@@ -5,34 +5,50 @@
  * 展示：总体 / 维度 / 样本级 diff，标 ▲▼→
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { App, Button, Card, InputNumber, Select, Skeleton, Table, Tag } from 'antd';
+import { App, Button, Card, Select, Skeleton, Table, Tag } from 'antd';
 import { SwapOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import '../../styles/variables.css';
 import '../styles/eval.css';
-import { compareRuns } from '../api';
-import type { EvalCaseDelta, EvalComparisonReport, EvalDimensionDelta } from '../types';
+import { compareRuns, listRuns } from '../api';
+import type { EvalCaseDelta, EvalComparisonReport, EvalDimensionDelta, EvalRun } from '../types';
 import { Callout, DiffIndicator, PageHeader, ScoreChip } from '../components/primitives';
 
 const SAMPLE_A = 'A';
 const SAMPLE_B = 'B';
 const MAX_SCORE = 10;
 
+/** run 下拉选项文案：#id 名称（状态 · 日期）——用户凭印象选，信息给足 */
+function runOptionLabel(r: EvalRun): string {
+  const name = r.name || `Run #${r.id}`;
+  const date = (r.created_at || '').slice(5, 10).replace('-', '/');
+  const statusText: Record<string, string> = {
+    completed: '已完成',
+    running: '进行中',
+    pending: '排队中',
+    failed: '失败',
+    partial: '部分完成',
+    cancelled: '已取消',
+  };
+  return `#${r.id} ${name}（${statusText[r.status] ?? r.status} · ${date}）`;
+}
+
 export default function ComparePage() {
   const { message } = App.useApp();
   const [runA, setRunA] = useState<number | null>(null);
   const [runB, setRunB] = useState<number | null>(null);
+  const [runs, setRuns] = useState<EvalRun[]>([]);
   const [loading, setLoading] = useState(false);
   const [report, setReport] = useState<EvalComparisonReport | null>(null);
   const [filterDir, setFilterDir] = useState<'all' | EvalCaseDelta['direction']>('all');
 
   const handleCompare = useCallback(async () => {
     if (runA === null || runB === null) {
-      message.warning('请填入两个 run id');
+      message.warning('请选择两个运行');
       return;
     }
     if (runA === runB) {
-      message.warning('请选择不同的 run');
+      message.warning('请选择不同的运行');
       return;
     }
     setLoading(true);
@@ -47,28 +63,56 @@ export default function ComparePage() {
     }
   }, [runA, runB, message]);
 
-  // 首次自动加载示例（run_a=1, run_b=2）便于预览
+  // 加载可选 run 列表（下拉选择，替代手输数字 id）；默认选最近两次完成的 run
   useEffect(() => {
-    setRunA(1);
-    setRunB(2);
-    // 不自动触发，让用户点击「对比」
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await listRuns({ page: 1, page_size: 50 });
+        if (cancelled) return;
+        setRuns(data.items);
+        // 默认预选：最近两个 completed（对比最常见的"旧基线 vs 新版"场景）
+        const done = data.items.filter((r) => r.status === 'completed');
+        const [newer, older] = done;
+        if (newer && older) {
+          setRunB(newer.id);
+          setRunA(older.id);
+        }
+      } catch {
+        // 静默：列表加载失败不阻塞页面，用户仍可手动输入（Select 支持搜索）
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const filteredCases = useMemo(() => {
+  // 后端 comparator 的 direction 是 up/down/same，页面语义是 improve/worsen/flat——
+  // 数据入口归一化（顺带把 only_a/only_b 归为 flat，样本交集模式下不出现）
+  const normalizedCases = useMemo(() => {
     if (!report) return [];
-    if (filterDir === 'all') return report.case_deltas;
-    return report.case_deltas.filter((c) => c.direction === filterDir);
-  }, [report, filterDir]);
+    const map: Record<string, EvalCaseDelta['direction']> = {
+      up: 'improve', down: 'worsen', same: 'flat', only_a: 'flat', only_b: 'flat',
+    };
+    return report.case_deltas.map((c) => ({
+      ...c,
+      direction: map[c.direction] ?? 'flat',
+    }));
+  }, [report]);
+
+  const filteredCases = useMemo(() => {
+    if (filterDir === 'all') return normalizedCases;
+    return normalizedCases.filter((c) => c.direction === filterDir);
+  }, [normalizedCases, filterDir]);
 
   const counts = useMemo(() => {
-    if (!report) return { all: 0, improve: 0, worsen: 0, flat: 0 };
     return {
-      all: report.case_deltas.length,
-      improve: report.case_deltas.filter((c) => c.direction === 'improve').length,
-      worsen: report.case_deltas.filter((c) => c.direction === 'worsen').length,
-      flat: report.case_deltas.filter((c) => c.direction === 'flat').length,
+      all: normalizedCases.length,
+      improve: normalizedCases.filter((c) => c.direction === 'improve').length,
+      worsen: normalizedCases.filter((c) => c.direction === 'worsen').length,
+      flat: normalizedCases.filter((c) => c.direction === 'flat').length,
     };
-  }, [report]);
+  }, [normalizedCases]);
 
   const columns: ColumnsType<EvalCaseDelta> = [
     {
@@ -150,24 +194,30 @@ export default function ComparePage() {
             <label className="text-sm" style={{ display: 'block', marginBottom: 6, color: 'var(--gray-700)', fontWeight: 500 }}>
               A 基线运行
             </label>
-            <InputNumber
+            <Select
               style={{ width: '100%' }}
-              placeholder="run id (旧版本)"
+              placeholder="选择旧版本运行"
               value={runA ?? undefined}
               onChange={(v) => setRunA(typeof v === 'number' ? v : null)}
-              min={1}
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              options={runs.map((r) => ({ label: runOptionLabel(r), value: r.id }))}
             />
           </div>
           <div>
             <label className="text-sm" style={{ display: 'block', marginBottom: 6, color: 'var(--gray-700)', fontWeight: 500 }}>
               B 新版运行
             </label>
-            <InputNumber
+            <Select
               style={{ width: '100%' }}
-              placeholder="run id (新版本)"
+              placeholder="选择新版本运行"
               value={runB ?? undefined}
               onChange={(v) => setRunB(typeof v === 'number' ? v : null)}
-              min={1}
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              options={runs.map((r) => ({ label: runOptionLabel(r), value: r.id }))}
             />
           </div>
           <div>
@@ -283,7 +333,7 @@ export default function ComparePage() {
         </>
       ) : (
         <Callout variant="info" icon="i">
-          填入两个 run id 后点击「对比」。A 应为旧版本基线运行，B 为新版本对照运行；样本交集为两次运行都包含的样本。
+          下拉选择两个运行后点击「对比」（支持按名称/编号搜索）。A 应为旧版本基线运行，B 为新版本对照运行；样本交集为两次运行都包含的样本。默认预选最近两次已完成的运行。
         </Callout>
       )}
     </div>

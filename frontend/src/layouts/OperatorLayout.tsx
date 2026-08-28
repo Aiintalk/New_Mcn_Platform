@@ -22,6 +22,8 @@ const MENU: { path: string; label: string; icon: string; adminOnly?: boolean }[]
   { path: '/evaluation/test-cases', label: '测试集',   icon: '⚑', adminOnly: true },
   { path: '/evaluation/runs',       label: '运行管理', icon: '▶', adminOnly: true },
   { path: '/evaluation/compare',    label: '版本对比', icon: '⇄', adminOnly: true },
+  // 维度与评分标准管理页在管理端布局下；运营侧加直达入口（否则管理员也找不到）
+  { path: '/admin/evaluation/dimensions', label: '评分标准', icon: '⚖', adminOnly: true },
 ];
 
 export default function OperatorLayout() {
