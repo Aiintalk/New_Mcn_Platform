@@ -1,8 +1,8 @@
 # 评测模块迭代收尾（真实测试集 + 打磨清单 P0-P3）— PR 变更说明
 
 > 给：项目负责人 + 仓库管理员（郜郜）。
-> 范围：`feature/eval-real-testcases` vs `main`（main = `cb3f4ca` = PR #44 合并点）。**13 commits，31 文件，+2039 / −411**。
-> 一句话：接入张翀第一批 **10 条真实测试集**（方案 A 纯业务数据），修复验收发现的 **8 个 bug**，完成打磨清单 **P0-P3**（评分可信度/体验/失败重跑/系统性测试）。**业务代码改动收敛在评测模块 5 个文件**。
+> 范围：`feature/eval-real-testcases` vs `main`（main = `cb3f4ca` = PR #44 合并点）。**20 commits，35 文件，+2420 / −459**。
+> 一句话：接入张翀第一批 **10 条真实测试集**（方案 A 纯业务数据），修复验收发现的 **8 个 bug + 编辑页数据破坏隐患**，完成打磨清单 **P0-P3**（评分可信度/体验/失败重跑/系统性测试）+ PM 验收追加项（场景变体 UI 隐藏）。**业务代码改动收敛在评测模块 5 个文件**；全部测试经两轮独立 review（scorer 4 项 + tc 7 项，全修闭环）。
 
 郜郜重点关注：**§1 改了哪些已有文件（5 个后端 + 12 个前端）**、**§4 部署（有 DB 迁移 057）**。
 
@@ -51,6 +51,7 @@
 - `docs/evaluation/迭代收尾-待确认事项与改动说明.md`（六项需求裁决 + 本 PR 改动明细）
 - `docs/evaluation/评分维度动态化-需求确认清单.md`（六轮讨论考古）
 - `docs/superpowers/specs/2026-08-27-eval-scoring-strategy-design.md`（策略层设计，**只存档不实施**——PM 决定保持单一标准）
+- `docs/evaluation/评测后续迭代路线图.md`（PM 0828 裁决落档：近期 3 项/中期 3 项/远期 4 项）
 
 **其余**：前端测试重写/新增（TestCaseEdit 7 用例等）
 
@@ -66,6 +67,9 @@
 | **P1 体验** `9ca053d` | 对比下拉选 run / 标签命中预览 / 评分标准入口 + 维度徽章显示名 / direction 枚举修复 | 98 前端测试 + 浏览器五点实测（对比 8.20→8.78 方向 7/2/1） |
 | **P2 稳定性** `a94187c` | 失败 case 单独重跑（端点+按钮+计数修正）/ 429 退避 60s / 失败行可见 | 64 后端 + 99 前端 + **E2E：run20 job62 点重跑→done，failed 5→4** |
 | **P3 系统性测试** `9fea7cb` | 三模块全部提交类操作接口测试 13/13；**修复编辑页字段错位**（保存即毁数据的隐性 bug） | 接口 13/13 + 编辑页 7/7 + 浏览器实测 case22 四字段全回填 |
+| **PM 验收追加** `955df12` | 隐藏维度页「场景变体」UI（预留机制未启用造成困惑，PM 拍板 B；数据逻辑保留，策略层启动时放开） | Dimensions 17/17 + 全量 93/93 + 浏览器实测无残留 |
+| **覆盖率劣化补测** `1af05a6` | P3 的 13 项 curl 实测转 pytest 集成测试（retry 四路负路径/jobs/cancel/case_results 附 job 字段/scores 附维度名）计入覆盖 | operator_evaluation 覆盖 65%→71%；全量 2014 passed |
+| **tc 独立 review** `873edb3` | reviewer 7 项发现全修：🔴固定命名 flake（实证复现）/弱化重复测试删除/id(self)→uuid/补 503+OperationLog 断言/FE 死代码+label 歧义/seed 注释对齐实现 | operator_evaluation 53/53 + worker 19/19 + seed 8/8 + 全量 2013 passed / 0 failed |
 
 ---
 
@@ -91,7 +95,8 @@
 
 ## §6. 质量数据
 
-- 后端：`tests/unit + tests/integration` = **1994+ passed / 0 failed**（含新增 ~60 用例），覆盖率门禁 6 目录全 PASS
-- 前端：evaluation 页面 **93-99 passed**（多轮）+ tsc 0 错
+- 后端：`tests/unit + tests/integration` = **2013 passed / 0 failed**（新增 ~80 用例），覆盖率门禁 6 目录全 PASS（对比 #44 基线无实质劣化：services +0.2 / routers −0.1 波动 / adapters −0.7 为非本 PR 的测量波动）
+- 前端：evaluation 页面 **93 passed** + tsc 0 错
 - E2E：run55（评分守卫 10/10 真实模型）、run20（重跑闭环 failed 5→4）、case22（编辑页回填）
-- 独立 review：P0 修复经独立 reviewer 审查（REQUEST_CHANGES 4 项全修后合入）
+- 独立 review ×2：P0 scorer 修复 4 项全修；测试代码 7 项全修（含实证复现的 flake）
+- P3 接口实测 13/13（三模块全部提交类操作）
