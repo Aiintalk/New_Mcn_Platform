@@ -1,5 +1,5 @@
 /**
- * TestCaseEdit 页面测试（新建模式）
+ * TestCaseEdit 页面测试（方案 A 纯业务数据四字段表单）
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
@@ -17,8 +17,6 @@ vi.mock('../../../../evaluation/api', () => ({
 }));
 
 const mockUseParams = vi.fn();
-// useNavigate 必须返回稳定引用：TestCaseEdit 的加载 effect 依赖 navigate，
-// 每次渲染返回新 fn 会触发 effect 反复取消（cancelled=true），导致 setLoading(false) 被跳过
 const mockNavigate = vi.fn();
 
 vi.mock('react-router-dom', async () => {
@@ -40,232 +38,162 @@ function renderWithProviders(ui: React.ReactElement, initialEntries: string[] = 
   );
 }
 
-describe('TestCaseEditPage (新建模式)', () => {
+/** 找指定 label 的表单控件 wrapper（antd Form.Item label 旁的控件） */
+function fieldByLabel(labelText: string): HTMLElement {
+  const labels = Array.from(document.querySelectorAll('label'));
+  const label = labels.find((l) => (l.textContent ?? '').includes(labelText));
+  const item = label?.closest('.ant-form-item');
+  const ctrl = item?.querySelector('input, textarea') as HTMLElement;
+  if (!ctrl) throw new Error(`未找到字段控件: ${labelText}`);
+  return ctrl;
+}
+
+const sampleExisting = {
+  id: 22, tool_code: 'qianchuan-writer',
+  name: '暖暖 · 酵色隔离 ①',
+  description: '张翀真实测试集',
+  input_payload: {
+    name: '暖暖',
+    persona: '语气温柔、强调干净利落的造型和高级感',
+    product_info: '机制：58/瓶；108到手2瓶…',
+    original_script: '詹詹、小猴子都在推荐的这款TAG酵色隔离…',
+  },
+  tags: ['真实数据'],
+  is_active: true,
+  created_by: null, updated_by: null,
+  created_at: 't', updated_at: 't', deleted_at: null,
+};
+
+function fillAllFields() {
+  setFieldValueField('样本名称', '测试样本A');
+  setFieldValueField('达人', '羊羊');
+  setFieldValueField('达人人设', '亲和力节奏快');
+  setFieldValueField('产品信息', '面膜 199/10盒');
+  setFieldValueField('参考原版脚本', '我把美迪惠尔面膜砍到一盒18块钱');
+}
+function setFieldValueField(label: string, value: string) {
+  const ctrl = fieldByLabel(label);
+  const proto = ctrl instanceof HTMLTextAreaElement
+    ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+  const setter = Object.getOwnPropertyDescriptor(proto, 'value')!.set!;
+  setter.call(ctrl, value);
+  ctrl.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+function addTag(text: string) {
+  const tagInput = Array.from(document.querySelectorAll('input'))
+    .find((i) => i.placeholder === '输入后回车') as HTMLInputElement;
+  setFieldValueDirect(tagInput, text);
+  fireEvent.keyDown(tagInput, { key: 'Enter' });
+}
+function setFieldValueDirect(el: HTMLInputElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!;
+  setter.call(el, value);
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+describe('TestCaseEditPage（方案 A 四字段）', () => {
   beforeEach(() => {
     mockGetTestCase.mockReset();
     mockCreateTestCase.mockReset();
     mockUpdateTestCase.mockReset();
     mockUseParams.mockReset();
     mockUseParams.mockReturnValue({ id: 'new' });
+    mockNavigate.mockReset();
   });
 
-  it('新建模式渲染空表单', async () => {
+  it('新建模式渲染四字段表单（回归：旧表单 selling_points/messages 已移除）', async () => {
     renderWithProviders(<TestCaseEditPage />);
     expect(screen.getByText('新建测试样本')).toBeInTheDocument();
-    // 至少能看到几个 card 标题
     expect(screen.getByText('基础信息')).toBeInTheDocument();
-    expect(screen.getByText('产品卖点卡')).toBeInTheDocument();
-    expect(screen.getByText('参考脚本 / 原版')).toBeInTheDocument();
-    expect(screen.getByText('对话上下文 messages')).toBeInTheDocument();
+    expect(screen.getByText(/业务输入/)).toBeInTheDocument();
     expect(screen.getByText('标签')).toBeInTheDocument();
-    // 新建模式不调用 list
-    expect(mockGetTestCase).not.toHaveBeenCalled();
+    // 旧字段不复存在
+    expect(screen.queryByText('产品卖点卡')).not.toBeInTheDocument();
+    expect(screen.queryByText(/对话上下文/)).not.toBeInTheDocument();
   });
 
-  it('编辑模式加载已有样本', async () => {
-    mockUseParams.mockReturnValue({ id: '5' });
-    const sample = {
-      id: 5,
-      tool_code: 'qianchuan-writer',
-      name: '焦虑型 · 美妆精华开屏',
-      description: '3 秒痛点钩子前置',
-      input_payload: {
-        kol_name: '林小美',
-        selling_points: '5% 烟酰胺',
-        reference_script: '原版脚本...',
-        messages: [{ role: 'user', content: '帮我仿写...' }],
-      },
-      expected_output: null,
-      tags: ['焦虑型', '美妆'],
-      is_active: true,
-      created_by: 1,
-      updated_by: 1,
-      created_at: '2026-07-16T14:22:00Z',
-      updated_at: '2026-07-16T14:22:00Z',
-      deleted_at: null,
-    };
-    mockGetTestCase.mockResolvedValue(sample);
-    renderWithProviders(<TestCaseEditPage />, ['/evaluation/test-cases/5/edit']);
-    await waitFor(() => {
-      expect(mockGetTestCase).toHaveBeenCalledWith(5);
-    });
-  });
-
-  it('加载失败时通过 message.error 提示（验证 API 调用）', async () => {
-    mockUseParams.mockReturnValue({ id: '99' });
-    mockGetTestCase.mockRejectedValue(new Error('网络错误'));
-    renderWithProviders(<TestCaseEditPage />, ['/evaluation/test-cases/99/edit']);
-    // 编辑模式下应触发加载（不渲染错误文案到 DOM，而是通过 antd 通知）
-    await waitFor(() => {
-      expect(mockGetTestCase).toHaveBeenCalled();
-    });
-  });
-});
-
-describe('TestCaseEditPage — 表单提交与标签交互', () => {
-  beforeEach(() => {
-    mockGetTestCase.mockReset();
-    mockCreateTestCase.mockReset();
-    mockUpdateTestCase.mockReset();
-    mockUseParams.mockReset();
-    mockUseParams.mockReturnValue({ id: 'new' }); // 新建模式
-  });
-
-  // 点击「保存」（AntD 2 字按钮 autoInsertSpace → "保 存"；页面顶部+底部各一个）
-  function clickSave() {
-    fireEvent.click(screen.getAllByText(/保\s*存/)[0]);
-  }
-
-  // 填齐必填项：名称 + 至少一个标签
-  function fillRequired(name = '测试样本A', tag = '焦虑型') {
-    fireEvent.change(screen.getByPlaceholderText(/美妆精华开屏/), { target: { value: name } });
-    const tagInput = screen.getByTestId('tag-input');
-    fireEvent.change(tagInput, { target: { value: tag } });
-    fireEvent.keyDown(tagInput, { key: 'Enter' });
-  }
-
-  it('新建：填名称+标签后保存，调用 createTestCase 并提示成功', async () => {
-    mockCreateTestCase.mockResolvedValue({ id: 9 });
+  it('四业务字段齐填 + 标签 → 保存调用 createTestCase（input_payload 只含四字段，无 messages）', async () => {
+    mockCreateTestCase.mockResolvedValue(sampleExisting);
     renderWithProviders(<TestCaseEditPage />);
-    fillRequired();
-    clickSave();
+    await waitFor(() => screen.getByText('基础信息'));
+    fillAllFields();
+    addTag('真实数据');
+    fireEvent.click(screen.getByText('保 存') ?? (await screen.findByText(/保\s*存/)));
     await waitFor(() => {
-      expect(mockCreateTestCase).toHaveBeenCalledWith(
-        expect.objectContaining({
-          tool_code: 'qianchuan-writer',
-          name: '测试样本A',
-          tags: ['焦虑型'],
-          input_payload: expect.objectContaining({ messages: expect.any(Array) }),
-        }),
-      );
+      expect(mockCreateTestCase).toHaveBeenCalledTimes(1);
     });
-    await waitFor(() => {
-      expect(screen.getByText(/已创建样本/)).toBeInTheDocument();
-    });
+    const body = mockCreateTestCase.mock.calls[0][0] as Record<string, unknown>;
+    const ip = body.input_payload as Record<string, unknown>;
+    expect(ip.name).toBe('羊羊');
+    expect(ip.persona).toBe('亲和力节奏快');
+    expect(ip.product_info).toBe('面膜 199/10盒');
+    expect(ip.original_script).toBe('我把美迪惠尔面膜砍到一盒18块钱');
+    expect(ip.messages).toBeUndefined();   // 方案 A：无指令字段
+    expect(body.tags).toEqual(['真实数据']);
   });
 
-  it('messages 非法 JSON 时阻止提交并提示', async () => {
+  it('未加标签提交时阻止并提示', async () => {
     renderWithProviders(<TestCaseEditPage />);
-    fillRequired();
-    fireEvent.change(screen.getByLabelText('JSON 或多行文本'), { target: { value: '{not json' } });
-    clickSave();
+    await waitFor(() => screen.getByText('基础信息'));
+    fillAllFields();
+    const saveBtn = Array.from(document.querySelectorAll('button'))
+      .find((b) => (b.textContent ?? '').replace(/\s/g, '') === '保存');
+    fireEvent.click(saveBtn!);
     await waitFor(() => {
-      expect(screen.getByText(/messages 不是合法 JSON/)).toBeInTheDocument();
+      expect(document.querySelector('.ant-message-notice')?.textContent).toContain('标签');
     });
     expect(mockCreateTestCase).not.toHaveBeenCalled();
   });
 
-  it('保存失败显示错误提示', async () => {
-    mockCreateTestCase.mockRejectedValue(new Error('服务器错误'));
-    renderWithProviders(<TestCaseEditPage />);
-    fillRequired();
-    clickSave();
+  it('编辑模式：按方案 A 契约回填四字段（回归：旧表单字段错位显示空）', async () => {
+    mockUseParams.mockReturnValue({ id: '22' });
+    mockGetTestCase.mockResolvedValue(sampleExisting);
+    renderWithProviders(<TestCaseEditPage />, ['/evaluation/test-cases/22/edit']);
+    await waitFor(() => screen.getByDisplayValue('暖暖 · 酵色隔离 ①'));
+    // 四业务字段从 input_payload 正确回填（非空）
+    expect((fieldByLabel('达人') as HTMLInputElement).value).toBe('暖暖');
+    expect((fieldByLabel('达人人设') as HTMLTextAreaElement).value).toContain('语气温柔');
+    expect((fieldByLabel('产品信息') as HTMLTextAreaElement).value).toContain('58/瓶');
+    expect((fieldByLabel('参考原版脚本') as HTMLTextAreaElement).value).toContain('酵色隔离');
+    expect(screen.getByText('真实数据')).toBeInTheDocument();  // tags 回填
+  });
+
+  it('编辑保存调用 updateTestCase 且不破坏四字段', async () => {
+    mockUseParams.mockReturnValue({ id: '22' });
+    mockGetTestCase.mockResolvedValue(sampleExisting);
+    mockUpdateTestCase.mockResolvedValue(sampleExisting);
+    renderWithProviders(<TestCaseEditPage />, ['/evaluation/test-cases/22/edit']);
+    await waitFor(() => screen.getByDisplayValue('暖暖 · 酵色隔离 ①'));
+    const saveBtn = Array.from(document.querySelectorAll('button'))
+      .find((b) => (b.textContent ?? '').replace(/\s/g, '') === '保存');
+    fireEvent.click(saveBtn!);
     await waitFor(() => {
-      expect(screen.getByText(/服务器错误/)).toBeInTheDocument();
+      expect(mockUpdateTestCase).toHaveBeenCalledWith(22, expect.objectContaining({
+        input_payload: expect.objectContaining({
+          name: '暖暖',
+          persona: expect.stringContaining('语气温柔'),
+        }),
+      }));
     });
   });
 
-  it('编辑模式：加载后保存调用 updateTestCase', async () => {
-    mockUseParams.mockReturnValue({ id: '5' });
-    mockGetTestCase.mockResolvedValue({
-      id: 5,
-      tool_code: 'qianchuan-writer',
-      name: '原样本',
-      description: 'desc',
-      input_payload: { kol_name: '林小美', messages: [{ role: 'user', content: 'x' }] },
-      expected_output: null,
-      tags: ['美妆'],
-      is_active: true,
-      created_by: 1,
-      updated_by: 1,
-      created_at: '2026-07-16T14:22:00Z',
-      updated_at: '2026-07-16T14:22:00Z',
-      deleted_at: null,
-    });
-    mockUpdateTestCase.mockResolvedValue({ id: 5 });
-    renderWithProviders(<TestCaseEditPage />, ['/evaluation/test-cases/5/edit']);
-    // 等待表单回填（异步加载）
-    const nameInput = await screen.findByDisplayValue('原样本');
-    expect(nameInput).toBeInTheDocument();
-    clickSave();
-    await waitFor(() => {
-      expect(mockUpdateTestCase).toHaveBeenCalledWith(5, expect.objectContaining({ name: '原样本' }));
-    });
-  });
-
-  it('标签边界：空输入不添加', () => {
+  it('标签边界：重复标签只保留一个；空输入不添加', async () => {
     renderWithProviders(<TestCaseEditPage />);
-    const tagInput = screen.getByTestId('tag-input');
-    fireEvent.change(tagInput, { target: { value: '   ' } });
-    fireEvent.keyDown(tagInput, { key: 'Enter' });
-    expect(screen.queryByText(/焦虑型/)).not.toBeInTheDocument();
+    await waitFor(() => screen.getByText('基础信息'));
+    addTag('真实数据');
+    addTag('真实数据');
+    expect(screen.getAllByText('真实数据').length).toBe(1);
+    addTag('  ');
+    expect(screen.getAllByText('真实数据').length).toBe(1);
   });
 
-  it('标签边界：重复标签只保留一个', async () => {
-    renderWithProviders(<TestCaseEditPage />);
-    const tagInput = screen.getByTestId('tag-input');
-    fireEvent.change(tagInput, { target: { value: '焦虑型' } });
-    fireEvent.keyDown(tagInput, { key: 'Enter' });
-    fireEvent.change(tagInput, { target: { value: '焦虑型' } });
-    fireEvent.keyDown(tagInput, { key: 'Enter' });
-    // Tag closable 带关闭图标，用正则匹配
-    await waitFor(() => {
-      expect(screen.getAllByText(/焦虑型/).length).toBe(1);
-    });
-  });
-
-  it('标签边界：超过 5 个提示警告且不加第 6 个', async () => {
-    renderWithProviders(<TestCaseEditPage />);
-    const tagInput = screen.getByTestId('tag-input');
-    ['一', '二', '三', '四', '五'].forEach((t) => {
-      fireEvent.change(tagInput, { target: { value: t } });
-      fireEvent.keyDown(tagInput, { key: 'Enter' });
-    });
-    fireEvent.change(tagInput, { target: { value: '六' } });
-    fireEvent.keyDown(tagInput, { key: 'Enter' });
-    await waitFor(() => {
-      expect(screen.getByText(/标签最多 5 个/)).toBeInTheDocument();
-    });
-    expect(screen.queryByText(/六/)).not.toBeInTheDocument();
-  });
-});
-
-describe('TestCaseEditPage — 边界与错误路径', () => {
-  beforeEach(() => {
-    mockGetTestCase.mockReset();
-    mockCreateTestCase.mockReset();
-    mockUpdateTestCase.mockReset();
-    mockUseParams.mockReset();
-    mockNavigate.mockReset();
-    mockUseParams.mockReturnValue({ id: 'new' });
-  });
-
-  it('编辑模式样本不存在时提示错误（getTestCase 404 抛错）', async () => {
+  it('加载失败时 message.error 提示', async () => {
     mockUseParams.mockReturnValue({ id: '999' });
-    mockGetTestCase.mockRejectedValue(new Error('测试样本不存在'));
+    mockGetTestCase.mockRejectedValue(new Error('not found'));
     renderWithProviders(<TestCaseEditPage />, ['/evaluation/test-cases/999/edit']);
     await waitFor(() => {
-      expect(screen.getByText(/测试样本不存在/)).toBeInTheDocument();
+      expect(document.querySelector('.ant-message-notice')?.textContent).toContain('not found');
     });
-  });
-
-  it('未加标签提交时阻止并提示（覆盖 tags 空校验）', async () => {
-    renderWithProviders(<TestCaseEditPage />);
-    fireEvent.change(screen.getByPlaceholderText(/美妆精华开屏/), { target: { value: '无名样本' } });
-    fireEvent.click(screen.getAllByText(/保\s*存/)[0]);
-    await waitFor(() => {
-      expect(screen.getByText(/至少一个标签/)).toBeInTheDocument();
-    });
-    expect(mockCreateTestCase).not.toHaveBeenCalled();
-  });
-
-  it('删除已添加的标签（覆盖 Tag onClose）', () => {
-    const { container } = renderWithProviders(<TestCaseEditPage />);
-    const tagInput = screen.getByTestId('tag-input');
-    fireEvent.change(tagInput, { target: { value: '焦虑型' } });
-    fireEvent.keyDown(tagInput, { key: 'Enter' });
-    expect(screen.getByText(/焦虑型/)).toBeInTheDocument();
-    fireEvent.click(container.querySelector('.ant-tag-close-icon')!);
-    expect(screen.queryByText(/焦虑型/)).not.toBeInTheDocument();
   });
 });

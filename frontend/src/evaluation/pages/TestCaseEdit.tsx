@@ -1,42 +1,34 @@
 /**
- * 测试样本编辑（设计稿 test-case-edit.html）
+ * 测试样本 新建/编辑（方案 A 架构：纯业务数据四字段）
  *
- * 路由：
- *   /evaluation/test-cases/new         → 创建
- *   /evaluation/test-cases/:id/edit    → 更新
- *
- * 表单字段：基础信息 / 卖点卡(JSON 文本) / 参考脚本 / 对话上下文(JSON) / 标签
+ * input_payload 契约（与 seed_eval_testcases_real.py / generator 渲染对齐）：
+ *   name            达人名（渲染 {{name}}）
+ *   persona         达人人设（渲染 {{soul}}）
+ *   product_info    产品信息（渲染 {{product_info}}）
+ *   original_script 参考原版脚本（渲染 {{original_script}}）
+ * 不含改写指令——指令归版本提示词模板（rubric/version 管理）。
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { App, Button, Card, Form, Input, Skeleton, Space, Tag } from 'antd';
+import { App, Button, Card, Form, Input, Skeleton, Space, Switch, Tag } from 'antd';
 import { ArrowLeftOutlined } from '@ant-design/icons';
 import '../../styles/variables.css';
 import '../styles/eval.css';
-import { Callout } from '../components/primitives';
 import { createTestCase, getTestCase, updateTestCase } from '../api';
 import type { EvalTestCaseCreate, EvalTestCaseUpdate } from '../types';
+import { Callout } from '../components/primitives';
 
 const { TextArea } = Input;
 
 interface FormValues {
-  name: string;
-  description?: string;
-  kol_id?: number | null;
-  kol_name?: string;
-  selling_points?: string;
-  reference_script?: string;
-  messages?: string; // JSON 字符串
+  name: string;            // 样本名（管理）
+  description?: string;    // 样本描述（管理）
+  kol_name: string;        // 达人名（input_payload.name）
+  persona: string;         // 达人人设（input_payload.persona）
+  product_info: string;    // 产品信息（input_payload.product_info）
+  original_script: string; // 参考原版脚本（input_payload.original_script）
   is_active: boolean;
 }
-
-const DEFAULT_MESSAGES = JSON.stringify(
-  [
-    { role: 'user', content: '帮我仿写一条抖音千川投放文案，要符合我的人设，3 秒内抓住痛点。' },
-  ],
-  null,
-  2,
-);
 
 export default function TestCaseEditPage() {
   const { message } = App.useApp();
@@ -51,7 +43,7 @@ export default function TestCaseEditPage() {
   const [tagInput, setTagInput] = useState('');
   const [tags, setTags] = useState<string[]>([]);
 
-  // 加载已有样本（编辑模式）
+  // 加载已有样本（编辑模式）——按方案 A 字段契约回填
   useEffect(() => {
     if (!isEdit || !testCaseId) return;
     let cancelled = false;
@@ -64,11 +56,10 @@ export default function TestCaseEditPage() {
         form.setFieldsValue({
           name: found.name,
           description: found.description ?? '',
-          kol_id: (ip.kol_id as number | undefined) ?? null,
-          kol_name: (ip.kol_name as string | undefined) ?? '',
-          selling_points: (ip.selling_points as string | undefined) ?? '',
-          reference_script: (ip.reference_script as string | undefined) ?? '',
-          messages: ip.messages ? JSON.stringify(ip.messages, null, 2) : DEFAULT_MESSAGES,
+          kol_name: (ip.name as string | undefined) ?? '',
+          persona: (ip.persona as string | undefined) ?? '',
+          product_info: (ip.product_info as string | undefined) ?? '',
+          original_script: (ip.original_script as string | undefined) ?? '',
           is_active: found.is_active,
         });
         setTags(found.tags ?? []);
@@ -82,7 +73,7 @@ export default function TestCaseEditPage() {
     return () => {
       cancelled = true;
     };
-  }, [isEdit, testCaseId, form, message, navigate]);
+  }, [isEdit, testCaseId, form, message]);
 
   const handleAddTag = () => {
     const v = tagInput.trim();
@@ -101,26 +92,21 @@ export default function TestCaseEditPage() {
 
   const handleSave = async (values: FormValues) => {
     if (tags.length === 0) {
-      message.error('至少一个标签，便于按场景筛选');
+      message.error('至少一个标签，便于按场景筛选（如：真实数据）');
       return;
     }
-    // 校验 messages JSON
-    let messagesJson: unknown = null;
-    if (values.messages) {
-      try {
-        messagesJson = JSON.parse(values.messages);
-      } catch {
-        message.error('对话上下文 messages 不是合法 JSON');
-        return;
-      }
+    if (!values.kol_name.trim() || !values.persona.trim()
+        || !values.product_info.trim() || !values.original_script.trim()) {
+      message.error('四个业务输入字段（达人/人设/产品信息/参考脚本）均必填');
+      return;
     }
 
+    // 方案 A 纯业务数据：四输入字段（无 messages——指令归版本提示词）
     const input_payload: Record<string, unknown> = {
-      kol_id: values.kol_id ?? null,
-      kol_name: values.kol_name ?? '',
-      selling_points: values.selling_points ?? '',
-      reference_script: values.reference_script ?? '',
-      messages: messagesJson,
+      name: values.kol_name.trim(),
+      persona: values.persona.trim(),
+      product_info: values.product_info,
+      original_script: values.original_script,
     };
 
     setSaving(true);
@@ -145,7 +131,7 @@ export default function TestCaseEditPage() {
           is_active: values.is_active,
         };
         await createTestCase(body);
-        message.success('已创建样本');
+        message.success('已创建');
       }
       navigate('/evaluation/test-cases');
     } catch (err) {
@@ -157,7 +143,7 @@ export default function TestCaseEditPage() {
   };
 
   const subtitle = useMemo(() => {
-    if (!isEdit) return '新建一条覆盖特定场景的固定输入样本。input_payload 以 JSONB 存储，generator 运行时按 key 渲染占位符。';
+    if (!isEdit) return '纯业务数据样本：四输入字段由版本提示词模板渲染（{{name}}/{{soul}}/{{product_info}}/{{original_script}}）。';
     return `样本 #${testCaseId} · 编辑模式。修改后立即生效，下一次回归运行将采用最新版本。`;
   }, [isEdit, testCaseId]);
 
@@ -192,11 +178,10 @@ export default function TestCaseEditPage() {
         initialValues={{
           name: '',
           description: '',
-          kol_id: null,
           kol_name: '',
-          selling_points: '',
-          reference_script: '',
-          messages: DEFAULT_MESSAGES,
+          persona: '',
+          product_info: '',
+          original_script: '',
           is_active: true,
         }}
         onFinish={handleSave}
@@ -207,58 +192,66 @@ export default function TestCaseEditPage() {
             label="样本名称"
             rules={[{ required: true, message: '请输入样本名称' }]}
           >
-            <Input placeholder="例：焦虑型 · 美妆精华开屏" />
+            <Input placeholder="例：产品稀缺性 · 羊羊 · 美迪惠尔面膜" />
           </Form.Item>
           <Form.Item name="description" label="样本描述">
             <Input placeholder="一句话场景描述，便于筛选与回顾" />
           </Form.Item>
-          <Space style={{ width: '100%' }} size="middle">
-            <Form.Item name="kol_name" label="关联达人（名称，便于追溯）" style={{ flex: 1, minWidth: 240, marginBottom: 0 }}>
-              <Input placeholder="例：林小美" />
-            </Form.Item>
-            <Form.Item name="kol_id" label="达人 ID（可选）" style={{ width: 160, marginBottom: 0 }}>
-              <Input type="number" placeholder="kol_id" />
-            </Form.Item>
-          </Space>
+          <Form.Item name="is_active" label="启用" valuePropName="checked">
+            <Switch />
+          </Form.Item>
         </Card>
 
-        <Card title="产品卖点卡" className="mb-5" styles={{ body: { padding: 24 } }}>
-          <Form.Item name="selling_points" label="或直接填写卖点文本" tooltip="一期以文本录入，文件上传二期开放">
+        <Card title="业务输入（驱动评测的四个字段）" className="mb-5" styles={{ body: { padding: 24 } }}>
+          <Space style={{ width: '100%' }} size="middle">
+            <Form.Item
+              name="kol_name"
+              label="达人"
+              style={{ flex: 1, minWidth: 200, marginBottom: 0 }}
+              rules={[{ required: true, message: '达人名必填' }]}
+            >
+              <Input placeholder="例：羊羊" />
+            </Form.Item>
+          </Space>
+          <Form.Item
+            name="persona"
+            label="达人人设"
+            rules={[{ required: true, message: '人设必填' }]}
+            style={{ marginTop: 16 }}
+          >
             <TextArea
-              autoSize={{ minRows: 4, maxRows: 12 }}
-              placeholder="核心成分：5% 烟酰胺 + 玻尿酸；价格：198 元买一送一；定位：熬夜脸黄提亮；目标人群：25-35 女性白领…"
+              autoSize={{ minRows: 2, maxRows: 6 }}
+              placeholder="例：羊羊：自带亲和力节奏快、干脆利落人设，坦诚，营造信任感"
             />
           </Form.Item>
-          <Callout variant="warn" icon="!">
-            文件拖拽上传（图片 / PDF / DOC）将在二期开放。当前请将卖点内容直接粘贴到上方文本框。
+          <Form.Item
+            name="product_info"
+            label="产品信息"
+            rules={[{ required: true, message: '产品信息必填' }]}
+          >
+            <TextArea
+              autoSize={{ minRows: 4, maxRows: 12 }}
+              placeholder="成分/机制/价格/卖点/合规红线等，粘贴张翀表格的「产品信息[输入]」列"
+            />
+          </Form.Item>
+          <Form.Item
+            name="original_script"
+            label="参考原版脚本"
+            rules={[{ required: true, message: '参考脚本必填' }]}
+          >
+            <TextArea
+              autoSize={{ minRows: 6, maxRows: 20 }}
+              placeholder="被仿写的原版千川脚本，粘贴张翀表格的「参考原版脚本[输入]」列"
+            />
+          </Form.Item>
+          <Callout variant="info" icon="i">
+            改写指令不在样本里——由「版本提示词模板」统一管理（版本管理页），
+            运行时以 {'{{name}}'} / {'{{soul}}'} / {'{{product_info}}'} / {'{{original_script}}'} 占位符渲染本页四字段。
           </Callout>
         </Card>
 
-        <Card title="参考脚本 / 原版" className="mb-5" styles={{ body: { padding: 24 } }}>
-          <Form.Item name="reference_script" label="被仿写的参考文案">
-            <TextArea
-              autoSize={{ minRows: 4, maxRows: 12 }}
-              placeholder="粘贴原版脚本，generator 会基于此生成仿写候选"
-            />
-          </Form.Item>
-        </Card>
-
-        <Card title="对话上下文 messages" className="mb-5" styles={{ body: { padding: 24 } }}>
-          <Form.Item
-            name="messages"
-            label="JSON 或多行文本"
-            tooltip='generator 会结合 persona 渲染 {{name}}/{{soul}}/{{content_plan}}，再用通用占位符渲染 {{product_info}}/{{original_script}}/{{messages}}'
-          >
-            <TextArea
-              className="code-area"
-              autoSize={{ minRows: 6, maxRows: 20 }}
-              style={{ fontFamily: 'var(--font-mono)', fontSize: 12.5 }}
-            />
-          </Form.Item>
-        </Card>
-
         <Card title="标签" styles={{ body: { padding: 24 } }}>
-          <Form.Item label="标签 tags" required>
+          <Form.Item label="标签 tags" required tooltip="溯源/场景标签，如：真实数据；最多 5 个">
             <div className="tag-input" style={{ minHeight: 40 }}>
               {tags.map((t: string) => (
                 <Tag
@@ -273,52 +266,19 @@ export default function TestCaseEditPage() {
                   {t}
                 </Tag>
               ))}
-              <input
-                data-testid="tag-input"
-                placeholder="+ 添加标签（回车确认）"
+              <Input
+                size="small"
+                style={{ width: 160, margin: 2 }}
                 value={tagInput}
                 onChange={(e) => setTagInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    handleAddTag();
-                  }
-                }}
-                style={{
-                  border: 'none',
-                  outline: 'none',
-                  flex: 1,
-                  minWidth: 160,
-                  fontSize: 13,
-                  padding: 2,
-                  background: 'transparent',
-                }}
+                onPressEnter={handleAddTag}
+                onBlur={handleAddTag}
+                placeholder="输入后回车"
               />
             </div>
           </Form.Item>
-          <div className="text-xs text-muted" style={{ marginTop: -8, marginBottom: 16 }}>
-            最多 5 个标签。按回车添加。
-          </div>
-
-          <Form.Item name="is_active" label="启用状态" valuePropName="checked">
-            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-              <Form.Item name="is_active" noStyle valuePropName="checked">
-                <input type="checkbox" style={{ width: 18, height: 18 }} />
-              </Form.Item>
-              <span>参与回归运行</span>
-            </label>
-          </Form.Item>
         </Card>
-
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 24 }}>
-          <Button onClick={() => navigate('/evaluation/test-cases')}>取消</Button>
-          <Button type="primary" loading={saving} onClick={() => form.submit()}>
-            保存
-          </Button>
-        </div>
       </Form>
     </div>
   );
 }
-
-// 文件结束
