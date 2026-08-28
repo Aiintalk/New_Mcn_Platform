@@ -41,7 +41,9 @@ function renderWithProviders(ui: React.ReactElement, initialEntries: string[] = 
 /** 找指定 label 的表单控件 wrapper（antd Form.Item label 旁的控件） */
 function fieldByLabel(labelText: string): HTMLElement {
   const labels = Array.from(document.querySelectorAll('label'));
-  const label = labels.find((l) => (l.textContent ?? '').includes(labelText));
+  // 精确匹配（去必填星号/空白）：includes 会同时命中 '达人' 与 '达人人设' 造成错位
+  const norm = (s: string) => s.replace(/\*/g, '').trim();
+  const label = labels.find((l) => norm(l.textContent ?? '') === labelText);
   const item = label?.closest('.ant-form-item');
   const ctrl = item?.querySelector('input, textarea') as HTMLElement;
   if (!ctrl) throw new Error(`未找到字段控件: ${labelText}`);
@@ -119,7 +121,9 @@ describe('TestCaseEditPage（方案 A 四字段）', () => {
     await waitFor(() => screen.getByText('基础信息'));
     fillAllFields();
     addTag('真实数据');
-    fireEvent.click(screen.getByText('保 存') ?? (await screen.findByText(/保\s*存/)));
+    const saveBtn = Array.from(document.querySelectorAll('button'))
+      .find((b) => (b.textContent ?? '').replace(/\s/g, '') === '保存');
+    fireEvent.click(saveBtn!);
     await waitFor(() => {
       expect(mockCreateTestCase).toHaveBeenCalledTimes(1);
     });

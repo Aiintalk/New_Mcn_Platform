@@ -30,13 +30,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from sqlalchemy import select
-from app.core.database import AsyncSessionLocal
-import app.models  # noqa: F401  # 注册全部模型，让 eval FK 能解析
-from app.evaluation.constants import EVAL_TOOL_QIANCHUAN_WRITER
-from app.evaluation.models import EvalTestCase
-
-TOOL = EVAL_TOOL_QIANCHUAN_WRITER
+# app.* import 延迟到 main() 内：数据契约测试 exec 本文件到 REAL_CASES 为止，
+# 不触发后端运行环境 import（注释与实现保持一致）
+TOOL = "qianchuan-writer"  # 契约测试按字面量校验；main() 内再用常量
 
 REAL_CASES = [
     {
@@ -165,6 +161,14 @@ REAL_CASES = [
 
 
 async def main():
+    from sqlalchemy import select
+    from app.core.database import AsyncSessionLocal
+    import app.models  # noqa: F401  # 注册全部模型，让 eval FK 能解析
+    from app.evaluation.constants import EVAL_TOOL_QIANCHUAN_WRITER
+    from app.evaluation.models import EvalTestCase
+
+    global TOOL
+    TOOL = EVAL_TOOL_QIANCHUAN_WRITER
     async with AsyncSessionLocal() as db:
         inserted = updated = 0
         for c in REAL_CASES:

@@ -387,14 +387,14 @@ class TestRetryFailedJob:
 
         from app.evaluation.models import EvalVersion, EvalStrategy
         from app.evaluation.constants import EVAL_TOOL_QIANCHUAN_WRITER
-        v = EvalVersion(tool_code=EVAL_TOOL_QIANCHUAN_WRITER, name="rv1", config_payload={}, is_active=True)
+        v = EvalVersion(tool_code=EVAL_TOOL_QIANCHUAN_WRITER, name=f"rv-{uuid.uuid4().hex[:6]}", config_payload={}, is_active=True)
         test_session.add(v); await test_session.flush()
-        st = EvalStrategy(tool_code=EVAL_TOOL_QIANCHUAN_WRITER, name="rs1",
+        st = EvalStrategy(tool_code=EVAL_TOOL_QIANCHUAN_WRITER, name=f"rs-{uuid.uuid4().hex[:6]}",
                           test_case_selector={"all": True}, dimension_weight_overrides={},
                           rubric_selector={}, is_active=True)
         test_session.add(st); await test_session.flush()
         from app.evaluation.models import EvalTestCase
-        tc = EvalTestCase(tool_code=EVAL_TOOL_QIANCHUAN_WRITER, name="rtc1",
+        tc = EvalTestCase(tool_code=EVAL_TOOL_QIANCHUAN_WRITER, name=f"rtc-{uuid.uuid4().hex[:6]}",
                           input_payload={}, tags=[], is_active=True)
         test_session.add(tc); await test_session.flush()
         run = EvalRun(version_id=v.id, strategy_id=st.id, name="r", trigger_type="manual",
@@ -433,14 +433,14 @@ class TestRetryFailedJob:
 
         from app.evaluation.models import EvalVersion, EvalStrategy
         from app.evaluation.constants import EVAL_TOOL_QIANCHUAN_WRITER
-        v2 = EvalVersion(tool_code=EVAL_TOOL_QIANCHUAN_WRITER, name="rv2", config_payload={}, is_active=True)
+        v2 = EvalVersion(tool_code=EVAL_TOOL_QIANCHUAN_WRITER, name=f"rv-{uuid.uuid4().hex[:6]}", config_payload={}, is_active=True)
         test_session.add(v2); await test_session.flush()
-        st2 = EvalStrategy(tool_code=EVAL_TOOL_QIANCHUAN_WRITER, name="rs2",
+        st2 = EvalStrategy(tool_code=EVAL_TOOL_QIANCHUAN_WRITER, name=f"rs-{uuid.uuid4().hex[:6]}",
                            test_case_selector={"all": True}, dimension_weight_overrides={},
                            rubric_selector={}, is_active=True)
         test_session.add(st2); await test_session.flush()
         from app.evaluation.models import EvalTestCase
-        tc2 = EvalTestCase(tool_code=EVAL_TOOL_QIANCHUAN_WRITER, name="rtc2",
+        tc2 = EvalTestCase(tool_code=EVAL_TOOL_QIANCHUAN_WRITER, name=f"rtc-{uuid.uuid4().hex[:6]}",
                            input_payload={}, tags=[], is_active=True)
         test_session.add(tc2); await test_session.flush()
         run = EvalRun(version_id=v2.id, strategy_id=st2.id, name="r2", trigger_type="manual",

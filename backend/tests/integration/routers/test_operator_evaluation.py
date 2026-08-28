@@ -1127,14 +1127,14 @@ class TestJobRetryAndList:
         from app.evaluation.constants import (
             EVAL_TOOL_QIANCHUAN_WRITER, JOB_STATUS_FAILED,
         )
-        v = EvalVersion(tool_code=EVAL_TOOL_QIANCHUAN_WRITER, name=f"v-{id(self)}",
+        v = EvalVersion(tool_code=EVAL_TOOL_QIANCHUAN_WRITER, name=f"v-{__import__('uuid').uuid4().hex[:6]}",
                         config_payload={}, is_active=True)
         test_session.add(v); await test_session.flush()
-        st = EvalStrategy(tool_code=EVAL_TOOL_QIANCHUAN_WRITER, name=f"s-{id(self)}",
+        st = EvalStrategy(tool_code=EVAL_TOOL_QIANCHUAN_WRITER, name=f"s-{__import__('uuid').uuid4().hex[:6]}",
                           test_case_selector={"all": True}, dimension_weight_overrides={},
                           rubric_selector={}, is_active=True)
         test_session.add(st); await test_session.flush()
-        tc = EvalTestCase(tool_code=EVAL_TOOL_QIANCHUAN_WRITER, name=f"tc-{id(self)}",
+        tc = EvalTestCase(tool_code=EVAL_TOOL_QIANCHUAN_WRITER, name=f"tc-{__import__('uuid').uuid4().hex[:6]}",
                           input_payload={}, tags=[], is_active=True)
         test_session.add(tc); await test_session.flush()
         run = EvalRun(version_id=v.id, strategy_id=st.id, name="r-retry",
@@ -1183,6 +1183,43 @@ class TestJobRetryAndList:
         rs = (await test_session.execute(_t(
             "SELECT status, failed_cases FROM eval_runs WHERE id=:i"), {"i": run.id})).fetchone()
         assert rs[0] == "running" and rs[1] == 0   # 终态回 running + 计数修正
+
+    async def test_retry_redis_down_503(self, test_client, operator_headers, test_session):
+        """redis 不可用 → 503 降级（P2 需求：队列故障不应 500）。"""
+        from unittest.mock import AsyncMock, patch
+        run, job = await self._seed_run_with_failed_job(test_session)
+        with patch(
+            "app.evaluation.worker.enqueue_case_job",
+            new_callable=AsyncMock,
+            side_effect=ConnectionError("redis down"),
+        ):
+            resp = await test_client.post(
+                f"/api/operator/evaluation/runs/{run.id}/jobs/{job.id}/retry",
+                headers=operator_headers,
+            )
+        assert resp.status_code == 503
+        assert "队列暂不可用" in resp.json()["message"]
+
+    async def test_retry_writes_operation_log(self, test_client, operator_headers, test_session):
+        """retry 是写操作 → 必须写 OperationLog（红线 #2，对齐本文件其他写操作测试）。"""
+        from unittest.mock import AsyncMock, patch
+        run, job = await self._seed_run_with_failed_job(test_session)
+        with patch("app.evaluation.worker.enqueue_case_job",
+                   new_callable=AsyncMock, return_value="arq-x"):
+            resp = await test_client.post(
+                f"/api/operator/evaluation/runs/{run.id}/jobs/{job.id}/retry",
+                headers=operator_headers,
+            )
+        assert resp.status_code == 200
+        # 裸 SQL 断言（expire_all 后 ORM 属性惰性加载会炸 greenlet；裸值不触发）
+        from sqlalchemy import text as _t
+        row = (await test_session.execute(_t(
+            "SELECT target_id, detail FROM operation_logs "
+            "WHERE action = 'evaluation_job_retry' AND target_id = :j "
+            "ORDER BY id DESC LIMIT 1"), {"j": job.id})).fetchone()
+        assert row is not None, "evaluation_job_retry OperationLog 未写入"
+        import json as _json
+        assert _json.loads(row[1])["run_id"] == run.id if isinstance(row[1], str) else row[1]["run_id"] == run.id
 
     async def test_retry_non_failed_conflict(self, test_client, operator_headers, test_session):
         from app.evaluation.models import EvalCaseJob
@@ -1248,7 +1285,11 @@ class TestJobRetryAndList:
 
 
 class TestCancelAndCaseResults:
-    """补测：cancel_run（终态拦截/成功取消）+ case_results（job join 字段）。"""
+    """case_results 附 job 字段契约（P2 重跑按钮数据源）。
+
+    cancel 端点不在此重复——本文件 TestRunsCancel 已有更强覆盖
+    （jobs 状态/op log/401）；reviewer 指出原 3 个 cancel 测试为弱化重复，已删。
+    """
 
     async def _seed_active_run(self, test_session, status="pending", with_result=False):
         from app.evaluation.models import (
@@ -1257,14 +1298,16 @@ class TestCancelAndCaseResults:
         from app.evaluation.constants import (
             EVAL_TOOL_QIANCHUAN_WRITER, JOB_STATUS_PENDING,
         )
-        v = EvalVersion(tool_code=EVAL_TOOL_QIANCHUAN_WRITER, name=f"v-c{status}{id(self)}",
+        import uuid as _uuid
+        uid = _uuid.uuid4().hex[:6]
+        v = EvalVersion(tool_code=EVAL_TOOL_QIANCHUAN_WRITER, name=f"v-cr{uid}",
                         config_payload={}, is_active=True)
         test_session.add(v); await test_session.flush()
-        st = EvalStrategy(tool_code=EVAL_TOOL_QIANCHUAN_WRITER, name=f"s-c{status}{id(self)}",
+        st = EvalStrategy(tool_code=EVAL_TOOL_QIANCHUAN_WRITER, name=f"s-cr{uid}",
                           test_case_selector={"all": True}, dimension_weight_overrides={},
                           rubric_selector={}, is_active=True)
         test_session.add(st); await test_session.flush()
-        tc = EvalTestCase(tool_code=EVAL_TOOL_QIANCHUAN_WRITER, name=f"tc-c{status}{id(self)}",
+        tc = EvalTestCase(tool_code=EVAL_TOOL_QIANCHUAN_WRITER, name=f"tc-cr{uid}",
                           input_payload={}, tags=[], is_active=True)
         test_session.add(tc); await test_session.flush()
         run = EvalRun(version_id=v.id, strategy_id=st.id, name="r-cancel",
@@ -1280,28 +1323,6 @@ class TestCancelAndCaseResults:
             test_session.add(cr); await test_session.flush()
         await test_session.commit()
         return run, job, cr
-
-    async def test_cancel_pending_run(self, test_client, operator_headers, test_session):
-        run, job, _ = await self._seed_active_run(test_session, status="pending")
-        resp = await test_client.post(
-            f"/api/operator/evaluation/runs/{run.id}/cancel", headers=operator_headers,
-        )
-        body = resp.json()
-        assert resp.status_code == 200
-        assert body["data"]["status"] == "cancelled"
-
-    async def test_cancel_completed_run_conflict(self, test_client, operator_headers, test_session):
-        run, _, _ = await self._seed_active_run(test_session, status="completed")
-        resp = await test_client.post(
-            f"/api/operator/evaluation/runs/{run.id}/cancel", headers=operator_headers,
-        )
-        assert resp.status_code == 409
-
-    async def test_cancel_nonexistent_404(self, test_client, operator_headers):
-        resp = await test_client.post(
-            "/api/operator/evaluation/runs/999999/cancel", headers=operator_headers,
-        )
-        assert resp.status_code == 404
 
     async def test_case_results_carry_job_fields(self, test_client, operator_headers, test_session):
         run, job, cr = await self._seed_active_run(
