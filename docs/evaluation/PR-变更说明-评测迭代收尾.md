@@ -30,6 +30,7 @@
 | `pages/RunDetail.tsx` | d4 徽章→维度显示名（雷达图/校准弹窗同步）；失败 case 行显示错误+「重跑」按钮；行聚合并入"生成即失败"的 job 行 | 低 |
 | `pages/Compare.tsx` | 手输 run id → 下拉选择（名称/状态/日期，默认预选最近两次完成）；**顺带修存量 bug：direction 枚举错位**（后端 up/down/same vs 前端 improve/worsen/flat，方向判断从未生效） | 低 |
 | `layouts/OperatorLayout.tsx` + `App.tsx` | 侧边栏加「评分标准」直达入口（路由双挂载） | 低 |
+| `pages/Dimensions.tsx` | 隐藏「场景变体」UI（预留机制未启用造成困惑，PM 拍板隐藏；数据逻辑保留） | 低 |
 | `types/index.ts` / `api/index.ts` | 类型与 API 函数同步（dimension_name/job 字段/retryJob/listRunJobs） | 低 |
 | 5 个测试文件 | 适配上述交互 + 新增回归用例 | 仅测试 |
 
