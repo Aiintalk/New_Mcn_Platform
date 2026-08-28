@@ -31,6 +31,7 @@
 ## 三、功能范围（本 PR 做/不做）
 
 **做**：
+
 1. **策略管理 CRUD**（admin 端点 + 管理页）：创建/编辑/启停/软删策略；配置四件套——①测试例选择器（按标签/按 ID 列表）②rubric 变体选择（每维度选一个 scenario_tag，default 兜底）③维度权重覆盖（合计校验=1.00）④评委三件套覆盖（model/provider/adapter，可留空走版本快照）
 2. **运行绑定策略**：新建运行时选策略（默认 default）；`trigger_run` 接受 `strategy_id`
 3. **runner 激活变体选择**：`_get_default_rubrics` → 按 `strategy.rubric_selector[dim_id]` 取对应 scenario_tag 的 rubric 行，无该变体或未配置时回退 default（**回退规则固定：选了但变体缺失 → 用 default 并在 run metadata 记录 fallback 明细，不静默**）
@@ -39,6 +40,7 @@
 6. **rubric 变体管理增强**：维度管理页的 rubric 编辑支持按 scenario_tag 分组维护（现在只有 default 一组）
 
 **不做**（明确出界）：
+
 - per-红人策略配置 UI（`kol_id` 字段留位）
 - 运行时 per-case rubric 匹配（裁决③排除）
 - 规则重放/历史重算（裁决④只要轻量）
