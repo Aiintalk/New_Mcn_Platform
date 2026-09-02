@@ -11,6 +11,7 @@ from .domain import (
     ConfidenceLevel,
     ContentCategory,
     ContentRecord,
+    OpeningKind,
     OpeningTagStatus,
     ProjectAccountRelation,
     ProjectContextVersion,
@@ -84,6 +85,7 @@ class LibraryCandidate:
     confidence: ConfidenceLevel
     body_benchmark: str | None
     opening_status: OpeningTagStatus
+    opening_kind: OpeningKind | None
     opening_fragment: str | None
     opening_unavailable_reason: str | None
     reusable_methods: tuple[ReusableMethod, ...]
@@ -103,6 +105,27 @@ class SavedBusinessState:
     cross_project: bool
     conclusion: str
     confidence: ConfidenceLevel
+
+
+@dataclass(frozen=True)
+class SavedLibraryRecord:
+    """已经持久化到明确项目库的最小稳定记录。"""
+
+    project_id: str
+    content_key: str
+    reusable_methods: tuple[ReusableMethod, ...]
+
+
+@dataclass(frozen=True)
+class OfflineRunInput:
+    """离线运行的全部显式输入，不从存储或外部服务隐式读取。"""
+
+    sync_results: tuple[AccountSyncResult, ...]
+    relations: tuple[ProjectAccountRelation, ...]
+    contexts: tuple[ProjectContextVersion, ...]
+    run_at: datetime
+    saved_states: tuple[SavedBusinessState, ...] = ()
+    saved_library_records: tuple[SavedLibraryRecord, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -140,6 +163,7 @@ class EngineResult:
 
     reports: dict[str, ProjectDailyReport]
     cross_project_candidates: tuple[CrossProjectCandidate, ...]
+    relation_issues: tuple[str, ...] = ()
 
 
 def _stable_key(content: ContentRecord) -> str | None:
@@ -204,6 +228,7 @@ def _library_candidate(item: ReportItem) -> LibraryCandidate | None:
         confidence=item.assessment.confidence,
         body_benchmark=item.assessment.body_benchmark,
         opening_status=analysis.opening.status,
+        opening_kind=analysis.opening.kind,
         opening_fragment=analysis.opening.fragment,
         opening_unavailable_reason=analysis.opening.unavailable_reason,
         reusable_methods=analysis.source_information.reusable_methods,
@@ -219,26 +244,28 @@ class ContentAnalysisEngine:
 
     async def run(
         self,
-        *,
-        sync_results: Iterable[AccountSyncResult],
-        relations: Iterable[ProjectAccountRelation],
-        contexts: Iterable[ProjectContextVersion],
-        run_at: datetime,
-        saved_states: Iterable[SavedBusinessState] = (),
+        run_input: OfflineRunInput,
     ) -> EngineResult:
-        windows = derive_windows(run_at)
+        windows = derive_windows(run_input.run_at)
         sync_by_account: dict[str, AccountSyncResult] = {}
-        for sync_result in sync_results:
+        for sync_result in run_input.sync_results:
             if sync_result.account_id in sync_by_account:
                 raise ValueError(f"账号 {sync_result.account_id} 存在重复同步结果")
             sync_by_account[sync_result.account_id] = sync_result
 
-        context_by_key = {
-            (project_context.project_id, project_context.version): project_context
-            for project_context in contexts
-        }
+        context_by_key: dict[tuple[str, str], ProjectContextVersion] = {}
+        context_project_ids: set[str] = set()
+        for project_context in run_input.contexts:
+            if project_context.project_id in context_project_ids:
+                raise ValueError(
+                    f"项目 {project_context.project_id} 同时提供了多个上下文版本"
+                )
+            context_project_ids.add(project_context.project_id)
+            context_by_key[(project_context.project_id, project_context.version)] = (
+                project_context
+            )
         relations_by_project: dict[str, list[ProjectAccountRelation]] = defaultdict(list)
-        for item in relations:
+        for item in run_input.relations:
             relations_by_project[item.project_id].append(item)
 
         all_contents = [
@@ -259,6 +286,8 @@ class ContentAnalysisEngine:
         project_syncs: dict[str, tuple[AccountSyncResult, ...]] = {}
         project_relation_issues: dict[str, tuple[str, ...]] = {}
         project_data_issues: dict[str, tuple[str, ...]] = {}
+        global_relation_issues: list[str] = []
+        skipped_project_ids: set[str] = set()
 
         for (project_id, version), project_context in context_by_key.items():
             matching_relations = [
@@ -266,6 +295,12 @@ class ContentAnalysisEngine:
                 for item in relations_by_project.get(project_id, ())
                 if item.context_version == version
             ]
+            if not matching_relations:
+                global_relation_issues.append(
+                    f"项目 {project_id}（{version}）没有账号关系"
+                )
+                skipped_project_ids.add(project_id)
+                continue
             matched_syncs: list[AccountSyncResult] = []
             relation_issues: list[str] = []
             data_issues: list[str] = []
@@ -273,9 +308,9 @@ class ContentAnalysisEngine:
             for relation in matching_relations:
                 sync_result = sync_by_account.get(relation.account_id)
                 if sync_result is None:
-                    relation_issues.append(
-                        f"账号关系 {relation.account_id} 没有精确匹配的同步结果"
-                    )
+                    issue = f"账号关系 {relation.account_id} 没有精确匹配的同步结果"
+                    relation_issues.append(issue)
+                    global_relation_issues.append(issue)
                     continue
                 if relation.account_id not in account_ids:
                     matched_syncs.append(sync_result)
@@ -328,7 +363,6 @@ class ContentAnalysisEngine:
             project_data_issues[project_id] = tuple(dict.fromkeys(data_issues))
 
         library_by_project: dict[str, tuple[LibraryCandidate, ...]] = {}
-        method_projects: dict[ReusableMethod, set[str]] = defaultdict(set)
         for project_id, items in project_items.items():
             recent_items = (
                 item
@@ -343,9 +377,11 @@ class ContentAnalysisEngine:
                 if candidate is not None
             )
             library_by_project[project_id] = candidates
-            for candidate in candidates:
-                for method in candidate.reusable_methods:
-                    method_projects[method].add(project_id)
+
+        method_projects: dict[ReusableMethod, set[str]] = defaultdict(set)
+        for saved_record in run_input.saved_library_records:
+            for method in saved_record.reusable_methods:
+                method_projects[method].add(saved_record.project_id)
 
         cross_project_candidates = tuple(
             CrossProjectCandidate(method=method, project_ids=tuple(sorted(project_ids)))
@@ -360,11 +396,14 @@ class ContentAnalysisEngine:
                 cross_methods_by_project[project_id].add(candidate.method)
 
         saved_by_key = {
-            (state.project_id, state.stable_key): state for state in saved_states
+            (state.project_id, state.stable_key): state
+            for state in run_input.saved_states
         }
         reports: dict[str, ProjectDailyReport] = {}
         report_start = windows.three_day_end - timedelta(days=1)
         for (project_id, version), _project_context in context_by_key.items():
+            if project_id in skipped_project_ids:
+                continue
             all_items = project_items.get(project_id, ())
             three_day_items = tuple(
                 item
@@ -385,13 +424,18 @@ class ContentAnalysisEngine:
                 <= item.analysis.content.published_at
                 < report_start
             )
-            persona_opportunities = _opportunities(three_day_items, ContentCategory.PERSONA)
-            qianchuan_opportunities = _opportunities(
+            calculated_persona_opportunities = _opportunities(
+                three_day_items, ContentCategory.PERSONA
+            )
+            calculated_qianchuan_opportunities = _opportunities(
                 three_day_items, ContentCategory.QIANCHUAN
             )
             ranks = {
                 id(item): rank
-                for opportunities in (persona_opportunities, qianchuan_opportunities)
+                for opportunities in (
+                    calculated_persona_opportunities,
+                    calculated_qianchuan_opportunities,
+                )
                 for rank, item in enumerate(opportunities, start=1)
             }
             library_keys = {
@@ -421,6 +465,25 @@ class ContentAnalysisEngine:
                 if current_state != old_state:
                     changed_previous.append(item)
 
+            display_items = current_items + tuple(changed_previous)
+            display_item_ids = {id(item) for item in display_items}
+            display_content_ids = {id(item.analysis.content) for item in display_items}
+            persona_opportunities = tuple(
+                item
+                for item in calculated_persona_opportunities
+                if id(item) in display_item_ids
+            )
+            qianchuan_opportunities = tuple(
+                item
+                for item in calculated_qianchuan_opportunities
+                if id(item) in display_item_ids
+            )
+            library_candidates = tuple(
+                candidate
+                for candidate in library_by_project.get(project_id, ())
+                if id(candidate.content) in display_content_ids
+            )
+
             category_counts = Counter(item.analysis.category for item in current_items)
             current_contents = tuple(item.analysis.content for item in current_items)
             matched_syncs = project_syncs.get(project_id, ())
@@ -449,14 +512,15 @@ class ContentAnalysisEngine:
                     undetermined=category_counts[ContentCategory.UNDETERMINED],
                 ),
                 interactions=_interactions(current_contents),
-                items=current_items + tuple(changed_previous),
+                items=display_items,
                 previous_two_day_changes=tuple(changed_previous),
                 persona_opportunities=persona_opportunities,
                 qianchuan_opportunities=qianchuan_opportunities,
-                library_candidates=library_by_project.get(project_id, ()),
+                library_candidates=library_candidates,
             )
 
         return EngineResult(
             reports=reports,
             cross_project_candidates=cross_project_candidates,
+            relation_issues=tuple(global_relation_issues),
         )

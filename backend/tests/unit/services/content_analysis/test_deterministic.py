@@ -28,6 +28,7 @@ from app.services.content_analysis.domain import (
     EngagementMetrics,
     EvidenceType,
     OpeningAnnotation,
+    OpeningKind,
     OpeningTagStatus,
     ProjectContextVersion,
     ProjectFact,
@@ -300,6 +301,7 @@ def test_basic_analysis_requires_reason_for_undetermined_category() -> None:
 def test_opening_annotation_represents_available_evidence_or_unavailable_reason() -> None:
     available = OpeningAnnotation(
         status=OpeningTagStatus.AVAILABLE,
+        kind=OpeningKind.FIRST_FRAME,
         fragment="前三秒画面提问",
         evidence=(
             AnalysisEvidence(
@@ -311,6 +313,7 @@ def test_opening_annotation_represents_available_evidence_or_unavailable_reason(
     )
     unavailable = OpeningAnnotation(
         status=OpeningTagStatus.UNAVAILABLE,
+        kind=OpeningKind.FIRST_FRAME,
         unavailable_reason="没有可用的视频或转写依据",
     )
 

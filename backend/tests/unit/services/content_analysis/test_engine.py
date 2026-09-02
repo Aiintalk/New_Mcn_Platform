@@ -16,7 +16,10 @@ from app.services.content_analysis.domain import (
     ContentSource,
     EngagementMetrics,
     EvidenceType,
+    InteractionObservation,
+    InteractionObservationType,
     OpeningAnnotation,
+    OpeningKind,
     OpeningTagStatus,
     ProjectAccountRelation,
     ProjectContextVersion,
@@ -31,7 +34,9 @@ from app.services.content_analysis.domain import (
 from app.services.content_analysis.engine import (
     AccountSyncResult,
     ContentAnalysisEngine,
+    OfflineRunInput,
     SavedBusinessState,
+    SavedLibraryRecord,
 )
 
 
@@ -123,7 +128,12 @@ class RecordingAnalyzer:
             topic="匿名选题",
             structure=("问题", "方法", "证明"),
             persuasion_chain=("痛点", "证据", "行动"),
-            interaction_observations=("评论关注使用方法",),
+            interaction_observations=(
+                InteractionObservation(
+                    InteractionObservationType.CURRENT_COMPOSITION,
+                    "评论关注使用方法",
+                ),
+            ),
             undetermined_reason=reason,
         )
 
@@ -152,14 +162,17 @@ def relation(project_id: str, version: str, account_id: str = "account-001") -> 
     )
 
 
+async def run_engine(analyzer: RecordingAnalyzer, **input_values: object):
+    return await ContentAnalysisEngine(analyzer).run(OfflineRunInput(**input_values))
+
+
 @pytest.mark.asyncio
 async def test_injected_async_analyzer_reuses_basic_analysis_but_seals_each_project() -> None:
     analyzer = RecordingAnalyzer()
     duplicate_old = replace(record("work-001"), captured_at=RUN_AT - timedelta(hours=1))
     duplicate_new = replace(record("work-001"), transcript="匿名人物故事")
-    engine = ContentAnalysisEngine(analyzer)
-
-    result = await engine.run(
+    result = await run_engine(
+        analyzer,
         sync_results=(
             AccountSyncResult(
                 account_id="account-001",
@@ -185,7 +198,8 @@ async def test_injected_async_analyzer_reuses_basic_analysis_but_seals_each_proj
 @pytest.mark.asyncio
 @pytest.mark.parametrize("marker", ["种草", "使用流程", "卖点证明", "成交促单"])
 async def test_intelligent_analyzer_classifies_explicit_conversion_content(marker: str) -> None:
-    result = await ContentAnalysisEngine(RecordingAnalyzer()).run(
+    result = await run_engine(
+        RecordingAnalyzer(),
         sync_results=(
             AccountSyncResult(
                 "account-001", SyncStatus.SUCCESS_WITH_CONTENT, (record(f"work-{marker}", transcript=marker),)
@@ -201,7 +215,8 @@ async def test_intelligent_analyzer_classifies_explicit_conversion_content(marke
 
 @pytest.mark.asyncio
 async def test_missing_evidence_remains_undetermined_with_reason() -> None:
-    result = await ContentAnalysisEngine(RecordingAnalyzer()).run(
+    result = await run_engine(
+        RecordingAnalyzer(),
         sync_results=(AccountSyncResult("account-001", SyncStatus.SUCCESS_WITH_CONTENT, (record("work-001", transcript=None),)),),
         relations=(relation("project-a", "v1"),),
         contexts=(context("project-a", "v1"),),
@@ -223,6 +238,7 @@ class VisualClaimAnalyzer(RecordingAnalyzer):
             confidence=ConfidenceLevel.MEDIUM,
             opening=OpeningAnnotation(
                 status=OpeningTagStatus.AVAILABLE,
+                kind=OpeningKind.FIRST_FRAME,
                 fragment="第一画面出现产品",
                 evidence=(AnalysisEvidence(EvidenceType.METADATA, "video", "仅有视频引用字符串"),),
             ),
@@ -233,7 +249,8 @@ class VisualClaimAnalyzer(RecordingAnalyzer):
 @pytest.mark.asyncio
 async def test_missing_transcript_continues_and_video_reference_is_not_visual_evidence() -> None:
     analyzer = VisualClaimAnalyzer()
-    result = await ContentAnalysisEngine(analyzer).run(
+    result = await run_engine(
+        analyzer,
         sync_results=(
             AccountSyncResult(
                 "account-001",
@@ -261,6 +278,7 @@ class TranscriptOpeningAnalyzer(RecordingAnalyzer):
             base,
             opening=OpeningAnnotation(
                 status=OpeningTagStatus.AVAILABLE,
+                kind=OpeningKind.LANGUAGE,
                 fragment="语言开头：先问一个问题",
                 evidence=(AnalysisEvidence(EvidenceType.TRANSCRIPT, "0-3s", "转写开场"),),
             ),
@@ -276,6 +294,7 @@ class MixedEvidenceAnalyzer(RecordingAnalyzer):
             confidence=ConfidenceLevel.MEDIUM,
             opening=OpeningAnnotation(
                 status=OpeningTagStatus.AVAILABLE,
+                kind=OpeningKind.FIRST_FRAME,
                 fragment="仅凭元数据猜测第一画面",
                 evidence=(AnalysisEvidence(EvidenceType.METADATA, "video", "引用存在"),),
             ),
@@ -286,9 +305,35 @@ class MixedEvidenceAnalyzer(RecordingAnalyzer):
         )
 
 
+class MismatchedOpeningAnalyzer(RecordingAnalyzer):
+    def __init__(self, kind: OpeningKind, evidence_type: EvidenceType) -> None:
+        super().__init__()
+        self.kind = kind
+        self.evidence_type = evidence_type
+
+    async def analyze_content(self, content: ContentRecord) -> BasicAnalysis:
+        self.basic_calls.append(content)
+        return BasicAnalysis(
+            content=content,
+            category=ContentCategory.PERSONA,
+            confidence=ConfidenceLevel.MEDIUM,
+            opening=OpeningAnnotation(
+                status=OpeningTagStatus.AVAILABLE,
+                kind=self.kind,
+                fragment="证据类型与开头类型不匹配",
+                evidence=(AnalysisEvidence(self.evidence_type, "0-3s", "开头证据"),),
+            ),
+            shot_observations=(
+                AnalysisEvidence(EvidenceType.VISUAL, "4-6s", "其他时间段画面"),
+                AnalysisEvidence(EvidenceType.TRANSCRIPT, "4-6s", "其他时间段转写"),
+            ),
+        )
+
+
 @pytest.mark.asyncio
 async def test_transcript_only_opening_is_kept_without_visual_evidence() -> None:
-    result = await ContentAnalysisEngine(TranscriptOpeningAnalyzer()).run(
+    result = await run_engine(
+        TranscriptOpeningAnalyzer(),
         sync_results=(AccountSyncResult("account-001", SyncStatus.SUCCESS_WITH_CONTENT, (record("work-001"),)),),
         relations=(relation("project-a", "v1"),),
         contexts=(context("project-a", "v1"),),
@@ -297,12 +342,14 @@ async def test_transcript_only_opening_is_kept_without_visual_evidence() -> None
 
     opening = result.reports["project-a"].items[0].analysis.opening
     assert opening.status == OpeningTagStatus.AVAILABLE
+    assert opening.kind == OpeningKind.LANGUAGE
     assert opening.fragment == "语言开头：先问一个问题"
 
 
 @pytest.mark.asyncio
 async def test_each_visual_claim_requires_visual_evidence_of_its_own() -> None:
-    result = await ContentAnalysisEngine(MixedEvidenceAnalyzer()).run(
+    result = await run_engine(
+        MixedEvidenceAnalyzer(),
         sync_results=(AccountSyncResult("account-001", SyncStatus.SUCCESS_WITH_CONTENT, (record("work-001"),)),),
         relations=(relation("project-a", "v1"),),
         contexts=(context("project-a", "v1"),),
@@ -317,10 +364,73 @@ async def test_each_visual_claim_requires_visual_evidence_of_its_own() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("kind", "wrong_evidence"),
+    (
+        (OpeningKind.LANGUAGE, EvidenceType.VISUAL),
+        (OpeningKind.FIRST_FRAME, EvidenceType.TRANSCRIPT),
+    ),
+)
+async def test_opening_kind_requires_its_own_matching_evidence(
+    kind: OpeningKind, wrong_evidence: EvidenceType
+) -> None:
+    result = await run_engine(
+        MismatchedOpeningAnalyzer(kind, wrong_evidence),
+        sync_results=(
+            AccountSyncResult(
+                "account-001", SyncStatus.SUCCESS_WITH_CONTENT, (record("work-001"),)
+            ),
+        ),
+        relations=(relation("project-a", "v1"),),
+        contexts=(context("project-a", "v1"),),
+        run_at=RUN_AT,
+    )
+
+    opening = result.reports["project-a"].items[0].analysis.opening
+    assert opening.status == OpeningTagStatus.UNAVAILABLE
+    assert opening.kind == kind
+
+
+def test_available_opening_requires_explicit_kind() -> None:
+    with pytest.raises(ValueError, match="开头类型"):
+        OpeningAnnotation(
+            status=OpeningTagStatus.AVAILABLE,
+            fragment="缺少类型",
+            evidence=(AnalysisEvidence(EvidenceType.TRANSCRIPT, "0-3s", "转写"),),
+        )
+    with pytest.raises(ValueError, match="开头类型"):
+        OpeningAnnotation(
+            status=OpeningTagStatus.AVAILABLE,
+            kind="language",
+            fragment="使用了未受限字符串类型",
+            evidence=(AnalysisEvidence(EvidenceType.TRANSCRIPT, "0-3s", "转写"),),
+        )
+
+
+def test_interaction_observations_only_express_current_non_time_series_semantics() -> None:
+    assert {item.value for item in InteractionObservationType} == {
+        "current_value",
+        "current_relative_performance",
+        "current_composition",
+        "data_maturity",
+    }
+    with pytest.raises(ValueError, match="互动观察类型"):
+        InteractionObservation("trend", "不能表达趋势")
+    with pytest.raises(ValueError, match="结构化互动观察"):
+        BasicAnalysis(
+            content=record("work-invalid-observation"),
+            category=ContentCategory.PERSONA,
+            confidence=ConfidenceLevel.MEDIUM,
+            opening=OpeningAnnotation(status=OpeningTagStatus.UNANNOTATED),
+            interaction_observations=("任意字符串",),
+        )
+
+
+@pytest.mark.asyncio
 async def test_sync_states_are_preserved_and_only_confirmed_all_empty_is_empty_daily() -> None:
-    engine = ContentAnalysisEngine(RecordingAnalyzer())
     contexts = tuple(context(f"project-{suffix}", "v1") for suffix in ("content", "empty", "partial", "failed"))
-    result = await engine.run(
+    result = await run_engine(
+        RecordingAnalyzer(),
         sync_results=(
             AccountSyncResult("account-content", SyncStatus.SUCCESS_WITH_CONTENT, (record("work-001", account_id="account-content"),)),
             AccountSyncResult("account-empty", SyncStatus.SUCCESS_WITHOUT_CONTENT),
@@ -343,7 +453,8 @@ async def test_sync_states_are_preserved_and_only_confirmed_all_empty_is_empty_d
 async def test_historic_thirty_day_content_is_analyzed_but_does_not_make_three_day_report_nonempty() -> None:
     analyzer = RecordingAnalyzer()
     historic = record("work-historic", published_at=REPORT_DAY - timedelta(days=10))
-    result = await ContentAnalysisEngine(analyzer).run(
+    result = await run_engine(
+        analyzer,
         sync_results=(
             AccountSyncResult(
                 "account-001",
@@ -365,7 +476,8 @@ async def test_historic_thirty_day_content_is_analyzed_but_does_not_make_three_d
 
 @pytest.mark.asyncio
 async def test_unmatched_relation_is_reported_without_guessing_content_ownership() -> None:
-    result = await ContentAnalysisEngine(RecordingAnalyzer()).run(
+    result = await run_engine(
+        RecordingAnalyzer(),
         sync_results=(AccountSyncResult("account-001", SyncStatus.SUCCESS_WITH_CONTENT, (record("work-001"),)),),
         relations=(relation("project-a", "v1", "account-missing"),),
         contexts=(context("project-a", "v1"),),
@@ -376,6 +488,37 @@ async def test_unmatched_relation_is_reported_without_guessing_content_ownership
     assert report.items == ()
     assert report.is_empty_daily is False
     assert report.relation_issues == ("账号关系 account-missing 没有精确匹配的同步结果",)
+    assert result.relation_issues == report.relation_issues
+
+
+@pytest.mark.asyncio
+async def test_project_without_account_relation_is_global_issue_and_report_is_skipped() -> None:
+    result = await run_engine(
+        RecordingAnalyzer(),
+        sync_results=(
+            AccountSyncResult(
+                "account-001", SyncStatus.SUCCESS_WITH_CONTENT, (record("work-001"),)
+            ),
+        ),
+        relations=(),
+        contexts=(context("project-a", "v1"),),
+        run_at=RUN_AT,
+    )
+
+    assert "project-a" not in result.reports
+    assert result.relation_issues == ("项目 project-a（v1）没有账号关系",)
+
+
+@pytest.mark.asyncio
+async def test_duplicate_project_context_versions_are_rejected_instead_of_overwritten() -> None:
+    with pytest.raises(ValueError, match="项目 project-a.*多个上下文版本"):
+        await run_engine(
+            RecordingAnalyzer(),
+            sync_results=(AccountSyncResult("account-001", SyncStatus.SUCCESS_WITHOUT_CONTENT),),
+            relations=(relation("project-a", "v1"),),
+            contexts=(context("project-a", "v1"), context("project-a", "v2")),
+            run_at=RUN_AT,
+        )
 
 
 @pytest.mark.asyncio
@@ -391,7 +534,8 @@ async def test_opportunities_are_capped_library_candidate_is_atomic_and_metrics_
         )
         for index in range(8)
     )
-    result = await ContentAnalysisEngine(RecordingAnalyzer()).run(
+    result = await run_engine(
+        RecordingAnalyzer(),
         sync_results=(AccountSyncResult("account-001", SyncStatus.SUCCESS_WITH_CONTENT, records),),
         relations=(relation("project-a", "v1"),),
         contexts=(context("project-a", "v1"),),
@@ -405,6 +549,7 @@ async def test_opportunities_are_capped_library_candidate_is_atomic_and_metrics_
     assert qianchuan.stable_key == "platform_content_id:work-0"
     assert qianchuan.body_benchmark == "问题—方法—证明"
     assert qianchuan.opening_status == OpeningTagStatus.UNANNOTATED
+    assert qianchuan.opening_kind is None
     assert qianchuan.opening_fragment is None
     assert qianchuan.opening_unavailable_reason is None
     assert qianchuan.source_information.facts == (
@@ -422,7 +567,8 @@ async def test_opportunities_are_capped_library_candidate_is_atomic_and_metrics_
 @pytest.mark.asyncio
 async def test_unstable_identity_is_analyzed_but_never_automatically_added_to_library() -> None:
     analyzer = RecordingAnalyzer()
-    result = await ContentAnalysisEngine(analyzer).run(
+    result = await run_engine(
+        analyzer,
         sync_results=(AccountSyncResult("account-001", SyncStatus.SUCCESS_WITH_CONTENT, (record(None),)),),
         relations=(relation("project-a", "v1"),),
         contexts=(context("project-a", "v1"),),
@@ -437,7 +583,8 @@ async def test_unstable_identity_is_analyzed_but_never_automatically_added_to_li
 
 @pytest.mark.asyncio
 async def test_source_claims_never_become_project_facts_and_report_keeps_epistemic_fields() -> None:
-    result = await ContentAnalysisEngine(RecordingAnalyzer()).run(
+    result = await run_engine(
+        RecordingAnalyzer(),
         sync_results=(AccountSyncResult("account-001", SyncStatus.SUCCESS_WITH_CONTENT, (record("work-001"),)),),
         relations=(relation("project-a", "v1"),),
         contexts=(context("project-a", "v1"),),
@@ -461,7 +608,8 @@ async def test_previous_two_days_reenter_only_when_saved_business_state_changes(
     unchanged = record("work-unchanged", published_at=previous_day, likes=99)
     changed = record("work-changed", published_at=previous_day, likes=1)
     no_history = record("work-new", published_at=previous_day)
-    result = await ContentAnalysisEngine(RecordingAnalyzer()).run(
+    result = await run_engine(
+        RecordingAnalyzer(),
         sync_results=(AccountSyncResult("account-001", SyncStatus.SUCCESS_WITH_CONTENT, (unchanged, changed, no_history)),),
         relations=(relation("project-a", "v1"),),
         contexts=(context("project-a", "v1"),),
@@ -496,20 +644,44 @@ async def test_previous_two_days_reenter_only_when_saved_business_state_changes(
     assert [item.stable_key for item in report.previous_two_day_changes] == [
         "platform_content_id:work-changed"
     ]
+    assert [item.stable_key for item in report.items] == [
+        "platform_content_id:work-changed"
+    ]
+    assert [item.stable_key for item in report.persona_opportunities] == [
+        "platform_content_id:work-changed"
+    ]
+    assert [item.stable_key for item in report.library_candidates] == [
+        "platform_content_id:work-changed"
+    ]
 
 
 @pytest.mark.asyncio
-async def test_cross_project_methods_require_two_actual_library_entries_and_strip_source_scope() -> None:
-    result = await ContentAnalysisEngine(RecordingAnalyzer()).run(
+async def test_cross_project_methods_require_saved_library_entries_and_strip_source_scope() -> None:
+    input_values = dict(
         sync_results=(AccountSyncResult("account-001", SyncStatus.SUCCESS_WITH_CONTENT, (record("work-001"),)),),
         relations=(relation("project-a", "v1"), relation("project-b", "v2")),
         contexts=(context("project-a", "v1"), context("project-b", "v2")),
         run_at=RUN_AT,
     )
+    pending_result = await run_engine(RecordingAnalyzer(), **input_values)
+
+    assert pending_result.reports["project-a"].library_candidates
+    assert pending_result.reports["project-b"].library_candidates
+    assert pending_result.cross_project_candidates == ()
+
+    method = ReusableMethod(name="问题到证明", description="先问题后证明")
+    result = await run_engine(
+        RecordingAnalyzer(),
+        **input_values,
+        saved_library_records=(
+            SavedLibraryRecord("project-a", "saved-work-a", (method,)),
+            SavedLibraryRecord("project-b", "saved-work-b", (method,)),
+        ),
+    )
 
     assert len(result.cross_project_candidates) == 1
     candidate = result.cross_project_candidates[0]
-    assert candidate.method == ReusableMethod(name="问题到证明", description="先问题后证明")
+    assert candidate.method == method
     assert candidate.project_ids == ("project-a", "project-b")
     assert candidate.auto_written_project_ids == ()
     assert not hasattr(candidate, "source_information")

@@ -9,6 +9,7 @@ from .domain import (
     ContentRecord,
     EvidenceType,
     OpeningAnnotation,
+    OpeningKind,
     OpeningTagStatus,
     ProjectContextVersion,
     SourceLimitation,
@@ -57,26 +58,32 @@ def enforce_analysis_boundaries(analysis: BasicAnalysis) -> BasicAnalysis:
         raise ValueError("无法判断主分类时必须说明原因")
 
     opening = analysis.opening
-    opening_has_visual = any(
-        item.evidence_type == EvidenceType.VISUAL for item in opening.evidence
+    expected_opening_evidence = {
+        OpeningKind.LANGUAGE: EvidenceType.TRANSCRIPT,
+        OpeningKind.FIRST_FRAME: EvidenceType.VISUAL,
+    }.get(opening.kind)
+    opening_has_matching_evidence = any(
+        item.evidence_type == expected_opening_evidence for item in opening.evidence
     )
-    has_transcript_opening = any(
-        item.evidence_type == EvidenceType.TRANSCRIPT for item in opening.evidence
-    )
-    if (
-        opening.status == OpeningTagStatus.AVAILABLE
-        and not opening_has_visual
-        and not has_transcript_opening
-    ):
+    if opening.status == OpeningTagStatus.AVAILABLE and not opening_has_matching_evidence:
         opening = OpeningAnnotation(
             status=OpeningTagStatus.UNAVAILABLE,
-            unavailable_reason="没有可读画面证据，无法判断第一画面",
+            kind=opening.kind,
+            unavailable_reason=(
+                "没有转写证据，无法判断语言开头"
+                if opening.kind == OpeningKind.LANGUAGE
+                else "没有可读画面证据，无法判断第一画面"
+            ),
         )
 
     visual_shots = tuple(
         item
         for item in analysis.shot_observations
         if item.evidence_type == EvidenceType.VISUAL
+    )
+    opening_has_visual = any(
+        item.evidence_type == EvidenceType.VISUAL
+        for item in analysis.opening.evidence
     )
     has_visual_evidence = opening_has_visual or bool(visual_shots)
     limitation = SourceLimitation(

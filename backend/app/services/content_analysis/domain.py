@@ -46,12 +46,28 @@ class OpeningTagStatus(str, Enum):
     UNAVAILABLE = "unavailable"
 
 
+class OpeningKind(str, Enum):
+    """开头结论的证据语义。"""
+
+    LANGUAGE = "language"
+    FIRST_FRAME = "first_frame"
+
+
 class EvidenceType(str, Enum):
     """结论依据的来源类型。"""
 
     TRANSCRIPT = "transcript"
     VISUAL = "visual"
     METADATA = "metadata"
+
+
+class InteractionObservationType(str, Enum):
+    """允许进入分析结果的非时间序列互动语义。"""
+
+    CURRENT_VALUE = "current_value"
+    CURRENT_RELATIVE_PERFORMANCE = "current_relative_performance"
+    CURRENT_COMPOSITION = "current_composition"
+    DATA_MATURITY = "data_maturity"
 
 
 class BusinessStatus(str, Enum):
@@ -140,24 +156,52 @@ class AnalysisEvidence:
 
 
 @dataclass(frozen=True)
+class InteractionObservation:
+    """带受限类型的当前互动观察。"""
+
+    observation_type: InteractionObservationType
+    statement: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.observation_type, InteractionObservationType):
+            raise ValueError("互动观察类型不受支持")
+
+
+@dataclass(frozen=True)
 class OpeningAnnotation:
     """开头信息：未标注、可用片段，或不可用原因三态。"""
 
     status: OpeningTagStatus
+    kind: OpeningKind | None = None
     fragment: str | None = None
     evidence: tuple[AnalysisEvidence, ...] = ()
     unavailable_reason: str | None = None
 
     def __post_init__(self) -> None:
         if self.status == OpeningTagStatus.UNANNOTATED:
-            if self.fragment or self.evidence or self.unavailable_reason:
-                raise ValueError("未标注开头不能附带片段、依据或不可用原因")
+            if (
+                self.kind is not None
+                or self.fragment
+                or self.evidence
+                or self.unavailable_reason
+            ):
+                raise ValueError("未标注开头不能附带类型、片段、依据或不可用原因")
         elif self.status == OpeningTagStatus.AVAILABLE:
-            if not self.fragment or not self.evidence or self.unavailable_reason:
-                raise ValueError("可用开头必须包含片段和依据，且不能包含不可用原因")
+            if (
+                not isinstance(self.kind, OpeningKind)
+                or not self.fragment
+                or not self.evidence
+                or self.unavailable_reason
+            ):
+                raise ValueError("可用开头必须包含开头类型、片段和依据，且不能包含不可用原因")
         elif self.status == OpeningTagStatus.UNAVAILABLE:
-            if self.fragment or self.evidence or not self.unavailable_reason:
-                raise ValueError("不可用开头必须包含原因，且不能包含片段或依据")
+            if (
+                not isinstance(self.kind, OpeningKind)
+                or self.fragment
+                or self.evidence
+                or not self.unavailable_reason
+            ):
+                raise ValueError("不可用开头必须包含开头类型和原因，且不能包含片段或依据")
 
 
 @dataclass(frozen=True)
@@ -300,10 +344,15 @@ class BasicAnalysis:
     structure: tuple[str, ...] = ()
     persuasion_chain: tuple[str, ...] = ()
     shot_observations: tuple[AnalysisEvidence, ...] = ()
-    interaction_observations: tuple[str, ...] = ()
+    interaction_observations: tuple[InteractionObservation, ...] = ()
     undetermined_reason: str | None = None
 
     def __post_init__(self) -> None:
+        if any(
+            not isinstance(item, InteractionObservation)
+            for item in self.interaction_observations
+        ):
+            raise ValueError("互动观察必须使用结构化互动观察对象")
         if self.category == ContentCategory.UNDETERMINED:
             if not self.undetermined_reason:
                 raise ValueError("无法判断主分类时必须说明原因")
