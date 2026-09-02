@@ -13,19 +13,19 @@ class ContentSource(str, Enum):
 
 
 class ContentCategory(str, Enum):
-    """阶段一确认的三种内容主分类。"""
+    """基础分析产出的三种内容主分类。"""
 
     PERSONA = "persona"
     QIANCHUAN = "qianchuan"
-    OTHER = "other"
+    UNDETERMINED = "undetermined"
 
 
 class SyncStatus(str, Enum):
-    """内容同步的当前状态。"""
+    """内容同步的结果状态。"""
 
-    PENDING = "pending"
-    SYNCED = "synced"
-    PARTIAL = "partial"
+    SUCCESS_WITH_CONTENT = "success_with_content"
+    SUCCESS_WITHOUT_CONTENT = "success_without_content"
+    PARTIAL_SUCCESS = "partial_success"
     FAILED = "failed"
 
 
@@ -39,11 +39,19 @@ class ConfidenceLevel(str, Enum):
 
 
 class OpeningTagStatus(str, Enum):
-    """开头标注的处理状态。"""
+    """开头信息的标注状态。"""
 
-    NOT_EVALUATED = "not_evaluated"
-    TAGGED = "tagged"
-    UNTAGGED = "untagged"
+    UNANNOTATED = "unannotated"
+    AVAILABLE = "available"
+    UNAVAILABLE = "unavailable"
+
+
+class EvidenceType(str, Enum):
+    """结论依据的来源类型。"""
+
+    TRANSCRIPT = "transcript"
+    VISUAL = "visual"
+    METADATA = "metadata"
 
 
 class BusinessStatus(str, Enum):
@@ -105,22 +113,115 @@ class EngagementMetrics:
 
 @dataclass(frozen=True)
 class ContentRecord:
-    """标准化后的单条内容输入。"""
+    """标准化后的单条内容输入，不含预先判定的主分类。"""
 
     account_id: str
     source: ContentSource
     identity: ContentIdentity
-    category: ContentCategory
     published_at: datetime
     captured_at: datetime
     metrics: EngagementMetrics
     transcript: str | None = None
     video_reference: str | None = None
-    sync_status: SyncStatus = SyncStatus.PENDING
+    sync_status: SyncStatus = SyncStatus.SUCCESS_WITH_CONTENT
 
     def __post_init__(self) -> None:
         _require_timezone(self.published_at, "published_at")
         _require_timezone(self.captured_at, "captured_at")
+
+
+@dataclass(frozen=True)
+class AnalysisEvidence:
+    """可定位、可区分来源类型的分析依据。"""
+
+    evidence_type: EvidenceType
+    locator: str
+    detail: str
+
+
+@dataclass(frozen=True)
+class OpeningAnnotation:
+    """开头信息：未标注、可用片段，或不可用原因三态。"""
+
+    status: OpeningTagStatus
+    fragment: str | None = None
+    evidence: tuple[AnalysisEvidence, ...] = ()
+    unavailable_reason: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.status == OpeningTagStatus.UNANNOTATED:
+            if self.fragment or self.evidence or self.unavailable_reason:
+                raise ValueError("未标注开头不能附带片段、依据或不可用原因")
+        elif self.status == OpeningTagStatus.AVAILABLE:
+            if not self.fragment or not self.evidence or self.unavailable_reason:
+                raise ValueError("可用开头必须包含片段和依据，且不能包含不可用原因")
+        elif self.status == OpeningTagStatus.UNAVAILABLE:
+            if self.fragment or self.evidence or not self.unavailable_reason:
+                raise ValueError("不可用开头必须包含原因，且不能包含片段或依据")
+
+
+@dataclass(frozen=True)
+class SourceFact:
+    """受指定来源约束的事实。"""
+
+    statement: str
+    source: str
+
+
+@dataclass(frozen=True)
+class SourceJudgment:
+    """基于来源作出的判断。"""
+
+    statement: str
+
+
+@dataclass(frozen=True)
+class SourceAssumption:
+    """解释来源时使用的假设。"""
+
+    statement: str
+
+
+@dataclass(frozen=True)
+class SourceLimitation:
+    """来源本身的限制。"""
+
+    statement: str
+
+
+@dataclass(frozen=True)
+class ReusableMethod:
+    """可复用的方法，与事实和判断分开保存。"""
+
+    name: str
+    description: str
+
+
+@dataclass(frozen=True)
+class SourceConstraint:
+    """来源信息可适用的边界。"""
+
+    statement: str
+
+
+@dataclass(frozen=True)
+class SourceInformation:
+    """来源限定信息的结构化信任边界。"""
+
+    facts: tuple[SourceFact, ...] = ()
+    judgments: tuple[SourceJudgment, ...] = ()
+    assumptions: tuple[SourceAssumption, ...] = ()
+    limitations: tuple[SourceLimitation, ...] = ()
+    reusable_methods: tuple[ReusableMethod, ...] = ()
+    source_constraints: tuple[SourceConstraint, ...] = ()
+
+
+@dataclass(frozen=True)
+class ProjectFact:
+    """已确认的项目事实。"""
+
+    key: str
+    value: str
 
 
 @dataclass(frozen=True)
@@ -134,11 +235,16 @@ class ProjectAccountRelation:
 
 @dataclass(frozen=True)
 class ProjectContextVersion:
-    """可追溯的项目上下文版本。"""
+    """可追溯且包含已确认项目事实的项目上下文版本。"""
 
     project_id: str
     version: str
     effective_at: datetime
+    project_persona: str
+    target_users: str
+    content_plan: str
+    operating_direction: str
+    confirmed_facts: tuple[ProjectFact, ...] = ()
 
     def __post_init__(self) -> None:
         _require_timezone(self.effective_at, "effective_at")
@@ -154,6 +260,21 @@ class AnalysisWindows:
     thirty_day_start: datetime
     thirty_day_end: datetime
 
+    def __post_init__(self) -> None:
+        for field_name in (
+            "three_day_start",
+            "three_day_end",
+            "thirty_day_start",
+            "thirty_day_end",
+        ):
+            _require_timezone(getattr(self, field_name), field_name)
+        if self.three_day_start >= self.three_day_end:
+            raise ValueError("三日窗口的开始必须早于结束")
+        if self.thirty_day_start >= self.thirty_day_end:
+            raise ValueError("三十日窗口的开始必须早于结束")
+        if self.three_day_end != self.thirty_day_end:
+            raise ValueError("三日和三十日窗口必须有共同结束时间")
+
 
 @dataclass(frozen=True)
 class LikeBaseline:
@@ -168,12 +289,21 @@ class LikeBaseline:
 
 @dataclass(frozen=True)
 class BasicAnalysis:
-    """供下一阶段填充的基础内容分析。"""
+    """基础分析是主分类与来源限定信息的唯一产出位置。"""
 
     content: ContentRecord
+    category: ContentCategory
     confidence: ConfidenceLevel
-    opening_tag_status: OpeningTagStatus
-    summary: str | None = None
+    opening: OpeningAnnotation
+    source_information: SourceInformation = SourceInformation()
+    undetermined_reason: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.category == ContentCategory.UNDETERMINED:
+            if not self.undetermined_reason:
+                raise ValueError("无法判断主分类时必须说明原因")
+        elif self.undetermined_reason:
+            raise ValueError("已判断主分类时不能携带无法判断原因")
 
 
 @dataclass(frozen=True)
@@ -181,6 +311,7 @@ class ProjectJudgment:
     """供下一阶段输出的项目判断。"""
 
     project_id: str
+    context_version: str
     status: BusinessStatus
     confidence: ConfidenceLevel
     conclusion: str
@@ -190,6 +321,8 @@ class ProjectJudgment:
 class ContentStatistics:
     """供项目统计和日报复用的确定性统计结果。"""
 
+    project_id: str
+    context_version: str
     account_id: str
     period_start: datetime
     period_end: datetime
@@ -203,21 +336,30 @@ class ContentStatistics:
 
 @dataclass(frozen=True)
 class DailyReport:
-    """日报的领域对象，内容由后续引擎生成。"""
+    """日报只能聚合所属项目和上下文版本的判断。"""
 
     project_id: str
+    context_version: str
     report_date: date
     generated_at: datetime
     judgments: tuple[ProjectJudgment, ...]
 
     def __post_init__(self) -> None:
         _require_timezone(self.generated_at, "generated_at")
+        if any(
+            judgment.project_id != self.project_id
+            or judgment.context_version != self.context_version
+            for judgment in self.judgments
+        ):
+            raise ValueError("日报不能混入其他项目或上下文版本的判断")
 
 
 @dataclass(frozen=True)
 class ContentCandidate:
-    """供后续候选筛选使用的内容及其业务状态。"""
+    """候选内容绑定项目及上下文版本，避免跨项目投递。"""
 
+    project_id: str
+    context_version: str
     content: ContentRecord
     status: BusinessStatus
     confidence: ConfidenceLevel

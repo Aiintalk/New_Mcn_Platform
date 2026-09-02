@@ -9,6 +9,7 @@ from .deterministic import (
 )
 from .domain import (
     AnalysisWindows,
+    BasicAnalysis,
     ContentCategory,
     ContentIdentity,
     ContentRecord,
@@ -19,6 +20,7 @@ from .domain import (
 
 __all__ = [
     "AnalysisWindows",
+    "BasicAnalysis",
     "ContentCategory",
     "ContentIdentity",
     "ContentRecord",

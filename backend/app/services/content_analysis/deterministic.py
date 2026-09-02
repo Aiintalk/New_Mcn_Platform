@@ -5,7 +5,7 @@ from statistics import median
 from typing import Iterable
 from zoneinfo import ZoneInfo
 
-from .domain import AnalysisWindows, ContentCategory, ContentRecord, LikeBaseline
+from .domain import AnalysisWindows, BasicAnalysis, ContentCategory, ContentRecord, LikeBaseline
 
 
 CHINA_TIMEZONE = ZoneInfo("Asia/Shanghai")
@@ -76,14 +76,15 @@ def deduplicate_contents(contents: Iterable[ContentRecord]) -> list[ContentRecor
 
 
 def persona_like_baseline(
-    contents: Iterable[ContentRecord], start: datetime, end: datetime
+    contents: Iterable[BasicAnalysis], start: datetime, end: datetime
 ) -> dict[str, LikeBaseline]:
-    """统计半开区间内每个账号的人设内容点赞基线。"""
+    """统计半开区间内每个账号已分析人设内容的点赞基线。"""
     _half_open_window(start, end)
     likes_by_account: dict[str, list[int]] = defaultdict(list)
-    for record in contents:
+    for analysis in contents:
+        record = analysis.content
         if (
-            record.category == ContentCategory.PERSONA
+            analysis.category == ContentCategory.PERSONA
             and start <= record.published_at < end
             and record.metrics.like_count is not None
         ):
@@ -102,14 +103,15 @@ def persona_like_baseline(
 
 
 def qianchuan_top_three(
-    contents: Iterable[ContentRecord], start: datetime, end: datetime
+    contents: Iterable[BasicAnalysis], start: datetime, end: datetime
 ) -> dict[str, tuple[ContentRecord, ...]]:
-    """按当前点赞值选出半开区间内每账号的前三条千川内容。"""
+    """按当前点赞值选出半开区间内每账号的已分析千川内容前三条。"""
     _half_open_window(start, end)
     records_by_account: dict[str, list[ContentRecord]] = defaultdict(list)
-    for record in contents:
+    for analysis in contents:
+        record = analysis.content
         if (
-            record.category == ContentCategory.QIANCHUAN
+            analysis.category == ContentCategory.QIANCHUAN
             and start <= record.published_at < end
         ):
             records_by_account[record.account_id].append(record)
