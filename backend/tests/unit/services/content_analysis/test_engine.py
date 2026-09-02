@@ -672,6 +672,25 @@ class InputlessEvidenceAnalyzer(RecordingAnalyzer):
         )
 
 
+class MixedBoundOpeningEvidenceAnalyzer(RecordingAnalyzer):
+    async def analyze_content(self, content: ContentRecord) -> BasicAnalysis:
+        self.basic_calls.append(content)
+        return BasicAnalysis(
+            content=content,
+            category=ContentCategory.PERSONA,
+            confidence=ConfidenceLevel.MEDIUM,
+            opening=OpeningAnnotation(
+                status=OpeningTagStatus.AVAILABLE,
+                kind=OpeningKind.LANGUAGE,
+                fragment="语言开头：先问一个问题",
+                evidence=(
+                    AnalysisEvidence(EvidenceType.TRANSCRIPT, "0-3s", "转写开场"),
+                    AnalysisEvidence(EvidenceType.VISUAL, "frame:0", "无输入的伪视觉证据"),
+                ),
+            ),
+        )
+
+
 @pytest.mark.asyncio
 async def test_transcript_only_opening_is_kept_without_visual_evidence() -> None:
     result = await run_engine(
@@ -686,6 +705,32 @@ async def test_transcript_only_opening_is_kept_without_visual_evidence() -> None
     assert opening.status == OpeningTagStatus.AVAILABLE
     assert opening.kind == OpeningKind.LANGUAGE
     assert opening.fragment == "语言开头：先问一个问题"
+
+
+@pytest.mark.asyncio
+async def test_opening_drops_visual_evidence_when_video_input_is_missing() -> None:
+    result = await run_engine(
+        MixedBoundOpeningEvidenceAnalyzer(),
+        sync_results=(
+            AccountSyncResult(
+                "account-001",
+                SyncStatus.SUCCESS_WITH_CONTENT,
+                (record("work-001", video_reference=None),),
+            ),
+        ),
+        relations=(relation("project-a", "v1"),),
+        contexts=(context("project-a", "v1"),),
+        run_at=RUN_AT,
+    )
+
+    analysis = result.reports["project-a"].items[0].analysis
+    assert analysis.opening.status == OpeningTagStatus.AVAILABLE
+    assert analysis.opening.evidence == (
+        AnalysisEvidence(EvidenceType.TRANSCRIPT, "0-3s", "转写开场"),
+    )
+    assert analysis.source_information.limitations == (
+        SourceLimitation(statement="没有可读画面证据，镜头与第一画面结论受限"),
+    )
 
 
 @pytest.mark.asyncio

@@ -114,12 +114,25 @@ def enforce_analysis_boundaries(analysis: BasicAnalysis) -> BasicAnalysis:
         and analysis.content.video_reference.strip()
     )
     opening = analysis.opening
+    bound_opening_evidence = tuple(
+        item
+        for item in opening.evidence
+        if (
+            item.evidence_type != EvidenceType.TRANSCRIPT
+            or has_transcript_input
+        )
+        and (
+            item.evidence_type != EvidenceType.VISUAL
+            or has_video_reference
+        )
+    )
     expected_opening_evidence = {
         OpeningKind.LANGUAGE: EvidenceType.TRANSCRIPT,
         OpeningKind.FIRST_FRAME: EvidenceType.VISUAL,
     }.get(opening.kind)
     opening_has_matching_evidence = any(
-        item.evidence_type == expected_opening_evidence for item in opening.evidence
+        item.evidence_type == expected_opening_evidence
+        for item in bound_opening_evidence
     )
     opening_has_bound_input = (
         opening.kind == OpeningKind.LANGUAGE
@@ -147,6 +160,8 @@ def enforce_analysis_boundaries(analysis: BasicAnalysis) -> BasicAnalysis:
                 )
             ),
         )
+    elif bound_opening_evidence != opening.evidence:
+        opening = replace(opening, evidence=bound_opening_evidence)
 
     visual_shots = tuple(
         item
