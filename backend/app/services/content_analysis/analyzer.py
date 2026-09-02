@@ -20,9 +20,35 @@ from .domain import (
 class CandidateValueSignal(str, Enum):
     """分析器可声明的封闭候选价值信号。"""
 
-    REUSABLE_METHOD = "reusable_method"
-    PROJECT_RELEVANCE = "project_relevance"
-    CONVERSION_STRUCTURE = "conversion_structure"
+    EARLY_DATA_STRENGTH = "early_data_strength"
+    RELATIVE_BENCHMARK_OUTPERFORMANCE = "relative_benchmark_outperformance"
+    NOVEL_TOPIC_OR_STRUCTURE = "novel_topic_or_structure"
+    CLEAR_TRAFFIC_HOOK = "clear_traffic_hook"
+    REUSABLE_CONVERSION_STRUCTURE = "reusable_conversion_structure"
+    NOTABLE_SHOT_PERFORMANCE = "notable_shot_performance"
+
+
+class ProjectFitDimension(str, Enum):
+    """项目适配理由必须关联的项目上下文维度。"""
+
+    PROJECT_PERSONA = "project_persona"
+    TARGET_USERS = "target_users"
+    CONTENT_PLAN = "content_plan"
+    OPERATING_DIRECTION = "operating_direction"
+
+
+@dataclass(frozen=True)
+class ProjectFitReason:
+    """一条结构化项目适配理由。"""
+
+    dimension: ProjectFitDimension
+    statement: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.dimension, ProjectFitDimension):
+            raise ValueError("项目适配理由维度必须使用封闭枚举")
+        if not self.statement.strip():
+            raise ValueError("项目适配理由不能为空")
 
 
 @dataclass(frozen=True)
@@ -39,6 +65,7 @@ class ProjectAssessment:
     priority: int | None = None
     body_benchmark: str | None = None
     value_signals: tuple[CandidateValueSignal, ...] = ()
+    fit_reasons: tuple[ProjectFitReason, ...] = ()
     limitations: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
@@ -47,6 +74,10 @@ class ProjectAssessment:
             for signal in self.value_signals
         ):
             raise ValueError("候选价值信号必须使用封闭枚举")
+        if any(
+            not isinstance(reason, ProjectFitReason) for reason in self.fit_reasons
+        ):
+            raise ValueError("项目适配理由必须使用结构化类型")
 
 
 class ContentAnalyzer(Protocol):

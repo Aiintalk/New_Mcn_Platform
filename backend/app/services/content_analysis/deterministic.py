@@ -61,6 +61,11 @@ def deduplicate_contents(contents: Iterable[ContentRecord]) -> list[ContentRecor
         for key in record.identity.stable_keys():
             previous = seen_keys.get(key)
             if previous is not None:
+                if records[previous].account_id != record.account_id:
+                    kind, value = key
+                    raise ValueError(
+                        f"稳定内容身份 {kind}:{value} 关联了多个账号"
+                    )
                 union(previous, index)
             seen_keys[key] = index
 

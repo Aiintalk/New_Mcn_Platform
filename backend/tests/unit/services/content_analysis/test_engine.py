@@ -5,7 +5,12 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from app.services.content_analysis.analyzer import CandidateValueSignal, ProjectAssessment
+from app.services.content_analysis.analyzer import (
+    CandidateValueSignal,
+    ProjectAssessment,
+    ProjectFitDimension,
+    ProjectFitReason,
+)
 from app.services.content_analysis.domain import (
     AnalysisEvidence,
     BasicAnalysis,
@@ -55,7 +60,7 @@ def record(
     url: str | None = None,
     published_at: datetime = REPORT_DAY,
     transcript: str | None = "匿名转写",
-    video_reference: str | None = None,
+    video_reference: str | None = "opaque-video-ref",
     likes: int | None = 10,
     comments: int | None = 2,
     shares: int | None = 1,
@@ -101,6 +106,32 @@ def test_project_assessment_value_signal_is_closed_enum() -> None:
             conclusion="适配匿名项目",
             value_signals=("任意自由文本",),
         )
+
+
+def test_candidate_value_signals_match_the_six_allowed_business_signals() -> None:
+    assert {signal.value for signal in CandidateValueSignal} == {
+        "early_data_strength",
+        "relative_benchmark_outperformance",
+        "novel_topic_or_structure",
+        "clear_traffic_hook",
+        "reusable_conversion_structure",
+        "notable_shot_performance",
+    }
+    with pytest.raises(ValueError):
+        CandidateValueSignal("project_relevance")
+
+
+def test_project_fit_reason_requires_closed_dimension_and_nonempty_statement() -> None:
+    assert {dimension.value for dimension in ProjectFitDimension} == {
+        "project_persona",
+        "target_users",
+        "content_plan",
+        "operating_direction",
+    }
+    with pytest.raises(ValueError, match="项目适配理由维度"):
+        ProjectFitReason("free_text_dimension", "任意理由")
+    with pytest.raises(ValueError, match="项目适配理由不能为空"):
+        ProjectFitReason(ProjectFitDimension.PROJECT_PERSONA, "  ")
 
 
 class RecordingAnalyzer:
@@ -177,7 +208,13 @@ class RecordingAnalyzer:
             confidence=analysis.confidence,
             conclusion=f"适配 {project_context.project_persona}",
             body_benchmark="问题—方法—证明",
-            value_signals=(CandidateValueSignal.REUSABLE_METHOD,),
+            value_signals=(CandidateValueSignal.REUSABLE_CONVERSION_STRUCTURE,),
+            fit_reasons=(
+                ProjectFitReason(
+                    ProjectFitDimension.PROJECT_PERSONA,
+                    f"内容表达与{project_context.project_persona}一致",
+                ),
+            ),
         )
 
 
@@ -221,6 +258,16 @@ class CandidateGateAnalyzer(RecordingAnalyzer):
         return replace(assessment, **self.assessment_updates)
 
 
+class TopOpportunityGateAnalyzer(RecordingAnalyzer):
+    async def assess_project(
+        self, analysis: BasicAnalysis, project_context: ProjectContextVersion
+    ) -> ProjectAssessment:
+        assessment = await super().assess_project(analysis, project_context)
+        if analysis.content.identity.platform_content_id == "work-1":
+            return replace(assessment, body_benchmark="")
+        return assessment
+
+
 def relation(project_id: str, version: str, account_id: str = "account-001") -> ProjectAccountRelation:
     return ProjectAccountRelation(
         project_id=project_id,
@@ -260,6 +307,42 @@ async def test_injected_async_analyzer_reuses_basic_analysis_but_seals_each_proj
     assert result.reports["project-b"].items[0].assessment.context_version == "v2"
     assert result.reports["project-a"].items[0].assessment.conclusion == "适配 人设甲"
     assert result.reports["project-b"].items[0].assessment.conclusion == "适配 人设乙"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("identity_kind", ("platform_content_id", "external_url"))
+async def test_same_stable_identity_across_accounts_is_rejected_before_analysis(
+    identity_kind: str,
+) -> None:
+    analyzer = RecordingAnalyzer()
+    if identity_kind == "platform_content_id":
+        content_a = record("work-shared", account_id="account-a")
+        content_b = record("work-shared", account_id="account-b")
+    else:
+        shared_url = "https://example.invalid/content/shared"
+        content_a = record(None, account_id="account-a", url=shared_url)
+        content_b = record(None, account_id="account-b", url=shared_url)
+
+    with pytest.raises(ValueError, match="稳定内容身份.*多个账号"):
+        await run_engine(
+            analyzer,
+            sync_results=(
+                AccountSyncResult(
+                    "account-a", SyncStatus.SUCCESS_WITH_CONTENT, (content_a,)
+                ),
+                AccountSyncResult(
+                    "account-b", SyncStatus.SUCCESS_WITH_CONTENT, (content_b,)
+                ),
+            ),
+            relations=(
+                relation("project-a", "v1", "account-a"),
+                relation("project-a", "v1", "account-b"),
+            ),
+            contexts=(context("project-a", "v1"),),
+            run_at=RUN_AT,
+        )
+
+    assert analyzer.basic_calls == []
 
 
 @pytest.mark.asyncio
@@ -562,25 +645,16 @@ async def test_sync_states_are_preserved_and_only_confirmed_all_empty_is_empty_d
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("status", "expected_empty"),
-    (
-        (SyncStatus.FAILED, False),
-        (SyncStatus.SUCCESS_WITHOUT_CONTENT, True),
-    ),
-)
-async def test_non_content_sync_status_cannot_carry_recent_stale_content_into_outputs(
-    status: SyncStatus,
-    expected_empty: bool,
-) -> None:
+async def test_failed_sync_discards_content_before_analysis_and_sanitizes_report() -> None:
     analyzer = RecordingAnalyzer()
     result = await run_engine(
         analyzer,
         sync_results=(
             AccountSyncResult(
                 "account-001",
-                status,
-                (record("work-stale", transcript="卖点证明"),),
+                SyncStatus.FAILED,
+                (record("work-stale", transcript=None),),
+                issue="上游超时",
             ),
         ),
         relations=(relation("project-a", "v1"),),
@@ -589,12 +663,46 @@ async def test_non_content_sync_status_cannot_carry_recent_stale_content_into_ou
     )
 
     report = result.reports["project-a"]
-    assert len(analyzer.basic_calls) == 1
+    assert analyzer.basic_calls == []
+    assert analyzer.project_calls == []
     assert report.items == ()
     assert report.persona_opportunities == ()
     assert report.qianchuan_opportunities == ()
     assert report.library_candidates == ()
-    assert report.is_empty_daily is expected_empty
+    assert report.sync_results[0].contents == ()
+    assert report.data_issues == (
+        "账号 account-001 同步失败，未使用其内容：上游超时",
+    )
+    assert report.is_empty_daily is False
+
+
+@pytest.mark.asyncio
+async def test_success_without_content_discards_recent_payload_before_analysis() -> None:
+    analyzer = RecordingAnalyzer()
+    result = await run_engine(
+        analyzer,
+        sync_results=(
+            AccountSyncResult(
+                "account-001",
+                SyncStatus.SUCCESS_WITHOUT_CONTENT,
+                (record("work-stale", transcript=None),),
+            ),
+        ),
+        relations=(relation("project-a", "v1"),),
+        contexts=(context("project-a", "v1"),),
+        run_at=RUN_AT,
+    )
+
+    report = result.reports["project-a"]
+    assert analyzer.basic_calls == []
+    assert analyzer.project_calls == []
+    assert report.items == ()
+    assert report.persona_opportunities == ()
+    assert report.qianchuan_opportunities == ()
+    assert report.library_candidates == ()
+    assert report.sync_results[0].contents == ()
+    assert report.data_issues == ()
+    assert report.is_empty_daily is True
 
 
 @pytest.mark.asyncio
@@ -645,9 +753,11 @@ async def test_historic_thirty_day_content_is_analyzed_but_does_not_make_three_d
 
     report = result.reports["project-a"]
     assert len(analyzer.basic_calls) == 1
+    assert len(analyzer.project_calls) == 1
     assert report.is_empty_daily is True
     assert report.items == ()
     assert report.library_candidates == ()
+    assert report.sync_results[0].contents == ()
 
 
 @pytest.mark.asyncio
@@ -775,16 +885,58 @@ async def test_qianchuan_pool_keeps_each_accounts_top_three_before_project_prior
     )
 
     report = result.reports["project-a"]
+    opportunity_keys = {
+        item.stable_key for item in report.qianchuan_opportunities
+    }
     candidate_keys = {item.stable_key for item in report.library_candidates}
-    assert candidate_keys == {
+    assert opportunity_keys == {
         "platform_content_id:account-a-1",
         "platform_content_id:account-a-2",
         "platform_content_id:account-a-3",
-        "platform_content_id:account-b-1",
-        "platform_content_id:account-b-2",
-        "platform_content_id:account-b-3",
     }
-    assert all(not item.stable_key.endswith("-4") for item in report.qianchuan_opportunities)
+    assert candidate_keys == opportunity_keys
+    assert len(report.qianchuan_opportunities) == 3
+    assert len(report.library_candidates) == 3
+
+
+@pytest.mark.asyncio
+async def test_library_gate_does_not_backfill_fourth_project_opportunity() -> None:
+    sync_results = tuple(
+        AccountSyncResult(
+            f"account-{index}",
+            SyncStatus.SUCCESS_WITH_CONTENT,
+            (
+                record(
+                    f"work-{index}",
+                    account_id=f"account-{index}",
+                    transcript="卖点证明",
+                    likes=110 - index * 10,
+                ),
+            ),
+        )
+        for index in range(1, 5)
+    )
+    result = await run_engine(
+        TopOpportunityGateAnalyzer(),
+        sync_results=sync_results,
+        relations=tuple(
+            relation("project-a", "v1", f"account-{index}")
+            for index in range(1, 5)
+        ),
+        contexts=(context("project-a", "v1"),),
+        run_at=RUN_AT,
+    )
+
+    report = result.reports["project-a"]
+    assert [item.stable_key for item in report.qianchuan_opportunities] == [
+        "platform_content_id:work-1",
+        "platform_content_id:work-2",
+        "platform_content_id:work-3",
+    ]
+    assert [item.stable_key for item in report.library_candidates] == [
+        "platform_content_id:work-2",
+        "platform_content_id:work-3",
+    ]
 
 
 @pytest.mark.asyncio
@@ -864,10 +1016,17 @@ async def test_qianchuan_unannotated_opening_is_not_auto_library_candidate() -> 
     (
         ("project-fit", record("work-not-fit"), {}, {"is_fit": False}),
         ("fit-conclusion", record("work-blank-conclusion"), {}, {"conclusion": "  "}),
+        ("fit-reason", record("work-no-fit-reason"), {}, {"fit_reasons": ()}),
         ("value-signal", record("work-no-signal"), {}, {"value_signals": ()}),
         (
-            "traceable-evidence",
-            record("work-no-trace", transcript=None, video_reference=None),
+            "video-reference",
+            record("work-no-video", video_reference=None),
+            {},
+            {},
+        ),
+        (
+            "transcript",
+            record("work-no-transcript", transcript=None),
             {
                 "category": ContentCategory.PERSONA,
                 "confidence": ConfidenceLevel.HIGH,
@@ -875,6 +1034,7 @@ async def test_qianchuan_unannotated_opening_is_not_auto_library_candidate() -> 
             },
             {},
         ),
+        ("final-opportunity", record("work-not-opportunity"), {}, {"is_opportunity": False}),
         ("analyzer-decision", record("work-not-added"), {}, {"should_add_to_library": False}),
     ),
 )
@@ -952,6 +1112,37 @@ async def test_same_project_saved_content_key_blocks_duplicate_library_candidate
 
     assert duplicate.reports["project-a"].library_candidates == ()
     assert len(other_project.reports["project-a"].library_candidates) == 1
+
+
+@pytest.mark.asyncio
+async def test_any_matching_stable_key_blocks_same_project_library_duplicate() -> None:
+    result = await run_engine(
+        RecordingAnalyzer(),
+        sync_results=(
+            AccountSyncResult(
+                "account-001",
+                SyncStatus.SUCCESS_WITH_CONTENT,
+                (
+                    record(
+                        "work-001",
+                        url="https://example.invalid/content/shared",
+                    ),
+                ),
+            ),
+        ),
+        relations=(relation("project-a", "v1"),),
+        contexts=(context("project-a", "v1"),),
+        saved_library_records=(
+            SavedLibraryRecord(
+                "project-a",
+                "external_url:https://example.invalid/content/shared",
+                (),
+            ),
+        ),
+        run_at=RUN_AT,
+    )
+
+    assert result.reports["project-a"].library_candidates == ()
 
 
 @pytest.mark.asyncio

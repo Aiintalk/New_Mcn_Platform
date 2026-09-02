@@ -167,11 +167,16 @@ class EngineResult:
 
 
 def _stable_key(content: ContentRecord) -> str | None:
-    keys = content.identity.stable_keys()
+    keys = _stable_keys(content)
     if not keys:
         return None
-    kind, value = keys[0]
-    return f"{kind}:{value}"
+    return keys[0]
+
+
+def _stable_keys(content: ContentRecord) -> tuple[str, ...]:
+    return tuple(
+        f"{kind}:{value}" for kind, value in content.identity.stable_keys()
+    )
 
 
 def _metric_summary(contents: Iterable[ContentRecord], field_name: str) -> MetricSummary:
@@ -217,13 +222,15 @@ def _library_candidate(
 ) -> LibraryCandidate | None:
     content = item.analysis.content
     has_traceable_evidence = bool(
-        (content.transcript and content.transcript.strip())
-        or (content.video_reference and content.video_reference.strip())
+        content.transcript and content.transcript.strip()
+    ) and bool(
+        content.video_reference and content.video_reference.strip()
     )
     if (
         item.analysis.category == ContentCategory.UNDETERMINED
         or not item.assessment.is_fit
         or not item.assessment.conclusion.strip()
+        or not item.assessment.fit_reasons
         or not item.assessment.value_signals
         or not has_traceable_evidence
         or (
@@ -236,7 +243,7 @@ def _library_candidate(
         )
         or not item.assessment.should_add_to_library
         or item.stable_key is None
-        or item.stable_key in saved_content_keys
+        or bool(set(_stable_keys(content)) & saved_content_keys)
     ):
         return None
     analysis = item.analysis
@@ -299,7 +306,14 @@ class ContentAnalysisEngine:
             content
             for sync_result in sync_by_account.values()
             for content in sync_result.contents
-            if windows.thirty_day_start <= content.published_at < windows.thirty_day_end
+            if sync_result.status != SyncStatus.FAILED
+            and not (
+                sync_result.status == SyncStatus.SUCCESS_WITHOUT_CONTENT
+                and content.published_at >= windows.three_day_start
+            )
+            and windows.thirty_day_start
+            <= content.published_at
+            < windows.thirty_day_end
         ]
         deduplicated = deduplicate_contents(all_contents)
         analyses_by_object: dict[int, BasicAnalysis] = {}
@@ -363,9 +377,23 @@ class ContentAnalysisEngine:
                     global_relation_issues.append(issue)
                     continue
                 if relation.account_id not in account_ids:
-                    matched_syncs.append(sync_result)
+                    matched_syncs.append(
+                        replace(sync_result, contents=())
+                        if sync_result.status
+                        in (SyncStatus.FAILED, SyncStatus.SUCCESS_WITHOUT_CONTENT)
+                        else sync_result
+                    )
                     account_ids.add(relation.account_id)
-                    if sync_result.status == SyncStatus.PARTIAL_SUCCESS:
+                    if sync_result.status == SyncStatus.FAILED:
+                        issue = (
+                            f"：{sync_result.issue.strip()}"
+                            if sync_result.issue and sync_result.issue.strip()
+                            else ""
+                        )
+                        data_issues.append(
+                            f"账号 {relation.account_id} 同步失败，未使用其内容{issue}"
+                        )
+                    elif sync_result.status == SyncStatus.PARTIAL_SUCCESS:
                         data_issues.append(
                             f"账号 {relation.account_id} 部分同步成功，当前内容可能不完整"
                         )
@@ -421,33 +449,6 @@ class ContentAnalysisEngine:
             saved_content_keys_by_project[saved_record.project_id].add(
                 saved_record.content_key
             )
-
-        library_by_project: dict[str, tuple[LibraryCandidate, ...]] = {}
-        for project_id, items in project_items.items():
-            recent_items = (
-                item
-                for item in items
-                if windows.three_day_start
-                <= item.analysis.content.published_at
-                < windows.three_day_end
-                and item.analysis.content.account_id in current_content_account_ids
-                and (
-                    item.analysis.category != ContentCategory.QIANCHUAN
-                    or id(item.analysis.content) in qianchuan_pool_ids
-                )
-            )
-            candidates = tuple(
-                candidate
-                for candidate in (
-                    _library_candidate(
-                        item,
-                        saved_content_keys_by_project.get(project_id, set()),
-                    )
-                    for item in recent_items
-                )
-                if candidate is not None
-            )
-            library_by_project[project_id] = candidates
 
         method_projects: dict[ReusableMethod, set[str]] = defaultdict(set)
         for saved_record in run_input.saved_library_records:
@@ -507,6 +508,25 @@ class ContentAnalysisEngine:
                 ),
                 ContentCategory.QIANCHUAN,
             )
+            opportunity_item_ids = {
+                id(item)
+                for item in (
+                    calculated_persona_opportunities
+                    + calculated_qianchuan_opportunities
+                )
+            }
+            project_library_candidates = tuple(
+                candidate
+                for item in three_day_items
+                if id(item) in opportunity_item_ids
+                for candidate in (
+                    _library_candidate(
+                        item,
+                        saved_content_keys_by_project.get(project_id, set()),
+                    ),
+                )
+                if candidate is not None
+            )
             ranks = {
                 id(item): rank
                 for rank, item in enumerate(
@@ -521,7 +541,7 @@ class ContentAnalysisEngine:
                 }
             )
             library_keys = {
-                candidate.stable_key for candidate in library_by_project.get(project_id, ())
+                candidate.stable_key for candidate in project_library_candidates
             } | saved_content_keys_by_project.get(project_id, set())
             changed_previous: list[ReportItem] = []
             for item in previous_items:
@@ -535,14 +555,14 @@ class ContentAnalysisEngine:
                     project_id=project_id,
                     stable_key=item.stable_key,
                     candidate_rank=ranks.get(id(item)),
-                    is_opportunity=(
-                        item.assessment.is_opportunity
-                        and (
-                            item.analysis.category != ContentCategory.QIANCHUAN
-                            or id(item.analysis.content) in qianchuan_pool_ids
+                    is_opportunity=id(item) in opportunity_item_ids,
+                    in_library=(
+                        item.stable_key in library_keys
+                        or bool(
+                            set(_stable_keys(item.analysis.content))
+                            & saved_content_keys_by_project.get(project_id, set())
                         )
                     ),
-                    in_library=item.stable_key in library_keys,
                     priority=item.assessment.priority,
                     cross_project=bool(
                         reusable_methods & cross_methods_by_project.get(project_id, set())
@@ -568,7 +588,7 @@ class ContentAnalysisEngine:
             )
             library_candidates = tuple(
                 candidate
-                for candidate in library_by_project.get(project_id, ())
+                for candidate in project_library_candidates
                 if id(candidate.content) in display_content_ids
             )
 
