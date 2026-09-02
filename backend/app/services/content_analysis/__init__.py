@@ -1,6 +1,11 @@
 """内容分析阶段一的纯领域内核。"""
 
-from .analyzer import ContentAnalyzer, ProjectAssessment, enforce_analysis_boundaries
+from .analyzer import (
+    CandidateValueSignal,
+    ContentAnalyzer,
+    ProjectAssessment,
+    enforce_analysis_boundaries,
+)
 from .deterministic import (
     deduplicate_contents,
     derive_windows,
@@ -43,6 +48,7 @@ __all__ = [
     "AnalysisWindows",
     "AccountSyncResult",
     "BasicAnalysis",
+    "CandidateValueSignal",
     "DataMaturity",
     "ContentAnalysisEngine",
     "ContentAnalyzer",

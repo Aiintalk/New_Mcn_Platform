@@ -1,5 +1,6 @@
 """可注入智能分析协议，以及不依赖模型的输出边界清理。"""
 from dataclasses import dataclass, replace
+from enum import Enum
 from typing import Protocol
 
 from .domain import (
@@ -16,6 +17,14 @@ from .domain import (
 )
 
 
+class CandidateValueSignal(str, Enum):
+    """分析器可声明的封闭候选价值信号。"""
+
+    REUSABLE_METHOD = "reusable_method"
+    PROJECT_RELEVANCE = "project_relevance"
+    CONVERSION_STRUCTURE = "conversion_structure"
+
+
 @dataclass(frozen=True)
 class ProjectAssessment:
     """分析器对一个明确项目上下文作出的适配判断。"""
@@ -29,7 +38,15 @@ class ProjectAssessment:
     should_add_to_library: bool = False
     priority: int | None = None
     body_benchmark: str | None = None
+    value_signals: tuple[CandidateValueSignal, ...] = ()
     limitations: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if any(
+            not isinstance(signal, CandidateValueSignal)
+            for signal in self.value_signals
+        ):
+            raise ValueError("候选价值信号必须使用封闭枚举")
 
 
 class ContentAnalyzer(Protocol):

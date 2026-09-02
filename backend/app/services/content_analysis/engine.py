@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta
 from typing import Iterable
 
 from .analyzer import ContentAnalyzer, ProjectAssessment, enforce_analysis_boundaries
-from .deterministic import deduplicate_contents, derive_windows
+from .deterministic import deduplicate_contents, derive_windows, qianchuan_top_three
 from .domain import (
     BasicAnalysis,
     ConfidenceLevel,
@@ -211,11 +211,32 @@ def _opportunities(
     return tuple(sorted(eligible, key=_item_sort_key)[:3])
 
 
-def _library_candidate(item: ReportItem) -> LibraryCandidate | None:
+def _library_candidate(
+    item: ReportItem,
+    saved_content_keys: set[str],
+) -> LibraryCandidate | None:
+    content = item.analysis.content
+    has_traceable_evidence = bool(
+        (content.transcript and content.transcript.strip())
+        or (content.video_reference and content.video_reference.strip())
+    )
     if (
         item.analysis.category == ContentCategory.UNDETERMINED
+        or not item.assessment.is_fit
+        or not item.assessment.conclusion.strip()
+        or not item.assessment.value_signals
+        or not has_traceable_evidence
+        or (
+            item.analysis.category == ContentCategory.QIANCHUAN
+            and (
+                item.analysis.opening.status == OpeningTagStatus.UNANNOTATED
+                or not item.assessment.body_benchmark
+                or not item.assessment.body_benchmark.strip()
+            )
+        )
         or not item.assessment.should_add_to_library
         or item.stable_key is None
+        or item.stable_key in saved_content_keys
     ):
         return None
     analysis = item.analysis
@@ -252,6 +273,12 @@ class ContentAnalysisEngine:
             if sync_result.account_id in sync_by_account:
                 raise ValueError(f"账号 {sync_result.account_id} 存在重复同步结果")
             sync_by_account[sync_result.account_id] = sync_result
+        current_content_account_ids = {
+            account_id
+            for account_id, sync_result in sync_by_account.items()
+            if sync_result.status
+            in (SyncStatus.SUCCESS_WITH_CONTENT, SyncStatus.PARTIAL_SUCCESS)
+        }
 
         context_by_key: dict[tuple[str, str], ProjectContextVersion] = {}
         context_project_ids: set[str] = set()
@@ -276,11 +303,34 @@ class ContentAnalysisEngine:
         ]
         deduplicated = deduplicate_contents(all_contents)
         analyses_by_object: dict[int, BasicAnalysis] = {}
+        analyses: list[BasicAnalysis] = []
         for content in deduplicated:
             raw_analysis = await self._analyzer.analyze_content(content)
             if raw_analysis.content != content:
                 raw_analysis = replace(raw_analysis, content=content)
-            analyses_by_object[id(content)] = enforce_analysis_boundaries(raw_analysis)
+            analysis = enforce_analysis_boundaries(raw_analysis)
+            analyses_by_object[id(content)] = analysis
+            analyses.append(analysis)
+
+        qianchuan_pool_by_account = qianchuan_top_three(
+            (
+                analysis
+                for analysis in analyses
+                if analysis.content.account_id in current_content_account_ids
+            ),
+            windows.three_day_start,
+            windows.three_day_end,
+        )
+        qianchuan_pool_ids = {
+            id(content)
+            for contents in qianchuan_pool_by_account.values()
+            for content in contents
+        }
+        qianchuan_rank_by_content_id = {
+            id(content): rank
+            for contents in qianchuan_pool_by_account.values()
+            for rank, content in enumerate(contents, start=1)
+        }
 
         project_items: dict[str, tuple[ReportItem, ...]] = {}
         project_syncs: dict[str, tuple[AccountSyncResult, ...]] = {}
@@ -315,6 +365,10 @@ class ContentAnalysisEngine:
                 if relation.account_id not in account_ids:
                     matched_syncs.append(sync_result)
                     account_ids.add(relation.account_id)
+                    if sync_result.status == SyncStatus.PARTIAL_SUCCESS:
+                        data_issues.append(
+                            f"账号 {relation.account_id} 部分同步成功，当前内容可能不完整"
+                        )
 
             missing_fields = [
                 field_name
@@ -362,6 +416,12 @@ class ContentAnalysisEngine:
             project_relation_issues[project_id] = tuple(relation_issues)
             project_data_issues[project_id] = tuple(dict.fromkeys(data_issues))
 
+        saved_content_keys_by_project: dict[str, set[str]] = defaultdict(set)
+        for saved_record in run_input.saved_library_records:
+            saved_content_keys_by_project[saved_record.project_id].add(
+                saved_record.content_key
+            )
+
         library_by_project: dict[str, tuple[LibraryCandidate, ...]] = {}
         for project_id, items in project_items.items():
             recent_items = (
@@ -370,10 +430,21 @@ class ContentAnalysisEngine:
                 if windows.three_day_start
                 <= item.analysis.content.published_at
                 < windows.three_day_end
+                and item.analysis.content.account_id in current_content_account_ids
+                and (
+                    item.analysis.category != ContentCategory.QIANCHUAN
+                    or id(item.analysis.content) in qianchuan_pool_ids
+                )
             )
             candidates = tuple(
                 candidate
-                for candidate in (_library_candidate(item) for item in recent_items)
+                for candidate in (
+                    _library_candidate(
+                        item,
+                        saved_content_keys_by_project.get(project_id, set()),
+                    )
+                    for item in recent_items
+                )
                 if candidate is not None
             )
             library_by_project[project_id] = candidates
@@ -411,6 +482,7 @@ class ContentAnalysisEngine:
                 if windows.three_day_start
                 <= item.analysis.content.published_at
                 < windows.three_day_end
+                and item.analysis.content.account_id in current_content_account_ids
             )
             current_items = tuple(
                 item
@@ -428,19 +500,29 @@ class ContentAnalysisEngine:
                 three_day_items, ContentCategory.PERSONA
             )
             calculated_qianchuan_opportunities = _opportunities(
-                three_day_items, ContentCategory.QIANCHUAN
+                tuple(
+                    item
+                    for item in three_day_items
+                    if id(item.analysis.content) in qianchuan_pool_ids
+                ),
+                ContentCategory.QIANCHUAN,
             )
             ranks = {
                 id(item): rank
-                for opportunities in (
-                    calculated_persona_opportunities,
-                    calculated_qianchuan_opportunities,
+                for rank, item in enumerate(
+                    calculated_persona_opportunities, start=1
                 )
-                for rank, item in enumerate(opportunities, start=1)
             }
+            ranks.update(
+                {
+                    id(item): qianchuan_rank_by_content_id[id(item.analysis.content)]
+                    for item in three_day_items
+                    if id(item.analysis.content) in qianchuan_rank_by_content_id
+                }
+            )
             library_keys = {
                 candidate.stable_key for candidate in library_by_project.get(project_id, ())
-            }
+            } | saved_content_keys_by_project.get(project_id, set())
             changed_previous: list[ReportItem] = []
             for item in previous_items:
                 if item.stable_key is None:
@@ -453,7 +535,13 @@ class ContentAnalysisEngine:
                     project_id=project_id,
                     stable_key=item.stable_key,
                     candidate_rank=ranks.get(id(item)),
-                    is_opportunity=item.assessment.is_opportunity,
+                    is_opportunity=(
+                        item.assessment.is_opportunity
+                        and (
+                            item.analysis.category != ContentCategory.QIANCHUAN
+                            or id(item.analysis.content) in qianchuan_pool_ids
+                        )
+                    ),
                     in_library=item.stable_key in library_keys,
                     priority=item.assessment.priority,
                     cross_project=bool(
