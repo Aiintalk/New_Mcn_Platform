@@ -2,6 +2,7 @@
 from collections import Counter, defaultdict
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
+from enum import Enum
 from typing import Iterable
 
 from .analyzer import (
@@ -85,7 +86,7 @@ class LibraryCandidate:
 
     project_id: str
     context_version: str
-    stable_key: str
+    stable_key: str | None
     content: ContentRecord
     category: ContentCategory
     confidence: ConfidenceLevel
@@ -115,6 +116,28 @@ class SavedBusinessState:
     confidence: ConfidenceLevel
 
 
+class CrossProjectSignal(str, Enum):
+    """单项目方法进入跨项目机会池时可采用的五类封闭信号。"""
+
+    STRONG_ENGAGEMENT = "strong_engagement"
+    NOVEL_CONTENT_METHOD = "novel_content_method"
+    REUSABLE_CONVERSION_STRUCTURE = "reusable_conversion_structure"
+    EXPLICIT_CROSS_PROJECT_FIT = "explicit_cross_project_fit"
+    SHARED_CONTENT_PROBLEM_SOLUTION = "shared_content_problem_solution"
+
+
+@dataclass(frozen=True)
+class CrossProjectSource:
+    """跨项目方法的已入库来源，只保留项目与内容稳定键。"""
+
+    project_id: str
+    content_key: str
+
+    def __post_init__(self) -> None:
+        if not self.project_id.strip() or not self.content_key.strip():
+            raise ValueError("跨项目来源必须包含非空项目和内容稳定键")
+
+
 @dataclass(frozen=True)
 class SavedLibraryRecord:
     """已经持久化到明确项目库的最小稳定记录。"""
@@ -122,6 +145,19 @@ class SavedLibraryRecord:
     project_id: str
     content_key: str
     reusable_methods: tuple[ReusableMethod, ...]
+    signals: tuple[CrossProjectSignal, ...] = ()
+    scenarios: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if any(
+            not isinstance(signal, CrossProjectSignal) for signal in self.signals
+        ):
+            raise ValueError("跨项目信号必须使用封闭枚举")
+        if any(
+            not isinstance(scenario, str) or not scenario.strip()
+            for scenario in self.scenarios
+        ):
+            raise ValueError("跨项目适用场景不能为空")
 
 
 @dataclass(frozen=True)
@@ -142,6 +178,10 @@ class CrossProjectCandidate:
 
     method: ReusableMethod
     project_ids: tuple[str, ...]
+    sources: tuple[CrossProjectSource, ...] = ()
+    scenarios: tuple[str, ...] = ()
+    signals: tuple[CrossProjectSignal, ...] = ()
+    is_strong: bool = False
     auto_written_project_ids: tuple[str, ...] = ()
 
 
@@ -187,6 +227,28 @@ def _stable_keys(content: ContentRecord) -> tuple[str, ...]:
     )
 
 
+def _saved_state_for_item(
+    project_id: str,
+    item: ReportItem,
+    saved_by_key: dict[tuple[str, str], SavedBusinessState],
+) -> SavedBusinessState | None:
+    matching_states = tuple(
+        saved_by_key[(project_id, stable_key)]
+        for stable_key in _stable_keys(item.analysis.content)
+        if (project_id, stable_key) in saved_by_key
+    )
+    if not matching_states:
+        return None
+    normalized_states = tuple(
+        replace(state, stable_key=item.stable_key) for state in matching_states
+    )
+    if any(state != normalized_states[0] for state in normalized_states[1:]):
+        raise ValueError(
+            f"内容 {item.stable_key or '无稳定编号'} 的稳定别名命中了冲突业务状态"
+        )
+    return normalized_states[0]
+
+
 def _metric_summary(contents: Iterable[ContentRecord], field_name: str) -> MetricSummary:
     values = [getattr(content.metrics, field_name) for content in contents]
     return MetricSummary(
@@ -219,7 +281,9 @@ def _opportunities(
     eligible = [
         item
         for item in items
-        if item.analysis.category == category and item.assessment.is_opportunity
+        if item.analysis.category == category
+        and item.assessment.is_fit
+        and item.assessment.is_opportunity
     ]
     return tuple(sorted(eligible, key=_item_sort_key)[:3])
 
@@ -244,13 +308,15 @@ def _library_candidate(
         or (
             item.analysis.category == ContentCategory.QIANCHUAN
             and (
-                item.analysis.opening.status == OpeningTagStatus.UNANNOTATED
+                item.analysis.opening.status
+                not in (
+                    OpeningTagStatus.AVAILABLE,
+                    OpeningTagStatus.UNAVAILABLE,
+                )
                 or not item.assessment.body_benchmark
                 or not item.assessment.body_benchmark.strip()
             )
         )
-        or not item.assessment.should_add_to_library
-        or item.stable_key is None
         or bool(set(_stable_keys(content)) & saved_content_keys)
     ):
         return None
@@ -296,6 +362,19 @@ class ContentAnalysisEngine:
             if sync_result.status
             in (SyncStatus.SUCCESS_WITH_CONTENT, SyncStatus.PARTIAL_SUCCESS)
         }
+        successful_records_by_account = {
+            account_id: tuple(
+                content
+                for content in sync_result.contents
+                if content.sync_status == SyncStatus.SUCCESS_WITH_CONTENT
+            )
+            for account_id, sync_result in sync_by_account.items()
+        }
+        ignored_record_counts = {
+            account_id: len(sync_result.contents)
+            - len(successful_records_by_account[account_id])
+            for account_id, sync_result in sync_by_account.items()
+        }
 
         context_by_key: dict[tuple[str, str], ProjectContextVersion] = {}
         context_project_ids: set[str] = set()
@@ -314,8 +393,8 @@ class ContentAnalysisEngine:
 
         all_contents = [
             content
-            for sync_result in sync_by_account.values()
-            for content in sync_result.contents
+            for account_id, sync_result in sync_by_account.items()
+            for content in successful_records_by_account[account_id]
             if sync_result.status != SyncStatus.FAILED
             and not (
                 sync_result.status == SyncStatus.SUCCESS_WITHOUT_CONTENT
@@ -387,11 +466,12 @@ class ContentAnalysisEngine:
                     global_relation_issues.append(issue)
                     continue
                 if relation.account_id not in account_ids:
+                    safe_contents = successful_records_by_account[relation.account_id]
                     matched_syncs.append(
                         replace(sync_result, contents=())
                         if sync_result.status
                         in (SyncStatus.FAILED, SyncStatus.SUCCESS_WITHOUT_CONTENT)
-                        else sync_result
+                        else replace(sync_result, contents=safe_contents)
                     )
                     account_ids.add(relation.account_id)
                     if sync_result.status == SyncStatus.FAILED:
@@ -406,6 +486,11 @@ class ContentAnalysisEngine:
                     elif sync_result.status == SyncStatus.PARTIAL_SUCCESS:
                         data_issues.append(
                             f"账号 {relation.account_id} 部分同步成功，当前内容可能不完整"
+                        )
+                    ignored_count = ignored_record_counts[relation.account_id]
+                    if ignored_count:
+                        data_issues.append(
+                            f"账号 {relation.account_id} 忽略了 {ignored_count} 条记录级非成功内容"
                         )
 
             missing_fields = [
@@ -460,18 +545,53 @@ class ContentAnalysisEngine:
                 saved_record.content_key
             )
 
-        method_projects: dict[ReusableMethod, set[str]] = defaultdict(set)
+        method_records: dict[ReusableMethod, list[SavedLibraryRecord]] = defaultdict(
+            list
+        )
         for saved_record in run_input.saved_library_records:
             for method in saved_record.reusable_methods:
-                method_projects[method].add(saved_record.project_id)
+                method_records[method].append(saved_record)
 
-        cross_project_candidates = tuple(
-            CrossProjectCandidate(method=method, project_ids=tuple(sorted(project_ids)))
-            for method, project_ids in sorted(
-                method_projects.items(), key=lambda pair: (pair[0].name, pair[0].description)
+        cross_project_candidates_list: list[CrossProjectCandidate] = []
+        for method, records in sorted(
+            method_records.items(),
+            key=lambda pair: (pair[0].name, pair[0].description),
+        ):
+            sources = tuple(
+                sorted(
+                    {
+                        CrossProjectSource(record.project_id, record.content_key)
+                        for record in records
+                    },
+                    key=lambda source: (source.project_id, source.content_key),
+                )
             )
-            if len(project_ids) >= 2
-        )
+            project_ids = tuple(sorted({source.project_id for source in sources}))
+            scenarios = tuple(
+                sorted(
+                    {scenario for record in records for scenario in record.scenarios}
+                )
+            )
+            signals = tuple(
+                sorted(
+                    {signal for record in records for signal in record.signals},
+                    key=lambda signal: signal.value,
+                )
+            )
+            is_strong = len(project_ids) >= 2
+            if not scenarios or (not is_strong and len(signals) < 2):
+                continue
+            cross_project_candidates_list.append(
+                CrossProjectCandidate(
+                    method=method,
+                    project_ids=project_ids,
+                    sources=sources,
+                    scenarios=scenarios,
+                    signals=signals,
+                    is_strong=is_strong,
+                )
+            )
+        cross_project_candidates = tuple(cross_project_candidates_list)
         cross_methods_by_project: dict[str, set[ReusableMethod]] = defaultdict(set)
         for candidate in cross_project_candidates:
             for project_id in candidate.project_ids:
@@ -557,7 +677,7 @@ class ContentAnalysisEngine:
             for item in previous_items:
                 if item.stable_key is None:
                     continue
-                old_state = saved_by_key.get((project_id, item.stable_key))
+                old_state = _saved_state_for_item(project_id, item, saved_by_key)
                 if old_state is None:
                     continue
                 reusable_methods = set(item.analysis.source_information.reusable_methods)
@@ -585,7 +705,6 @@ class ContentAnalysisEngine:
 
             display_items = current_items + tuple(changed_previous)
             display_item_ids = {id(item) for item in display_items}
-            display_content_ids = {id(item.analysis.content) for item in display_items}
             persona_opportunities = tuple(
                 item
                 for item in calculated_persona_opportunities
@@ -596,11 +715,7 @@ class ContentAnalysisEngine:
                 for item in calculated_qianchuan_opportunities
                 if id(item) in display_item_ids
             )
-            library_candidates = tuple(
-                candidate
-                for candidate in project_library_candidates
-                if id(candidate.content) in display_content_ids
-            )
+            library_candidates = project_library_candidates
 
             category_counts = Counter(item.analysis.category for item in current_items)
             current_contents = tuple(item.analysis.content for item in current_items)

@@ -6,7 +6,12 @@ from zoneinfo import ZoneInfo
 import pytest
 
 import app.services.content_analysis as content_analysis
-from app.services.content_analysis import ProjectFitDimension, ProjectFitReason
+from app.services.content_analysis import (
+    CrossProjectSignal,
+    CrossProjectSource,
+    ProjectFitDimension,
+    ProjectFitReason,
+)
 from app.services.content_analysis.analyzer import (
     CandidateValueSignal,
     ProjectAssessment,
@@ -65,6 +70,7 @@ def record(
     comments: int | None = 2,
     shares: int | None = 1,
     favorites: int | None = 3,
+    sync_status: SyncStatus = SyncStatus.SUCCESS_WITH_CONTENT,
 ) -> ContentRecord:
     return ContentRecord(
         account_id=account_id,
@@ -80,6 +86,7 @@ def record(
         ),
         transcript=transcript,
         video_reference=video_reference,
+        sync_status=sync_status,
     )
 
 
@@ -108,6 +115,30 @@ def test_project_assessment_value_signal_is_closed_enum() -> None:
         )
 
 
+def test_project_assessment_rejects_model_library_veto_field() -> None:
+    with pytest.raises(TypeError, match="should_add_to_library"):
+        ProjectAssessment(
+            project_id="project-a",
+            context_version="v1",
+            is_fit=True,
+            confidence=ConfidenceLevel.HIGH,
+            conclusion="适配匿名项目",
+            should_add_to_library=False,
+        )
+
+
+def test_project_assessment_rejects_opportunity_that_is_not_project_fit() -> None:
+    with pytest.raises(ValueError, match="机会.*适配"):
+        ProjectAssessment(
+            project_id="project-a",
+            context_version="v1",
+            is_fit=False,
+            is_opportunity=True,
+            confidence=ConfidenceLevel.HIGH,
+            conclusion="不适配但错误标成机会",
+        )
+
+
 def test_candidate_value_signals_match_the_six_allowed_business_signals() -> None:
     assert {signal.value for signal in CandidateValueSignal} == {
         "early_data_strength",
@@ -119,6 +150,38 @@ def test_candidate_value_signals_match_the_six_allowed_business_signals() -> Non
     }
     with pytest.raises(ValueError):
         CandidateValueSignal("project_relevance")
+
+
+def test_cross_project_signals_match_the_five_v16_conditions() -> None:
+    assert {"CrossProjectSignal", "CrossProjectSource"} <= set(
+        content_analysis.__all__
+    )
+    assert {signal.value for signal in CrossProjectSignal} == {
+        "strong_engagement",
+        "novel_content_method",
+        "reusable_conversion_structure",
+        "explicit_cross_project_fit",
+        "shared_content_problem_solution",
+    }
+    with pytest.raises(ValueError):
+        CrossProjectSignal("single_source_recency")
+
+
+def test_saved_library_record_requires_closed_signals_and_nonblank_scenarios() -> None:
+    with pytest.raises(ValueError, match="跨项目信号"):
+        SavedLibraryRecord(
+            "project-a",
+            "saved-work-a",
+            (),
+            signals=("任意信号",),
+        )
+    with pytest.raises(ValueError, match="适用场景"):
+        SavedLibraryRecord(
+            "project-a",
+            "saved-work-a",
+            (),
+            scenarios=("  ",),
+        )
 
 
 def test_project_fit_reason_requires_closed_dimension_and_nonempty_statement() -> None:
@@ -206,7 +269,6 @@ class RecordingAnalyzer:
             context_version="analyzer-must-not-own-version",
             is_fit=True,
             is_opportunity=True,
-            should_add_to_library=True,
             priority=1,
             confidence=analysis.confidence,
             conclusion=f"适配 {project_context.project_persona}",
@@ -310,6 +372,104 @@ async def test_injected_async_analyzer_reuses_basic_analysis_but_seals_each_proj
     assert result.reports["project-b"].items[0].assessment.context_version == "v2"
     assert result.reports["project-a"].items[0].assessment.conclusion == "适配 人设甲"
     assert result.reports["project-b"].items[0].assessment.conclusion == "适配 人设乙"
+
+
+@pytest.mark.asyncio
+async def test_newer_failed_record_cannot_replace_older_successful_duplicate() -> None:
+    analyzer = RecordingAnalyzer()
+    older_success = replace(
+        record("work-001", transcript="旧成功内容"),
+        captured_at=RUN_AT - timedelta(hours=1),
+    )
+    newer_failed = record(
+        "work-001",
+        transcript="新失败内容",
+        sync_status=SyncStatus.FAILED,
+    )
+
+    result = await run_engine(
+        analyzer,
+        sync_results=(
+            AccountSyncResult(
+                "account-001",
+                SyncStatus.SUCCESS_WITH_CONTENT,
+                (older_success, newer_failed),
+            ),
+        ),
+        relations=(relation("project-a", "v1"),),
+        contexts=(context("project-a", "v1"),),
+        run_at=RUN_AT,
+    )
+
+    report = result.reports["project-a"]
+    assert analyzer.basic_calls == [older_success]
+    assert report.items[0].analysis.content == older_success
+    assert report.sync_results[0].contents == (older_success,)
+    assert "账号 account-001 忽略了 1 条记录级非成功内容" in report.data_issues
+
+
+@pytest.mark.asyncio
+async def test_successful_account_does_not_analyze_or_return_failed_record() -> None:
+    analyzer = RecordingAnalyzer()
+    failed_record = record(
+        "work-failed",
+        sync_status=SyncStatus.FAILED,
+    )
+
+    result = await run_engine(
+        analyzer,
+        sync_results=(
+            AccountSyncResult(
+                "account-001",
+                SyncStatus.SUCCESS_WITH_CONTENT,
+                (failed_record,),
+            ),
+        ),
+        relations=(relation("project-a", "v1"),),
+        contexts=(context("project-a", "v1"),),
+        run_at=RUN_AT,
+    )
+
+    report = result.reports["project-a"]
+    assert analyzer.basic_calls == []
+    assert analyzer.project_calls == []
+    assert report.items == ()
+    assert report.sync_results[0].contents == ()
+    assert report.data_issues == (
+        "账号 account-001 忽略了 1 条记录级非成功内容",
+    )
+
+
+@pytest.mark.asyncio
+async def test_partial_sync_uses_and_returns_only_successful_records() -> None:
+    analyzer = RecordingAnalyzer()
+    successful = record("work-success")
+    failed = record("work-failed", sync_status=SyncStatus.FAILED)
+
+    result = await run_engine(
+        analyzer,
+        sync_results=(
+            AccountSyncResult(
+                "account-001",
+                SyncStatus.PARTIAL_SUCCESS,
+                (successful, failed),
+            ),
+        ),
+        relations=(relation("project-a", "v1"),),
+        contexts=(context("project-a", "v1"),),
+        run_at=RUN_AT,
+    )
+
+    report = result.reports["project-a"]
+    assert analyzer.basic_calls == [successful]
+    assert [item.stable_key for item in report.items] == [
+        "platform_content_id:work-success"
+    ]
+    assert report.sync_results[0].contents == (successful,)
+    assert report.data_issues == (
+        "账号 account-001 部分同步成功，当前内容可能不完整",
+        "账号 account-001 忽略了 1 条记录级非成功内容",
+    )
 
 
 @pytest.mark.asyncio
@@ -483,6 +643,35 @@ class MismatchedOpeningAnalyzer(RecordingAnalyzer):
         )
 
 
+class InputlessEvidenceAnalyzer(RecordingAnalyzer):
+    def __init__(self, kind: OpeningKind) -> None:
+        super().__init__()
+        self.kind = kind
+
+    async def analyze_content(self, content: ContentRecord) -> BasicAnalysis:
+        self.basic_calls.append(content)
+        evidence_type = (
+            EvidenceType.TRANSCRIPT
+            if self.kind == OpeningKind.LANGUAGE
+            else EvidenceType.VISUAL
+        )
+        evidence = AnalysisEvidence(evidence_type, "0-3s", "分析器自报依据")
+        return BasicAnalysis(
+            content=content,
+            category=ContentCategory.PERSONA,
+            confidence=ConfidenceLevel.MEDIUM,
+            opening=OpeningAnnotation(
+                status=OpeningTagStatus.AVAILABLE,
+                kind=self.kind,
+                fragment="分析器自报开头",
+                evidence=(evidence,),
+            ),
+            shot_observations=(
+                (evidence,) if self.kind == OpeningKind.FIRST_FRAME else ()
+            ),
+        )
+
+
 @pytest.mark.asyncio
 async def test_transcript_only_opening_is_kept_without_visual_evidence() -> None:
     result = await run_engine(
@@ -497,6 +686,36 @@ async def test_transcript_only_opening_is_kept_without_visual_evidence() -> None
     assert opening.status == OpeningTagStatus.AVAILABLE
     assert opening.kind == OpeningKind.LANGUAGE
     assert opening.fragment == "语言开头：先问一个问题"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("kind", "content"),
+    (
+        (OpeningKind.LANGUAGE, record("work-language", transcript=None)),
+        (OpeningKind.FIRST_FRAME, record("work-visual", video_reference=None)),
+    ),
+)
+async def test_analyzer_evidence_without_bound_source_input_is_removed(
+    kind: OpeningKind,
+    content: ContentRecord,
+) -> None:
+    result = await run_engine(
+        InputlessEvidenceAnalyzer(kind),
+        sync_results=(
+            AccountSyncResult(
+                "account-001", SyncStatus.SUCCESS_WITH_CONTENT, (content,)
+            ),
+        ),
+        relations=(relation("project-a", "v1"),),
+        contexts=(context("project-a", "v1"),),
+        run_at=RUN_AT,
+    )
+
+    analysis = result.reports["project-a"].items[0].analysis
+    assert analysis.opening.status == OpeningTagStatus.UNAVAILABLE
+    assert analysis.shot_observations == ()
+    assert analysis.source_information.limitations
 
 
 @pytest.mark.asyncio
@@ -558,6 +777,11 @@ def test_available_opening_requires_explicit_kind() -> None:
             fragment="使用了未受限字符串类型",
             evidence=(AnalysisEvidence(EvidenceType.TRANSCRIPT, "0-3s", "转写"),),
         )
+
+
+def test_opening_annotation_requires_closed_status_enum() -> None:
+    with pytest.raises(ValueError, match="开头状态"):
+        OpeningAnnotation(status="available")
 
 
 def test_interaction_observations_only_express_current_non_time_series_semantics() -> None:
@@ -1040,7 +1264,12 @@ async def test_qianchuan_unannotated_opening_is_not_auto_library_candidate() -> 
 @pytest.mark.parametrize(
     ("gate_name", "content", "analysis_updates", "assessment_updates"),
     (
-        ("project-fit", record("work-not-fit"), {}, {"is_fit": False}),
+        (
+            "project-fit",
+            record("work-not-fit"),
+            {},
+            {"is_fit": False, "is_opportunity": False},
+        ),
         ("fit-conclusion", record("work-blank-conclusion"), {}, {"conclusion": "  "}),
         ("fit-reason", record("work-no-fit-reason"), {}, {"fit_reasons": ()}),
         ("value-signal", record("work-no-signal"), {}, {"value_signals": ()}),
@@ -1061,7 +1290,6 @@ async def test_qianchuan_unannotated_opening_is_not_auto_library_candidate() -> 
             {},
         ),
         ("final-opportunity", record("work-not-opportunity"), {}, {"is_opportunity": False}),
-        ("analyzer-decision", record("work-not-added"), {}, {"should_add_to_library": False}),
     ),
 )
 async def test_library_candidate_requires_every_common_hard_gate(
@@ -1085,7 +1313,10 @@ async def test_library_candidate_requires_every_common_hard_gate(
         run_at=RUN_AT,
     )
 
-    assert result.reports["project-a"].library_candidates == (), gate_name
+    report = result.reports["project-a"]
+    assert report.library_candidates == (), gate_name
+    if gate_name == "project-fit":
+        assert report.persona_opportunities == ()
 
 
 @pytest.mark.asyncio
@@ -1212,20 +1443,32 @@ async def test_saved_library_duplicate_remains_in_library_in_business_state() ->
 
 
 @pytest.mark.asyncio
-async def test_unstable_identity_is_analyzed_but_never_automatically_added_to_library() -> None:
+async def test_missing_stable_identity_forms_independent_candidates_without_fake_keys() -> None:
     analyzer = RecordingAnalyzer()
+    first = replace(record(None), captured_at=RUN_AT - timedelta(minutes=1))
+    second = record(None)
     result = await run_engine(
         analyzer,
-        sync_results=(AccountSyncResult("account-001", SyncStatus.SUCCESS_WITH_CONTENT, (record(None),)),),
+        sync_results=(
+            AccountSyncResult(
+                "account-001",
+                SyncStatus.SUCCESS_WITH_CONTENT,
+                (first, second),
+            ),
+        ),
         relations=(relation("project-a", "v1"),),
         contexts=(context("project-a", "v1"),),
         run_at=RUN_AT,
     )
 
     report = result.reports["project-a"]
-    assert len(analyzer.basic_calls) == 1
-    assert len(report.items) == 1
-    assert report.library_candidates == ()
+    assert analyzer.basic_calls == [first, second]
+    assert len(report.items) == 2
+    assert len(report.library_candidates) == 2
+    assert [candidate.stable_key for candidate in report.library_candidates] == [
+        None,
+        None,
+    ]
 
 
 @pytest.mark.asyncio
@@ -1298,8 +1541,120 @@ async def test_previous_two_days_reenter_only_when_saved_business_state_changes(
         "platform_content_id:work-changed"
     ]
     assert [item.stable_key for item in report.library_candidates] == [
-        "platform_content_id:work-changed"
+        "platform_content_id:work-unchanged",
+        "platform_content_id:work-changed",
+        "platform_content_id:work-new",
     ]
+
+
+@pytest.mark.asyncio
+async def test_previous_day_without_history_stays_out_of_report_but_can_enter_library() -> None:
+    previous_day_content = record(
+        "work-previous",
+        published_at=REPORT_DAY - timedelta(days=1),
+    )
+    result = await run_engine(
+        RecordingAnalyzer(),
+        sync_results=(
+            AccountSyncResult(
+                "account-001",
+                SyncStatus.SUCCESS_WITH_CONTENT,
+                (previous_day_content,),
+            ),
+        ),
+        relations=(relation("project-a", "v1"),),
+        contexts=(context("project-a", "v1"),),
+        run_at=RUN_AT,
+    )
+
+    report = result.reports["project-a"]
+    assert report.items == ()
+    assert report.previous_two_day_changes == ()
+    assert report.persona_opportunities == ()
+    assert [candidate.stable_key for candidate in report.library_candidates] == [
+        "platform_content_id:work-previous"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_saved_business_state_matches_any_stable_alias() -> None:
+    content = record(
+        "work-alias",
+        url="https://example.invalid/content/work-alias",
+        published_at=REPORT_DAY - timedelta(days=1),
+    )
+    result = await run_engine(
+        RecordingAnalyzer(),
+        sync_results=(
+            AccountSyncResult(
+                "account-001", SyncStatus.SUCCESS_WITH_CONTENT, (content,)
+            ),
+        ),
+        relations=(relation("project-a", "v1"),),
+        contexts=(context("project-a", "v1"),),
+        saved_states=(
+            SavedBusinessState(
+                project_id="project-a",
+                stable_key="external_url:https://example.invalid/content/work-alias",
+                candidate_rank=1,
+                is_opportunity=False,
+                in_library=True,
+                priority=1,
+                cross_project=False,
+                conclusion="适配 匿名人设",
+                confidence=ConfidenceLevel.HIGH,
+            ),
+        ),
+        run_at=RUN_AT,
+    )
+
+    assert [
+        item.stable_key
+        for item in result.reports["project-a"].previous_two_day_changes
+    ] == ["platform_content_id:work-alias"]
+
+
+@pytest.mark.asyncio
+async def test_conflicting_saved_business_states_across_aliases_are_rejected() -> None:
+    content = record(
+        "work-alias",
+        url="https://example.invalid/content/work-alias",
+        published_at=REPORT_DAY - timedelta(days=1),
+    )
+    common_state = dict(
+        project_id="project-a",
+        candidate_rank=1,
+        in_library=True,
+        priority=1,
+        cross_project=False,
+        conclusion="适配 匿名人设",
+        confidence=ConfidenceLevel.HIGH,
+    )
+
+    with pytest.raises(ValueError, match="稳定别名.*冲突"):
+        await run_engine(
+            RecordingAnalyzer(),
+            sync_results=(
+                AccountSyncResult(
+                    "account-001", SyncStatus.SUCCESS_WITH_CONTENT, (content,)
+                ),
+            ),
+            relations=(relation("project-a", "v1"),),
+            contexts=(context("project-a", "v1"),),
+            saved_states=(
+                SavedBusinessState(
+                    stable_key="platform_content_id:work-alias",
+                    is_opportunity=True,
+                    **common_state,
+                ),
+                SavedBusinessState(
+                    stable_key="external_url:https://example.invalid/content/work-alias",
+                    is_opportunity=False,
+                    **common_state,
+                ),
+            ),
+            run_at=RUN_AT,
+        )
 
 
 @pytest.mark.asyncio
@@ -1321,8 +1676,20 @@ async def test_cross_project_methods_require_saved_library_entries_and_strip_sou
         RecordingAnalyzer(),
         **input_values,
         saved_library_records=(
-            SavedLibraryRecord("project-a", "saved-work-a", (method,)),
-            SavedLibraryRecord("project-b", "saved-work-b", (method,)),
+            SavedLibraryRecord(
+                "project-a",
+                "saved-work-a",
+                (method,),
+                signals=(CrossProjectSignal.STRONG_ENGAGEMENT,),
+                scenarios=("银发口播",),
+            ),
+            SavedLibraryRecord(
+                "project-b",
+                "saved-work-b",
+                (method,),
+                signals=(CrossProjectSignal.NOVEL_CONTENT_METHOD,),
+                scenarios=("美妆讲解",),
+            ),
         ),
     )
 
@@ -1330,5 +1697,99 @@ async def test_cross_project_methods_require_saved_library_entries_and_strip_sou
     candidate = result.cross_project_candidates[0]
     assert candidate.method == method
     assert candidate.project_ids == ("project-a", "project-b")
+    assert candidate.sources == (
+        CrossProjectSource("project-a", "saved-work-a"),
+        CrossProjectSource("project-b", "saved-work-b"),
+    )
+    assert candidate.scenarios == ("美妆讲解", "银发口播")
+    assert candidate.signals == (
+        CrossProjectSignal.NOVEL_CONTENT_METHOD,
+        CrossProjectSignal.STRONG_ENGAGEMENT,
+    )
+    assert candidate.is_strong is True
     assert candidate.auto_written_project_ids == ()
     assert not hasattr(candidate, "source_information")
+
+
+@pytest.mark.asyncio
+async def test_single_project_method_needs_two_signals_and_a_scenario() -> None:
+    method = ReusableMethod(name="问题到证明", description="先问题后证明")
+    input_values = dict(
+        sync_results=(
+            AccountSyncResult(
+                "account-001",
+                SyncStatus.SUCCESS_WITH_CONTENT,
+                (record("work-001"),),
+            ),
+        ),
+        relations=(relation("project-a", "v1"),),
+        contexts=(context("project-a", "v1"),),
+        run_at=RUN_AT,
+    )
+
+    result = await run_engine(
+        RecordingAnalyzer(),
+        **input_values,
+        saved_library_records=(
+            SavedLibraryRecord(
+                "project-a",
+                "saved-work-a",
+                (method,),
+                signals=(
+                    CrossProjectSignal.REUSABLE_CONVERSION_STRUCTURE,
+                    CrossProjectSignal.EXPLICIT_CROSS_PROJECT_FIT,
+                ),
+                scenarios=("跨项目商品讲解",),
+            ),
+        ),
+    )
+
+    assert len(result.cross_project_candidates) == 1
+    candidate = result.cross_project_candidates[0]
+    assert candidate.project_ids == ("project-a",)
+    assert candidate.sources == (CrossProjectSource("project-a", "saved-work-a"),)
+    assert candidate.scenarios == ("跨项目商品讲解",)
+    assert candidate.is_strong is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "saved_record",
+    (
+        SavedLibraryRecord(
+            "project-a",
+            "one-signal",
+            (ReusableMethod("问题到证明", "先问题后证明"),),
+            signals=(CrossProjectSignal.STRONG_ENGAGEMENT,),
+            scenarios=("银发口播",),
+        ),
+        SavedLibraryRecord(
+            "project-a",
+            "no-scenario",
+            (ReusableMethod("问题到证明", "先问题后证明"),),
+            signals=(
+                CrossProjectSignal.STRONG_ENGAGEMENT,
+                CrossProjectSignal.NOVEL_CONTENT_METHOD,
+            ),
+        ),
+    ),
+)
+async def test_single_project_method_excludes_insufficient_signals_or_scenarios(
+    saved_record: SavedLibraryRecord,
+) -> None:
+    result = await run_engine(
+        RecordingAnalyzer(),
+        sync_results=(
+            AccountSyncResult(
+                "account-001",
+                SyncStatus.SUCCESS_WITH_CONTENT,
+                (record("work-001"),),
+            ),
+        ),
+        relations=(relation("project-a", "v1"),),
+        contexts=(context("project-a", "v1"),),
+        saved_library_records=(saved_record,),
+        run_at=RUN_AT,
+    )
+
+    assert result.cross_project_candidates == ()

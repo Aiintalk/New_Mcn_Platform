@@ -180,6 +180,14 @@ class AnalysisEvidence:
     locator: str
     detail: str
 
+    def __post_init__(self) -> None:
+        if not isinstance(self.evidence_type, EvidenceType):
+            raise ValueError("分析依据类型不受支持")
+        if not isinstance(self.locator, str) or not self.locator.strip():
+            raise ValueError("分析依据定位不能为空")
+        if not isinstance(self.detail, str) or not self.detail.strip():
+            raise ValueError("分析依据说明不能为空")
+
 
 @dataclass(frozen=True)
 class InteractionObservation:
@@ -280,6 +288,8 @@ class OpeningAnnotation:
     unavailable_reason: str | None = None
 
     def __post_init__(self) -> None:
+        if not isinstance(self.status, OpeningTagStatus):
+            raise ValueError("开头状态必须使用封闭枚举")
         if self.status == OpeningTagStatus.UNANNOTATED:
             if (
                 self.kind is not None

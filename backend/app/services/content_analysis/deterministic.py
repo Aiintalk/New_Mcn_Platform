@@ -125,15 +125,39 @@ def qianchuan_top_three(
         account_id: tuple(
             sorted(
                 records,
-                key=lambda record: (
-                    record.metrics.like_count is not None,
-                    record.metrics.like_count if record.metrics.like_count is not None else -1,
-                ),
-                reverse=True,
+                key=_qianchuan_rank_key,
             )[:3]
         )
         for account_id, records in records_by_account.items()
     }
+
+
+def _qianchuan_rank_key(record: ContentRecord) -> tuple[object, ...]:
+    """点赞同分时仍只使用内容自身字段给出稳定次序。"""
+    likes = record.metrics.like_count
+    identity = record.identity
+    return (
+        likes is None,
+        -(likes or 0),
+        -record.published_at.timestamp(),
+        not bool(identity.platform_content_id),
+        identity.platform_content_id or "",
+        not bool(identity.external_url),
+        identity.external_url or "",
+        -record.captured_at.timestamp(),
+        record.source.value,
+        record.transcript or "",
+        record.video_reference or "",
+        record.metrics.comment_count is None,
+        -(record.metrics.comment_count or 0),
+        record.metrics.share_count is None,
+        -(record.metrics.share_count or 0),
+        record.metrics.favorite_count is None,
+        -(record.metrics.favorite_count or 0),
+        record.metrics.play_count is None,
+        -(record.metrics.play_count or 0),
+        record.sync_status.value,
+    )
 
 
 def normalize_play_count(play_count: int | None) -> int | None:

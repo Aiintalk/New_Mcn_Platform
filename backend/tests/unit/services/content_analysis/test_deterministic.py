@@ -285,6 +285,88 @@ def test_qianchuan_top_three_uses_current_likes_with_left_boundary_and_account_i
     ]
 
 
+def test_qianchuan_equal_likes_use_publish_time_then_stable_identity() -> None:
+    window_start = datetime(2026, 9, 1, tzinfo=SHANGHAI)
+    window_end = datetime(2026, 9, 4, tzinfo=SHANGHAI)
+    records = [
+        analysis(
+            content(
+                platform_content_id="sample-z",
+                likes=50,
+                published_at=datetime(2026, 9, 3, tzinfo=SHANGHAI),
+            ),
+            category=ContentCategory.QIANCHUAN,
+        ),
+        analysis(
+            content(
+                platform_content_id="sample-b",
+                likes=50,
+                published_at=datetime(2026, 9, 2, tzinfo=SHANGHAI),
+            ),
+            category=ContentCategory.QIANCHUAN,
+        ),
+        analysis(
+            content(
+                platform_content_id="sample-a",
+                likes=50,
+                published_at=datetime(2026, 9, 2, tzinfo=SHANGHAI),
+            ),
+            category=ContentCategory.QIANCHUAN,
+        ),
+    ]
+
+    forward = qianchuan_top_three(records, window_start, window_end)["account-001"]
+    backward = qianchuan_top_three(
+        reversed(records), window_start, window_end
+    )["account-001"]
+
+    assert forward == backward
+    assert [item.identity.platform_content_id for item in forward] == [
+        "sample-z",
+        "sample-a",
+        "sample-b",
+    ]
+
+
+def test_qianchuan_equal_records_without_stable_identity_do_not_use_input_order() -> None:
+    window_start = datetime(2026, 9, 1, tzinfo=SHANGHAI)
+    window_end = datetime(2026, 9, 4, tzinfo=SHANGHAI)
+    records = [
+        analysis(
+            content(
+                likes=50,
+                transcript="较早采集",
+                captured_at=datetime(2026, 9, 2, 8, tzinfo=SHANGHAI),
+            ),
+            category=ContentCategory.QIANCHUAN,
+        ),
+        analysis(
+            content(
+                likes=50,
+                transcript="最新采集",
+                captured_at=datetime(2026, 9, 2, 10, tzinfo=SHANGHAI),
+            ),
+            category=ContentCategory.QIANCHUAN,
+        ),
+        analysis(
+            content(
+                likes=50,
+                transcript="中间采集",
+                captured_at=datetime(2026, 9, 2, 9, tzinfo=SHANGHAI),
+            ),
+            category=ContentCategory.QIANCHUAN,
+        ),
+    ]
+
+    forward = qianchuan_top_three(records, window_start, window_end)["account-001"]
+    backward = qianchuan_top_three(
+        reversed(records), window_start, window_end
+    )["account-001"]
+
+    assert forward == backward
+    assert [item.transcript for item in forward] == ["最新采集", "中间采集", "较早采集"]
+
+
 def test_basic_analysis_requires_reason_for_undetermined_category() -> None:
     with pytest.raises(ValueError):
         analysis(content(), category=ContentCategory.UNDETERMINED)
@@ -321,6 +403,23 @@ def test_opening_annotation_represents_available_evidence_or_unavailable_reason(
     assert available.evidence[0].evidence_type == EvidenceType.VISUAL
     assert available.evidence[0].locator == "frame:0-3s"
     assert unavailable.unavailable_reason == "没有可用的视频或转写依据"
+
+
+@pytest.mark.parametrize(
+    ("evidence_type", "locator", "detail"),
+    (
+        ("visual", "frame:0-3s", "画面证据"),
+        (EvidenceType.VISUAL, "  ", "画面证据"),
+        (EvidenceType.TRANSCRIPT, "0-3s", "  "),
+    ),
+)
+def test_analysis_evidence_requires_closed_type_and_nonempty_location(
+    evidence_type: object,
+    locator: str,
+    detail: str,
+) -> None:
+    with pytest.raises(ValueError, match="分析依据"):
+        AnalysisEvidence(evidence_type, locator, detail)
 
 
 def test_project_context_keeps_confirmed_facts_separate_from_source_limited_information() -> None:

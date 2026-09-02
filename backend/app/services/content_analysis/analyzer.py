@@ -61,7 +61,6 @@ class ProjectAssessment:
     confidence: ConfidenceLevel
     conclusion: str
     is_opportunity: bool = False
-    should_add_to_library: bool = False
     priority: int | None = None
     body_benchmark: str | None = None
     value_signals: tuple[CandidateValueSignal, ...] = ()
@@ -69,6 +68,8 @@ class ProjectAssessment:
     limitations: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
+        if self.is_opportunity and not self.is_fit:
+            raise ValueError("项目机会必须同时满足项目适配")
         if any(
             not isinstance(signal, CandidateValueSignal)
             for signal in self.value_signals
@@ -105,6 +106,13 @@ def enforce_analysis_boundaries(analysis: BasicAnalysis) -> BasicAnalysis:
     if analysis.category == ContentCategory.UNDETERMINED and not analysis.undetermined_reason:
         raise ValueError("无法判断主分类时必须说明原因")
 
+    has_transcript_input = bool(
+        analysis.content.transcript and analysis.content.transcript.strip()
+    )
+    has_video_reference = bool(
+        analysis.content.video_reference
+        and analysis.content.video_reference.strip()
+    )
     opening = analysis.opening
     expected_opening_evidence = {
         OpeningKind.LANGUAGE: EvidenceType.TRANSCRIPT,
@@ -113,25 +121,41 @@ def enforce_analysis_boundaries(analysis: BasicAnalysis) -> BasicAnalysis:
     opening_has_matching_evidence = any(
         item.evidence_type == expected_opening_evidence for item in opening.evidence
     )
-    if opening.status == OpeningTagStatus.AVAILABLE and not opening_has_matching_evidence:
+    opening_has_bound_input = (
+        opening.kind == OpeningKind.LANGUAGE
+        and has_transcript_input
+        or opening.kind == OpeningKind.FIRST_FRAME
+        and has_video_reference
+    )
+    if opening.status == OpeningTagStatus.AVAILABLE and not (
+        opening_has_matching_evidence and opening_has_bound_input
+    ):
         opening = OpeningAnnotation(
             status=OpeningTagStatus.UNAVAILABLE,
             kind=opening.kind,
             unavailable_reason=(
-                "没有转写证据，无法判断语言开头"
+                (
+                    "没有非空转写输入，无法判断语言开头"
+                    if not has_transcript_input
+                    else "没有转写证据，无法判断语言开头"
+                )
                 if opening.kind == OpeningKind.LANGUAGE
-                else "没有可读画面证据，无法判断第一画面"
+                else (
+                    "没有视频引用，无法判断第一画面"
+                    if not has_video_reference
+                    else "没有可读画面证据，无法判断第一画面"
+                )
             ),
         )
 
     visual_shots = tuple(
         item
         for item in analysis.shot_observations
-        if item.evidence_type == EvidenceType.VISUAL
+        if has_video_reference and item.evidence_type == EvidenceType.VISUAL
     )
     opening_has_visual = any(
         item.evidence_type == EvidenceType.VISUAL
-        for item in analysis.opening.evidence
+        for item in opening.evidence
     )
     has_visual_evidence = opening_has_visual or bool(visual_shots)
     limitation = SourceLimitation(
