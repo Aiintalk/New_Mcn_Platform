@@ -296,6 +296,11 @@ class BasicAnalysis:
     confidence: ConfidenceLevel
     opening: OpeningAnnotation
     source_information: SourceInformation = SourceInformation()
+    topic: str | None = None
+    structure: tuple[str, ...] = ()
+    persuasion_chain: tuple[str, ...] = ()
+    shot_observations: tuple[AnalysisEvidence, ...] = ()
+    interaction_observations: tuple[str, ...] = ()
     undetermined_reason: str | None = None
 
     def __post_init__(self) -> None:
