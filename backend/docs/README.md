@@ -12,6 +12,8 @@
 >
 > 2026-08-18：评测测试集接入真实数据——`scripts/seed_eval_testcases_real.py` 灌入张翀第一批 10 条真实测试例（`真实数据` 溯源 tag，纯业务 input_payload：达人/人设/产品信息/参考脚本）；migration 057 剥离 `input_payload.messages` 死字段（改写指令归版本提示词，generator 从不读它）并停用 `demo` tag 占位例。方案与测试证据见 `docs/evaluation/张翀真实测试集-集成方案说明.md`、`docs/evaluation/测试报告-真实测试集集成.md`。
 
+> 2026-09-03：Sprint27 内容分析 Agent 阶段一交付可注入分析器的项目隔离离线内核，含 3/30 日确定性窗口、三分类与证据保护、项目日报和候选结构。当前只是开发侧离线验收，等待主产品经理独立审核；无接口、数据库、调度、前端、生产飞书或真实模型。
+
 ---
 
 ## 后端架构
@@ -123,6 +125,7 @@ backend/
 │       ├── qianchuan_review_service.py #  千川复盘业务服务
 │       ├── persona_docx.py            #   人格定位报告导出
 │       ├── persona_profile_sync.py    #   定位字段覆盖决策 + 报告原文事实摘录校验
+│       ├── content_analysis/          #   内容分析 Agent 阶段一离线内核（无路由/数据库/调度）
 │       ├── seeding_writer_prompt.py   #   种草仿写 Prompt 模板渲染（14 占位符）
 │       └── document_parser.py         #   文档解析（PDF/DOCX/XLSX/PPTX/TXT）
 │
@@ -133,7 +136,7 @@ backend/
 │   │   ├── MCN_M1_Base_Database.md    #     M1 阶段数据库契约
 │   │   ├── MCN_M2_Base_API.md         #     M2 阶段 API 契约
 │   │   └── MCN_M2_Base_Database.md    #     M2 阶段数据库契约
-│   ├── tasks/                         #   任务单 + 验收文档（59 个）
+│   ├── tasks/                         #   任务单 + 验收文档（62 个）
 │   │   ├── M1_Sprint0.md ~ Sprint4.md          #  M1 各 Sprint
 │   │   ├── M1_Sprint5_TikHub_独立池化.md        #  TikHub 独立池化
 │   │   ├── M2_Sprint1_kol_intake.md            #  入驻问卷主任务
@@ -147,8 +150,10 @@ backend/
 │   │   ├── M2_Sprint07_后端_开发验收_qianchuan-edit-review_v1.md  #  千川剪辑预审验收
 │   │   ├── M2_Sprint24_后端任务_外部KOL只读API_v1.md              #  外部 KOL 只读 API 任务
 │   │   ├── M2_Sprint24_后端任务_开发验收_外部KOL只读API_v1.md      #  外部 KOL 只读 API 验收
+│   │   ├── M2_Sprint27_后端任务_内容分析Agent阶段一_v1.md        #  内容分析阶段一任务
+│   │   ├── M2_Sprint27_后端任务_开发验收_内容分析Agent阶段一_v1.md #  内容分析阶段一验收
 │   │   └── BugFix_*.md                         #  BugFix（3 个）
-│   └── tests/                         #   测试报告 + 测试任务
+│   └── tests/                         #   测试报告 + 测试任务（27 个）
 │       ├── MCN_M1_Test_Task.md                        #  M1 测试任务
 │       ├── MCN_M1_Test_Report_Chapter1.md             #  M1 测试报告
 │       ├── MCN_M1_Concurrent_Test_Report.md           #  M1 并发测试报告
@@ -168,13 +173,14 @@ backend/
 │       ├── M2_Sprint15_测试报告_persona-writer_v2_修复Bug.md  #  M2 Sprint15 Bug修复测试报告
 │       ├── M2_外部KOL只读API_测试报告.md              #  外部只读 KOL API 测试报告
 │       ├── M2_Sprint25_测试报告_达人档案统一_v1.md        #  M2 Sprint25 达人档案统一测试报告
+│       ├── M2_Sprint27_测试报告_内容分析Agent阶段一_v1.md #  M2 Sprint27 内容分析阶段一测试报告
 │       └── MCN_Integration_Test_Fix_Report_2026-06-11.md  #  集成测试修复报告
 │
 ├── tests/                             # 测试代码
 │   ├── unit/                          #   单元测试（Mock DB，不需要 PostgreSQL）
 │   │   ├── core/                      #     config / response / security
 │   │   ├── middlewares/               #     auth
-│   │   └── services/                  #     credential_selector / intake_report
+│   │   └── services/                  #     凭证选择/入驻报告/内容分析离线内核
 │   ├── integration/                   #   集成测试（需测试数据库 mcn_test）
 │   │   ├── test_convention_guard.py   #     规范守卫（AST 扫描红线 #1 #2 #6 #7）
 │   │   ├── test_credential_pool.py    #     AI 凭证池并发安全（21 条）
@@ -264,6 +270,12 @@ BugFix：      BugFix_{序号}_{描述}.md
 ---
 
 ## 最近改动
+
+### 2026-09-03 Sprint27 内容分析 Agent 阶段一
+
+- 新增 `app/services/content_analysis/`（内容分析离线服务目录），只提供领域对象、确定性统计、可注入分析协议和项目隔离编排。
+- 新增 38 条离线单元测试与 3 条匿名合成冻结输入；内容分析聚焦测试 38/38，最大回归 2051/2051，覆盖率门禁通过。
+- 当前无正式数据接口、生产飞书、数据库/迁移、路由、调度、前端或真实模型，不得当作上线功能。
 
 ### 2026-08-05 外部只读 KOL API
 
