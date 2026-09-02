@@ -16,6 +16,8 @@ from app.services.content_analysis.domain import (
     ContentSource,
     EngagementMetrics,
     EvidenceType,
+    DataMaturity,
+    InteractionMetric,
     InteractionObservation,
     InteractionObservationType,
     OpeningAnnotation,
@@ -25,6 +27,7 @@ from app.services.content_analysis.domain import (
     ProjectContextVersion,
     ProjectFact,
     ReusableMethod,
+    RelativePerformanceLevel,
     SourceFact,
     SourceInformation,
     SourceJudgment,
@@ -131,7 +134,10 @@ class RecordingAnalyzer:
             interaction_observations=(
                 InteractionObservation(
                     InteractionObservationType.CURRENT_COMPOSITION,
-                    "评论关注使用方法",
+                    numerator_metric=InteractionMetric.COMMENT,
+                    numerator_value=2,
+                    denominator_metric=InteractionMetric.LIKE,
+                    denominator_value=10,
                 ),
             ),
             undetermined_reason=reason,
@@ -415,7 +421,7 @@ def test_interaction_observations_only_express_current_non_time_series_semantics
         "data_maturity",
     }
     with pytest.raises(ValueError, match="互动观察类型"):
-        InteractionObservation("trend", "不能表达趋势")
+        InteractionObservation(observation_type="trend")
     with pytest.raises(ValueError, match="结构化互动观察"):
         BasicAnalysis(
             content=record("work-invalid-observation"),
@@ -423,6 +429,51 @@ def test_interaction_observations_only_express_current_non_time_series_semantics
             confidence=ConfidenceLevel.MEDIUM,
             opening=OpeningAnnotation(status=OpeningTagStatus.UNANNOTATED),
             interaction_observations=("任意字符串",),
+        )
+
+
+def test_legal_interaction_type_cannot_carry_growth_free_text() -> None:
+    with pytest.raises(TypeError, match="statement"):
+        InteractionObservation(
+            InteractionObservationType.CURRENT_VALUE,
+            statement="点赞较昨日增长 50%",
+        )
+
+
+def test_interaction_observation_validates_closed_field_combinations() -> None:
+    observations = (
+        InteractionObservation(
+            InteractionObservationType.CURRENT_VALUE,
+            metric=InteractionMetric.LIKE,
+            current_value=10,
+        ),
+        InteractionObservation(
+            InteractionObservationType.CURRENT_RELATIVE_PERFORMANCE,
+            metric=InteractionMetric.COMMENT,
+            relative_level=RelativePerformanceLevel.ABOVE,
+            benchmark_value=5.0,
+            sample_size=8,
+        ),
+        InteractionObservation(
+            InteractionObservationType.CURRENT_COMPOSITION,
+            numerator_metric=InteractionMetric.SHARE,
+            numerator_value=2,
+            denominator_metric=InteractionMetric.FAVORITE,
+            denominator_value=4,
+        ),
+        InteractionObservation(
+            InteractionObservationType.DATA_MATURITY,
+            maturity=DataMaturity.QUALITATIVE,
+        ),
+    )
+
+    assert len(observations) == 4
+    with pytest.raises(ValueError, match="字段组合"):
+        InteractionObservation(
+            InteractionObservationType.CURRENT_VALUE,
+            metric=InteractionMetric.LIKE,
+            current_value=10,
+            relative_level=RelativePerformanceLevel.ABOVE,
         )
 
 

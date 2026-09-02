@@ -25,6 +25,7 @@ from .engine import (
 from .domain import (
     AnalysisWindows,
     BasicAnalysis,
+    DataMaturity,
     ContentCategory,
     ContentIdentity,
     ContentRecord,
@@ -32,14 +33,17 @@ from .domain import (
     EngagementMetrics,
     InteractionObservation,
     InteractionObservationType,
+    InteractionMetric,
     LikeBaseline,
     OpeningKind,
+    RelativePerformanceLevel,
 )
 
 __all__ = [
     "AnalysisWindows",
     "AccountSyncResult",
     "BasicAnalysis",
+    "DataMaturity",
     "ContentAnalysisEngine",
     "ContentAnalyzer",
     "ContentCategory",
@@ -49,8 +53,10 @@ __all__ = [
     "EngagementMetrics",
     "InteractionObservation",
     "InteractionObservationType",
+    "InteractionMetric",
     "LikeBaseline",
     "OpeningKind",
+    "RelativePerformanceLevel",
     "CrossProjectCandidate",
     "EngineResult",
     "InteractionOverview",

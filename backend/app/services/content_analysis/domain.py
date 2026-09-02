@@ -70,6 +70,32 @@ class InteractionObservationType(str, Enum):
     DATA_MATURITY = "data_maturity"
 
 
+class InteractionMetric(str, Enum):
+    """互动观察允许引用的四项当前指标。"""
+
+    LIKE = "like"
+    COMMENT = "comment"
+    SHARE = "share"
+    FAVORITE = "favorite"
+
+
+class RelativePerformanceLevel(str, Enum):
+    """当前值相对当前基准的受限等级。"""
+
+    ABOVE = "above"
+    NEAR = "near"
+    BELOW = "below"
+    UNKNOWN = "unknown"
+
+
+class DataMaturity(str, Enum):
+    """采集后时间对应的数据成熟度：小于 6 小时、6—12 小时、至少 12 小时。"""
+
+    EARLY = "early"
+    INITIAL = "initial"
+    QUALITATIVE = "qualitative"
+
+
 class BusinessStatus(str, Enum):
     """项目或候选内容的业务状态。"""
 
@@ -157,14 +183,90 @@ class AnalysisEvidence:
 
 @dataclass(frozen=True)
 class InteractionObservation:
-    """带受限类型的当前互动观察。"""
+    """只用封闭字段表达当前互动观察。"""
 
     observation_type: InteractionObservationType
-    statement: str
+    metric: InteractionMetric | None = None
+    current_value: int | None = None
+    relative_level: RelativePerformanceLevel | None = None
+    benchmark_value: float | None = None
+    sample_size: int | None = None
+    numerator_metric: InteractionMetric | None = None
+    numerator_value: int | None = None
+    denominator_metric: InteractionMetric | None = None
+    denominator_value: int | None = None
+    maturity: DataMaturity | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.observation_type, InteractionObservationType):
             raise ValueError("互动观察类型不受支持")
+        fields = {
+            "metric": self.metric,
+            "current_value": self.current_value,
+            "relative_level": self.relative_level,
+            "benchmark_value": self.benchmark_value,
+            "sample_size": self.sample_size,
+            "numerator_metric": self.numerator_metric,
+            "numerator_value": self.numerator_value,
+            "denominator_metric": self.denominator_metric,
+            "denominator_value": self.denominator_value,
+            "maturity": self.maturity,
+        }
+        required_and_allowed = {
+            InteractionObservationType.CURRENT_VALUE: (
+                {"metric", "current_value"},
+                {"metric", "current_value"},
+            ),
+            InteractionObservationType.CURRENT_RELATIVE_PERFORMANCE: (
+                {"metric", "relative_level"},
+                {"metric", "relative_level", "benchmark_value", "sample_size"},
+            ),
+            InteractionObservationType.CURRENT_COMPOSITION: (
+                {
+                    "numerator_metric",
+                    "numerator_value",
+                    "denominator_metric",
+                    "denominator_value",
+                },
+                {
+                    "numerator_metric",
+                    "numerator_value",
+                    "denominator_metric",
+                    "denominator_value",
+                },
+            ),
+            InteractionObservationType.DATA_MATURITY: (
+                {"maturity"},
+                {"maturity"},
+            ),
+        }
+        required, allowed = required_and_allowed[self.observation_type]
+        provided = {name for name, value in fields.items() if value is not None}
+        if not required <= provided or not provided <= allowed:
+            raise ValueError("互动观察字段组合与类型不匹配")
+
+        metric_fields = (self.metric, self.numerator_metric, self.denominator_metric)
+        if any(
+            value is not None and not isinstance(value, InteractionMetric)
+            for value in metric_fields
+        ):
+            raise ValueError("互动指标不受支持")
+        if self.relative_level is not None and not isinstance(
+            self.relative_level, RelativePerformanceLevel
+        ):
+            raise ValueError("相对表现等级不受支持")
+        if self.maturity is not None and not isinstance(self.maturity, DataMaturity):
+            raise ValueError("数据成熟度不受支持")
+
+        counts = (self.current_value, self.numerator_value, self.denominator_value)
+        if any(value is not None and value < 0 for value in counts):
+            raise ValueError("当前互动值不能为负数")
+        if self.benchmark_value is not None and self.benchmark_value < 0:
+            raise ValueError("当前基准值不能为负数")
+        if self.sample_size is not None and self.sample_size <= 0:
+            raise ValueError("当前基准样本数必须大于零")
+        if self.denominator_value == 0:
+            raise ValueError("当前互动构成的分母不能为零")
 
 
 @dataclass(frozen=True)
