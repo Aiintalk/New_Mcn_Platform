@@ -4,6 +4,8 @@ from .analyzer import (
     CandidateValueSignal,
     ContentAnalyzer,
     ProjectAssessment,
+    ProjectFitDimension,
+    ProjectFitReason,
     enforce_analysis_boundaries,
 )
 from .deterministic import (
@@ -70,6 +72,8 @@ __all__ = [
     "MetricSummary",
     "OfflineRunInput",
     "ProjectAssessment",
+    "ProjectFitDimension",
+    "ProjectFitReason",
     "ProjectDailyReport",
     "ReportItem",
     "SavedBusinessState",

@@ -4,7 +4,13 @@ from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
 from typing import Iterable
 
-from .analyzer import ContentAnalyzer, ProjectAssessment, enforce_analysis_boundaries
+from .analyzer import (
+    CandidateValueSignal,
+    ContentAnalyzer,
+    ProjectAssessment,
+    ProjectFitReason,
+    enforce_analysis_boundaries,
+)
 from .deterministic import deduplicate_contents, derive_windows, qianchuan_top_three
 from .domain import (
     BasicAnalysis,
@@ -83,6 +89,8 @@ class LibraryCandidate:
     content: ContentRecord
     category: ContentCategory
     confidence: ConfidenceLevel
+    fit_reasons: tuple[ProjectFitReason, ...]
+    value_signals: tuple[CandidateValueSignal, ...]
     body_benchmark: str | None
     opening_status: OpeningTagStatus
     opening_kind: OpeningKind | None
@@ -254,6 +262,8 @@ def _library_candidate(
         content=analysis.content,
         category=analysis.category,
         confidence=item.assessment.confidence,
+        fit_reasons=item.assessment.fit_reasons,
+        value_signals=item.assessment.value_signals,
         body_benchmark=item.assessment.body_benchmark,
         opening_status=analysis.opening.status,
         opening_kind=analysis.opening.kind,

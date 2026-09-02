@@ -5,11 +5,11 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+import app.services.content_analysis as content_analysis
+from app.services.content_analysis import ProjectFitDimension, ProjectFitReason
 from app.services.content_analysis.analyzer import (
     CandidateValueSignal,
     ProjectAssessment,
-    ProjectFitDimension,
-    ProjectFitReason,
 )
 from app.services.content_analysis.domain import (
     AnalysisEvidence,
@@ -122,6 +122,9 @@ def test_candidate_value_signals_match_the_six_allowed_business_signals() -> Non
 
 
 def test_project_fit_reason_requires_closed_dimension_and_nonempty_statement() -> None:
+    assert {"ProjectFitDimension", "ProjectFitReason"} <= set(
+        content_analysis.__all__
+    )
     assert {dimension.value for dimension in ProjectFitDimension} == {
         "project_persona",
         "target_users",
@@ -848,6 +851,29 @@ async def test_opportunities_are_capped_library_candidate_is_atomic_and_metrics_
     assert report.interactions.favorite_count.missing_count == 1
     assert not hasattr(report.interactions, "play_rate")
     assert not hasattr(report.interactions, "trend")
+
+
+@pytest.mark.asyncio
+async def test_library_candidate_self_contains_project_fit_and_value_evidence() -> None:
+    result = await run_engine(
+        RecordingAnalyzer(),
+        sync_results=(
+            AccountSyncResult(
+                "account-001",
+                SyncStatus.SUCCESS_WITH_CONTENT,
+                (record("work-001"),),
+            ),
+        ),
+        relations=(relation("project-a", "v1"),),
+        contexts=(context("project-a", "v1"),),
+        run_at=RUN_AT,
+    )
+
+    report = result.reports["project-a"]
+    assessment = report.items[0].assessment
+    candidate = report.library_candidates[0]
+    assert candidate.fit_reasons == assessment.fit_reasons
+    assert candidate.value_signals == assessment.value_signals
 
 
 @pytest.mark.asyncio
