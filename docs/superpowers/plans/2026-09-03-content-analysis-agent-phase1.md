@@ -1,10 +1,11 @@
 # 内容分析 Agent 阶段一实施计划
 
 > **执行要求：** 使用 `superpowers:subagent-driven-development`（子任务驱动开发）逐项实施，并在每项后做独立规格与质量复审。
+> **最终代码对象：** `3214024b3ad7dec0b3a2c8813f902be5db153883`（阶段一代码收口提交）。
 
 **目标：** 在不新增接口、数据表、迁移、调度或真实模型调用的前提下，交付一套数据源和分析器均可替换的离线内容分析内核，覆盖 v1.6 阶段一授权范围中的确定性计算、项目隔离、结构化分析边界和离线结果。
 
-**架构：** 新能力放在 `backend/app/services/content_analysis/`，使用不可变领域对象承接标准业务语义；`deterministic.py` 只负责时区、去重、统计和排序；`analyzer.py` 定义可注入的异步分析协议及结果边界；`engine.py` 编排共享基础分析、项目独立适配、日报、内容库候选和跨项目候选。测试数据只保留匿名、合成后的最小边界样本，通过测试适配器映射到标准输入，生产包不读取飞书、日期表名或本地网页。
+**架构：** 新能力放在 `backend/app/services/content_analysis/`（后端内容分析服务目录），使用不可变领域对象承接标准业务语义；`deterministic.py`（确定性计算）只负责时区、去重、统计和排序；`analyzer.py`（分析协议与边界保护）定义可注入的异步分析协议及结果边界；`engine.py`（离线编排引擎）编排共享基础分析、项目独立适配、日报、内容库候选和跨项目候选。3 条静态匿名合成内容样本只检查字段与隐私形态，不含项目关系，不经适配层驱动引擎；多项目关系由离线引擎测试中独立构造的匿名合成对象验证。生产包不读取飞书、日期表名或本地网页。
 
 **技术栈：** Python 3.10、标准库 `dataclasses` / `enum` / `statistics` / `zoneinfo`、`pytest`、`pytest-asyncio`。不新增第三方依赖。
 
@@ -12,7 +13,7 @@
 
 **全局约束：**
 
-- 只做冻结测试数据的离线分析切片；不接正式数据源、路由、数据库、调度或前端。
+- 只做匿名合成数据的离线分析切片；不接公共 API（应用编程接口）、正式数据源、数据表/迁移、路由、调度或前端。
 - 不调用任何真实或付费模型；离线引擎必须显式注入分析器，测试只用模拟实现。
 - 不把播放量 0 当有效播放量，不计算播放互动率、逐日增量、增长速度或趋势。
 - 项目上下文、机会、日报和内容库候选必须按项目隔离；来源限定信息不能变成当前项目商品事实。
@@ -42,7 +43,7 @@
 - 播放字段为 0 时标准输入记为不可用，互动统计只包含点赞、评论、分享、收藏。
 - 人设 30 日点赞均值、中位数、样本数、最高、最低。
 - 每账号最近 3 日千川内容按当前点赞排序取前 3，边界外内容和第 4 名不入池。
-- 冻结样本数量受限、编号匿名、无本地绝对路径、无长篇转写或真实个人信息。
+- 3 条静态 fixture（测试固定输入）数量受限、编号匿名、无本地绝对路径、无长篇转写或真实个人信息；它们只用于字段/隐私形态检查，不含项目关系，不经适配层驱动引擎。
 
 运行：
 
@@ -98,6 +99,9 @@ env DATABASE_URL=postgresql+asyncpg://mcn_user:admin123@localhost:5432/mcn_test 
 - 成功有内容、成功无内容、部分成功和失败分别输出；只有成功无内容设置空日报。
 - 关系账号无法与同步结果匹配时输出关系缺失，不把内容分配给错误项目。
 - 每项目人设机会和千川机会分别为 0—3 条；千川内容库候选把正文对标、开头状态、开头片段或不可用原因绑定在同一记录。
+- 每账号独立生成最近 3 日千川点赞前 3 池，再由项目筛选 0—3 条机会；第 4 名不回填、不入库。
+- 待入库候选要求六类封闭价值信号（早期数据强、相对基准更优、新选题或结构、清晰流量钩子、可复用转化结构、值得关注的镜头表现）、覆盖项目人设/目标用户/内容规划/运营方向的结构化适配理由、视频引用+转写双证据，并将全部稳定键与项目已有库比较。
+- `FAILED`（失败）和近期 `SUCCESS_WITHOUT_CONTENT`（成功且无内容）的旧载荷不分析、不评估、不返回；`PARTIAL_SUCCESS`（部分成功）必须显式说明数据限制。
 - 来源商品说法只进入来源限定信息，不形成当前项目商品事实；输出明确区分事实、判断、假设、限制与可信程度。
 - 前两天内容只在已保存业务状态变化时重新进入日报；没有旧状态或只有互动值变化时不算变化。
 - 跨项目候选只聚合已进入两个项目库的共同可复用方法，不携带来源限定信息，也不自动写入其他项目库。
@@ -155,10 +159,14 @@ env DATABASE_URL=postgresql+asyncpg://mcn_user:admin123@localhost:5432/mcn_test 
 依次运行：
 
 ```bash
-env DATABASE_URL=postgresql+asyncpg://mcn_user:admin123@localhost:5432/mcn_test JWT_SECRET=test-secret backend/.venv/bin/python -m pytest backend/tests/unit/services/content_analysis -q --override-ini=addopts=
-env DATABASE_URL=postgresql+asyncpg://mcn_user:admin123@localhost:5432/mcn_test JWT_SECRET=test-secret backend/.venv/bin/python -m pytest backend/tests/unit backend/tests/integration -q --override-ini=addopts=
-cd backend && env DATABASE_URL=postgresql+asyncpg://mcn_user:admin123@localhost:5432/mcn_test JWT_SECRET=test-secret .venv/bin/python scripts/run_coverage.py --gate
+cd backend
+env DATABASE_URL=postgresql+asyncpg://mcn_user:admin123@localhost:5432/mcn_test JWT_SECRET=test-secret .venv/bin/python -m pytest tests/unit/services/content_analysis -q --override-ini=addopts=
+env DATABASE_URL=postgresql+asyncpg://mcn_user:admin123@localhost:5432/mcn_test JWT_SECRET=test-secret .venv/bin/python scripts/run_coverage.py --gate
 ```
+
+> 中文说明：先在后端目录跑内容分析聚焦测试，再跑仓库完整覆盖率门禁；两者只连本地测试库。
+
+最终证据：聚焦测试 63 通过，聚焦覆盖率 97%；完整门禁收集 2077 条，2076 通过、1 跳过、0 失败、14 条既有警告，整体覆盖率 79.8%，六个分层均通过。
 
 如既有门禁失败，保留完整失败证据并区分本轮新增测试结果，不用无关改动稀释范围。
 
