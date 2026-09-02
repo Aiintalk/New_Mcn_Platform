@@ -360,3 +360,60 @@ class TestResolvedScoringMetadata:
         rs = run.metadata_["resolved_scoring"]
         assert rs["adapter"] == "yunwu"  # DEFAULT_ADAPTER
         assert rs["model_id"] is None    # 无来源 → None
+
+
+class TestTriggerRunName:
+    """运行名透传（回归：表单填的运行名曾被丢弃，列表里全是默认生成名）。"""
+
+    async def test_custom_name_persisted_to_run(self, test_session):
+        version = await _make_version(test_session)
+        await _make_default_strategy(test_session)
+        await _make_test_cases(test_session, 1)
+
+        enq, _ = _recording_enqueue()
+        run_id = await scheduler_mod.trigger_run(
+            version_id=version.id,
+            filter_tags=[],
+            trigger_type=TRIGGER_TYPE_MANUAL,
+            user_id=None,
+            db=test_session,
+            enqueue=enq,
+            name="  周报回归-A组  ",
+        )
+        run = (await test_session.execute(select(EvalRun).where(EvalRun.id == run_id))).scalars().one()
+        assert run.name == "周报回归-A组"  # 透传 + 去首尾空格
+
+    async def test_no_name_falls_back_to_default(self, test_session):
+        version = await _make_version(test_session)
+        await _make_default_strategy(test_session)
+        await _make_test_cases(test_session, 1)
+
+        enq, _ = _recording_enqueue()
+        run_id = await scheduler_mod.trigger_run(
+            version_id=version.id,
+            filter_tags=[],
+            trigger_type=TRIGGER_TYPE_MANUAL,
+            user_id=None,
+            db=test_session,
+            enqueue=enq,
+        )
+        run = (await test_session.execute(select(EvalRun).where(EvalRun.id == run_id))).scalars().one()
+        assert run.name == f"run-{version.name}-manual"  # 未传 → 默认生成
+
+    async def test_blank_name_treated_as_missing(self, test_session):
+        version = await _make_version(test_session)
+        await _make_default_strategy(test_session)
+        await _make_test_cases(test_session, 1)
+
+        enq, _ = _recording_enqueue()
+        run_id = await scheduler_mod.trigger_run(
+            version_id=version.id,
+            filter_tags=[],
+            trigger_type=TRIGGER_TYPE_MANUAL,
+            user_id=None,
+            db=test_session,
+            enqueue=enq,
+            name="   ",
+        )
+        run = (await test_session.execute(select(EvalRun).where(EvalRun.id == run_id))).scalars().one()
+        assert run.name == f"run-{version.name}-manual"  # 纯空白 → 默认

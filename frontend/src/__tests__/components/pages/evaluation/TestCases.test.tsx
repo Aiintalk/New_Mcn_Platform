@@ -188,4 +188,54 @@ describe('TestCasesPage — 交互与边界渲染', () => {
       expect(mockListTestCases).toHaveBeenCalledWith(expect.objectContaining({ page: 2 }));
     });
   });
+
+  /** 打开标签下拉并点选指定标签（"美妆"同时出现在行内徽章与下拉选项，需精确点选项层） */
+  async function pickTag(tag: string) {
+    const tagSelector = screen.getAllByText('全部标签')[0].closest('.ant-select-selector')!;
+    fireEvent.mouseDown(tagSelector);
+    const matches = await screen.findAllByText(tag);
+    const option = matches.find((el) => el.closest('.ant-select-item-option'));
+    expect(option).toBeTruthy();
+    fireEvent.click(option!);
+  }
+
+  it('选择标签筛选：请求带 tag 参数并重置回第 1 页（回归：筛选曾不生效）', async () => {
+    mockListTestCases.mockResolvedValue(samplePage);
+    renderWithProviders(<TestCasesPage />);
+    await waitFor(() => expect(screen.getByText('焦虑型 · 美妆精华开屏')).toBeInTheDocument());
+    expect(mockListTestCases).toHaveBeenLastCalledWith(
+      expect.objectContaining({ page: 1, page_size: 20 }),
+    );
+
+    await pickTag('美妆');
+
+    // 回归断言：请求参数带上 tag（此前 tagFilter 从未进请求 → 筛选无效）
+    await waitFor(() => {
+      expect(mockListTestCases).toHaveBeenLastCalledWith(
+        expect.objectContaining({ page: 1, tag: '美妆' }),
+      );
+    });
+  });
+
+  it('清空标签筛选：请求不带 tag 参数', async () => {
+    mockListTestCases.mockResolvedValue(samplePage);
+    const { container } = renderWithProviders(<TestCasesPage />);
+    await waitFor(() => expect(screen.getByText('焦虑型 · 美妆精华开屏')).toBeInTheDocument());
+
+    await pickTag('美妆');
+    await waitFor(() => {
+      expect(mockListTestCases).toHaveBeenLastCalledWith(expect.objectContaining({ tag: '美妆' }));
+    });
+
+    // allowClear：点 Select 上的清除叉
+    const clearBtn = container.querySelector('.filter-bar .ant-select-clear');
+    expect(clearBtn).toBeTruthy();
+    fireEvent.mouseDown(clearBtn as HTMLElement);
+    fireEvent.click(clearBtn as HTMLElement);
+    await waitFor(() => {
+      expect(mockListTestCases).toHaveBeenLastCalledWith(
+        expect.not.objectContaining({ tag: expect.anything() }),
+      );
+    });
+  });
 });

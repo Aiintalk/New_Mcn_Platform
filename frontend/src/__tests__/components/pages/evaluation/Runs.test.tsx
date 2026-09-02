@@ -110,6 +110,30 @@ describe('RunsPage', () => {
     expect(screen.queryByText('运行A')).not.toBeInTheDocument();
   });
 
+  it('「进行中」含排队中的 pending run（回归：新触发的 run 曾在"进行中"里消失）', async () => {
+    mockListRuns.mockResolvedValue(
+      paged([
+        makeRun({ id: 1, name: '已完成的运行', status: 'completed' }),
+        makeRun({ id: 2, name: '排队中的运行', status: 'pending', total_cases: 10, completed_cases: 0 }),
+        makeRun({ id: 3, name: '执行中的运行', status: 'running', completed_cases: 3 }),
+      ], 3),
+    );
+    renderWithProviders(<RunsPage />);
+    await waitFor(() => expect(screen.getByText('排队中的运行')).toBeInTheDocument());
+
+    // 「进行中」统计卡 = pending(1) + running(1) = 2（stat-card 里的标签，区别于 sub-tab）
+    const statLabel = screen.getAllByText('进行中').find((el) => el.closest('.stat-card') !== null);
+    expect(statLabel?.closest('.stat-card')?.querySelector('.stat-value')?.textContent).toBe('2');
+
+    // 切到「进行中」tab：pending 和 running 都可见，completed 不可见
+    const subTabs = screen.getAllByText('进行中');
+    const tabBtn = subTabs.find((el) => el.closest('.sub-tab') !== null) ?? subTabs[0];
+    fireEvent.click(tabBtn);
+    expect(screen.getByText('排队中的运行')).toBeInTheDocument();
+    expect(screen.getByText('执行中的运行')).toBeInTheDocument();
+    expect(screen.queryByText('已完成的运行')).not.toBeInTheDocument();
+  });
+
   it('listRuns 失败降级为空列表（不崩溃）', async () => {
     mockListRuns.mockRejectedValue(new Error('网络错误'));
     renderWithProviders(<RunsPage />);

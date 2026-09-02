@@ -148,6 +148,9 @@ export default function App() {
               <Route path="/evaluation/runs" element={<EvalRunsPage />} />
               <Route path="/evaluation/runs/:id" element={<EvalRunDetailPage />} />
               <Route path="/evaluation/compare" element={<EvalComparePage />} />
+              {/* 维度与评分标准管理：双挂载到运营布局（侧边栏「评分标准」直达，
+                  避免管理员找不到管理端入口）；AdminLayout 下的原路由保留 */}
+              <Route path="/admin/evaluation/dimensions" element={<EvalDimensionsPage />} />
             </Route>
           </Route>
 

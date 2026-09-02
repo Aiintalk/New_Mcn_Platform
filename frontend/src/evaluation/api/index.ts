@@ -119,6 +119,27 @@ export async function listCaseResults(runId: number) {
   return get<EvalCaseResult[]>(`/api/operator/evaluation/runs/${runId}/case-results`);
 }
 
+export interface EvalJob {
+  id: number;
+  test_case_id: number;
+  status: string;
+  attempts: number;
+  last_error: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export async function listRunJobs(runId: number) {
+  return get<EvalJob[]>(`/api/operator/evaluation/runs/${runId}/jobs`);
+}
+
+export async function retryJob(runId: number, jobId: number) {
+  return post<{ job_id: number; run_id: number; arq_job_id: string | null }>(
+    `/api/operator/evaluation/runs/${runId}/jobs/${jobId}/retry`,
+    {},
+  );
+}
+
 export async function cancelRun(id: number) {
   return post<EvalRun>(`/api/operator/evaluation/runs/${id}/cancel`);
 }

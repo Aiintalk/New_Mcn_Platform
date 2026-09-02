@@ -1111,3 +1111,230 @@ class TestHandlersDirectCall:
         with pytest.raises(HTTPException) as exc:
             await trigger_run({"filter_tags": []}, _make_request(), db, _make_user())
         assert exc.value.status_code == 400
+
+
+class TestJobRetryAndList:
+    """P2/P3 补测：失败 job 重跑端点 + jobs 列表 + scores 带 dimension_name。
+
+    场景对齐 PM 验收（run20 的 429 失败 case 单独重跑），此前仅 curl 实测过、
+    未计入 pytest 覆盖（run_coverage 只统计 pytest 执行）。
+    """
+
+    async def _seed_run_with_failed_job(self, test_session):
+        from app.evaluation.models import (
+            EvalCaseJob, EvalRun, EvalStrategy, EvalTestCase, EvalVersion,
+        )
+        from app.evaluation.constants import (
+            EVAL_TOOL_QIANCHUAN_WRITER, JOB_STATUS_FAILED,
+        )
+        v = EvalVersion(tool_code=EVAL_TOOL_QIANCHUAN_WRITER, name=f"v-{__import__('uuid').uuid4().hex[:6]}",
+                        config_payload={}, is_active=True)
+        test_session.add(v); await test_session.flush()
+        st = EvalStrategy(tool_code=EVAL_TOOL_QIANCHUAN_WRITER, name=f"s-{__import__('uuid').uuid4().hex[:6]}",
+                          test_case_selector={"all": True}, dimension_weight_overrides={},
+                          rubric_selector={}, is_active=True)
+        test_session.add(st); await test_session.flush()
+        tc = EvalTestCase(tool_code=EVAL_TOOL_QIANCHUAN_WRITER, name=f"tc-{__import__('uuid').uuid4().hex[:6]}",
+                          input_payload={}, tags=[], is_active=True)
+        test_session.add(tc); await test_session.flush()
+        run = EvalRun(version_id=v.id, strategy_id=st.id, name="r-retry",
+                      trigger_type="manual", status="failed", filter_tags=[],
+                      total_cases=1, completed_cases=0, failed_cases=1, metadata_={})
+        test_session.add(run); await test_session.flush()
+        job = EvalCaseJob(run_id=run.id, test_case_id=tc.id,
+                          status=JOB_STATUS_FAILED, last_error="429")
+        test_session.add(job); await test_session.commit()
+        await test_session.refresh(job); await test_session.refresh(run)
+        return run, job
+
+    async def test_list_run_jobs(self, test_client, operator_headers, test_session):
+        run, job = await self._seed_run_with_failed_job(test_session)
+        resp = await test_client.get(
+            f"/api/operator/evaluation/runs/{run.id}/jobs",
+            headers=operator_headers,
+        )
+        body = resp.json()
+        assert resp.status_code == 200
+        items = body["data"]
+        assert len(items) == 1
+        assert items[0]["id"] == job.id
+        assert items[0]["status"] == "failed"
+        assert items[0]["last_error"] == "429"
+
+    async def test_retry_failed_job_endpoint(self, test_client, operator_headers, test_session):
+        from unittest.mock import AsyncMock, patch
+        run, job = await self._seed_run_with_failed_job(test_session)
+        with patch(
+            "app.evaluation.worker.enqueue_case_job",
+            new_callable=AsyncMock, return_value="arq-x",
+        ):
+            resp = await test_client.post(
+                f"/api/operator/evaluation/runs/{run.id}/jobs/{job.id}/retry",
+                headers=operator_headers,
+            )
+        body = resp.json()
+        assert resp.status_code == 200, body
+        assert body["data"]["job_id"] == job.id
+        # 状态回 pending（裸 SQL 验证，绕 ORM 身份缓存）
+        from sqlalchemy import text as _t
+        st = (await test_session.execute(_t(
+            "SELECT status FROM eval_case_jobs WHERE id=:i"), {"i": job.id})).scalar()
+        assert st == "pending"
+        rs = (await test_session.execute(_t(
+            "SELECT status, failed_cases FROM eval_runs WHERE id=:i"), {"i": run.id})).fetchone()
+        assert rs[0] == "running" and rs[1] == 0   # 终态回 running + 计数修正
+
+    async def test_retry_redis_down_503(self, test_client, operator_headers, test_session):
+        """redis 不可用 → 503 降级（P2 需求：队列故障不应 500）。"""
+        from unittest.mock import AsyncMock, patch
+        run, job = await self._seed_run_with_failed_job(test_session)
+        with patch(
+            "app.evaluation.worker.enqueue_case_job",
+            new_callable=AsyncMock,
+            side_effect=ConnectionError("redis down"),
+        ):
+            resp = await test_client.post(
+                f"/api/operator/evaluation/runs/{run.id}/jobs/{job.id}/retry",
+                headers=operator_headers,
+            )
+        assert resp.status_code == 503
+        assert "队列暂不可用" in resp.json()["message"]
+
+    async def test_retry_writes_operation_log(self, test_client, operator_headers, test_session):
+        """retry 是写操作 → 必须写 OperationLog（红线 #2，对齐本文件其他写操作测试）。"""
+        from unittest.mock import AsyncMock, patch
+        run, job = await self._seed_run_with_failed_job(test_session)
+        with patch("app.evaluation.worker.enqueue_case_job",
+                   new_callable=AsyncMock, return_value="arq-x"):
+            resp = await test_client.post(
+                f"/api/operator/evaluation/runs/{run.id}/jobs/{job.id}/retry",
+                headers=operator_headers,
+            )
+        assert resp.status_code == 200
+        # 裸 SQL 断言（expire_all 后 ORM 属性惰性加载会炸 greenlet；裸值不触发）
+        from sqlalchemy import text as _t
+        row = (await test_session.execute(_t(
+            "SELECT target_id, detail FROM operation_logs "
+            "WHERE action = 'evaluation_job_retry' AND target_id = :j "
+            "ORDER BY id DESC LIMIT 1"), {"j": job.id})).fetchone()
+        assert row is not None, "evaluation_job_retry OperationLog 未写入"
+        import json as _json
+        assert _json.loads(row[1])["run_id"] == run.id if isinstance(row[1], str) else row[1]["run_id"] == run.id
+
+    async def test_retry_non_failed_conflict(self, test_client, operator_headers, test_session):
+        from app.evaluation.models import EvalCaseJob
+        run, job = await self._seed_run_with_failed_job(test_session)
+        job.status = "done"
+        test_session.add(job); await test_session.commit()
+        resp = await test_client.post(
+            f"/api/operator/evaluation/runs/{run.id}/jobs/{job.id}/retry",
+            headers=operator_headers,
+        )
+        assert resp.status_code == 409
+
+    async def test_retry_job_of_other_run_404(self, test_client, operator_headers, test_session):
+        run, job = await self._seed_run_with_failed_job(test_session)
+        resp = await test_client.post(
+            f"/api/operator/evaluation/runs/{run.id + 999}/jobs/{job.id}/retry",
+            headers=operator_headers,
+        )
+        assert resp.status_code == 404
+
+    async def test_scores_carry_dimension_name(self, test_client, operator_headers, test_session, admin_user):
+        from app.evaluation.models import (
+            EvalCaseJob, EvalCaseResult, EvalDimension, EvalRun, EvalScore,
+            EvalStrategy, EvalTestCase, EvalVersion,
+        )
+        from app.evaluation.constants import EVAL_TOOL_QIANCHUAN_WRITER
+        v = EvalVersion(tool_code=EVAL_TOOL_QIANCHUAN_WRITER, name="v-dimname",
+                        config_payload={}, is_active=True)
+        test_session.add(v); await test_session.flush()
+        st = EvalStrategy(tool_code=EVAL_TOOL_QIANCHUAN_WRITER, name="s-dimname",
+                          test_case_selector={"all": True}, dimension_weight_overrides={},
+                          rubric_selector={}, is_active=True)
+        test_session.add(st); await test_session.flush()
+        tc = EvalTestCase(tool_code=EVAL_TOOL_QIANCHUAN_WRITER, name="tc-dimname",
+                          input_payload={}, tags=[], is_active=True)
+        test_session.add(tc); await test_session.flush()
+        dim = EvalDimension(tool_code=EVAL_TOOL_QIANCHUAN_WRITER, name="hook_strength",
+                            display_name="开头钩子力", default_weight=0.35,
+                            score_min=1, score_max=10, is_active=True)
+        test_session.add(dim); await test_session.flush()
+        run = EvalRun(version_id=v.id, strategy_id=st.id, name="r-dimname",
+                      trigger_type="manual", status="completed", filter_tags=[],
+                      total_cases=1, completed_cases=1, failed_cases=0, metadata_={})
+        test_session.add(run); await test_session.flush()
+        cr = EvalCaseResult(run_id=run.id, test_case_id=tc.id,
+                            generated_output="x", input_snapshot={}, output_payload={})
+        test_session.add(cr); await test_session.flush()
+        job = EvalCaseJob(run_id=run.id, test_case_id=tc.id, status="done")
+        test_session.add(job); await test_session.flush()
+        test_session.add(EvalScore(case_result_id=cr.id, dimension_id=dim.id,
+                                   ai_score=8.5, ai_reasoning="r"))
+        await test_session.commit()
+
+        resp = await test_client.get(
+            f"/api/operator/evaluation/runs/{run.id}/scores",
+            headers=operator_headers,
+        )
+        body = resp.json()
+        assert resp.status_code == 200
+        items = body["data"]
+        assert len(items) == 1
+        assert items[0]["dimension_name"] == "开头钩子力"   # P1 徽章显示名契约
+
+
+class TestCancelAndCaseResults:
+    """case_results 附 job 字段契约（P2 重跑按钮数据源）。
+
+    cancel 端点不在此重复——本文件 TestRunsCancel 已有更强覆盖
+    （jobs 状态/op log/401）；reviewer 指出原 3 个 cancel 测试为弱化重复，已删。
+    """
+
+    async def _seed_active_run(self, test_session, status="pending", with_result=False):
+        from app.evaluation.models import (
+            EvalCaseJob, EvalCaseResult, EvalRun, EvalStrategy, EvalTestCase, EvalVersion,
+        )
+        from app.evaluation.constants import (
+            EVAL_TOOL_QIANCHUAN_WRITER, JOB_STATUS_PENDING,
+        )
+        import uuid as _uuid
+        uid = _uuid.uuid4().hex[:6]
+        v = EvalVersion(tool_code=EVAL_TOOL_QIANCHUAN_WRITER, name=f"v-cr{uid}",
+                        config_payload={}, is_active=True)
+        test_session.add(v); await test_session.flush()
+        st = EvalStrategy(tool_code=EVAL_TOOL_QIANCHUAN_WRITER, name=f"s-cr{uid}",
+                          test_case_selector={"all": True}, dimension_weight_overrides={},
+                          rubric_selector={}, is_active=True)
+        test_session.add(st); await test_session.flush()
+        tc = EvalTestCase(tool_code=EVAL_TOOL_QIANCHUAN_WRITER, name=f"tc-cr{uid}",
+                          input_payload={}, tags=[], is_active=True)
+        test_session.add(tc); await test_session.flush()
+        run = EvalRun(version_id=v.id, strategy_id=st.id, name="r-cancel",
+                      trigger_type="manual", status=status, filter_tags=[],
+                      total_cases=1, completed_cases=0, failed_cases=0, metadata_={})
+        test_session.add(run); await test_session.flush()
+        job = EvalCaseJob(run_id=run.id, test_case_id=tc.id, status=JOB_STATUS_PENDING)
+        test_session.add(job); await test_session.flush()
+        cr = None
+        if with_result:
+            cr = EvalCaseResult(run_id=run.id, test_case_id=tc.id,
+                                generated_output="out", input_snapshot={}, output_payload={})
+            test_session.add(cr); await test_session.flush()
+        await test_session.commit()
+        return run, job, cr
+
+    async def test_case_results_carry_job_fields(self, test_client, operator_headers, test_session):
+        run, job, cr = await self._seed_active_run(
+            test_session, status="completed", with_result=True,
+        )
+        resp = await test_client.get(
+            f"/api/operator/evaluation/runs/{run.id}/case-results", headers=operator_headers,
+        )
+        body = resp.json()
+        assert resp.status_code == 200
+        items = body["data"]
+        assert len(items) == 1
+        # P2 契约：case-results 附 job 状态（重跑按钮依据）
+        assert items[0]["job_id"] == job.id
+        assert items[0]["job_status"] == "pending"

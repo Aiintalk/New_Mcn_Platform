@@ -276,3 +276,74 @@ class TestScoreEntryPoint:
 
         parsed = await score(mock_score_fn, _Dim(), [], "output", None)
         assert parsed.score == 5
+
+
+class TestScoreJsonGuards:
+    """P0 评分可信度：首尾双约束 + 解析失败重试（run21 兜底 1 分回归）。"""
+
+    async def test_prompt_has_head_and_tail_guards(self):
+        """组装的 prompt 首部有任务声明、末尾有 JSON 强守卫（含实际分值范围）。"""
+        captured = []
+
+        async def mock_fn(messages):
+            captured.append(messages[0]["content"])
+            return '{"score": 8}'
+
+        dim = _Dim(prompt_template="标准：{{rubric_text}}", score_min=1, score_max=10)
+        await score(mock_fn, dim, [], "文本", {})
+
+        p = captured[0]
+        assert p.startswith("【任务】")                      # 首部守卫
+        assert "整数1-10" in p                              # 末尾守卫带实际范围
+        # 顺序：头守卫 < 模板内容 < 尾守卫
+        assert p.index("【任务】") < p.index("标准：") < p.rindex("【输出要求】")
+
+    async def test_parse_failure_retries_once_then_succeeds(self):
+        """首次输出非 JSON → 自动纠错重评一次，第二次成功则不落兜底分。"""
+        calls = []
+
+        async def flaky_fn(messages):
+            calls.append(messages[0]["content"])
+            if len(calls) == 1:
+                return "我觉得这条文案写得挺好的，给 9 分吧！"   # 无 JSON
+            return '{"score": 9, "reasoning": "重试成功"}'
+
+        parsed = await score(flaky_fn, _Dim(), [], "文本", {})
+        assert len(calls) == 2                               # 恰好重试一次
+        assert "无法被解析为 JSON" in calls[1]                # 重试带纠错提示
+        assert parsed.score == 9                             # 真实分，非兜底
+        assert parsed.parse_failed is False
+
+    async def test_retry_also_fails_raises_no_pollution_score(self):
+        """两次都解析失败 → 抛错走 case 失败路径，不落兜底分（防污染均值）。"""
+        async def bad_fn(messages):
+            return "还是不给 JSON"
+
+        import pytest
+        with pytest.raises(RuntimeError, match="score parse failed"):
+            await score(bad_fn, _Dim(), [], "文本", {})
+
+    async def test_score_min_not_one_guards_and_clamp(self):
+        """score_min=3：守卫文本带实际范围，clamp 兜底也以 3 为下界。"""
+        captured = []
+
+        async def fn(messages):
+            captured.append(messages[0]["content"])
+            return '{"score": 1}'       # 低于 min → clamp 到 3
+
+        parsed = await score(fn, _Dim(score_min=3, score_max=10), [], "文本", {})
+        assert "整数3-10" in captured[0]                  # 守卫带实际范围
+        assert parsed.score == 3                          # clamp = score_min 非 1
+        assert parsed.parse_failed is False
+
+    async def test_success_first_try_no_retry(self):
+        """首次成功不重试（省一次模型调用）。"""
+        calls = []
+
+        async def ok_fn(messages):
+            calls.append(1)
+            return '{"score": 7}'
+
+        parsed = await score(ok_fn, _Dim(), [], "文本", {})
+        assert len(calls) == 1
+        assert parsed.score == 7

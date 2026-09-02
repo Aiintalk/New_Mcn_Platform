@@ -373,3 +373,91 @@ class TestExecuteCaseWiring:
         crs = (await test_session.execute(select(EvalCaseResult))).scalars().all()
         assert len(crs) == 0
 
+
+
+class TestRetryFailedJob:
+    """P2 失败 case 单独重跑：retry_failed_job 逻辑（手动重跑按钮的后端）。"""
+
+    async def test_retry_failed_job_resets_and_reenqueues(self, test_session):
+        """failed job 重跑：→ pending + failed_cases-1 + run 回 running + 重新入队。"""
+        import datetime as _dt
+        from app.evaluation.constants import JOB_STATUS_FAILED, JOB_STATUS_PENDING
+        from app.evaluation.models import EvalCaseJob, EvalRun
+        from app.evaluation import worker as w
+
+        from app.evaluation.models import EvalVersion, EvalStrategy
+        from app.evaluation.constants import EVAL_TOOL_QIANCHUAN_WRITER
+        v = EvalVersion(tool_code=EVAL_TOOL_QIANCHUAN_WRITER, name=f"rv-{uuid.uuid4().hex[:6]}", config_payload={}, is_active=True)
+        test_session.add(v); await test_session.flush()
+        st = EvalStrategy(tool_code=EVAL_TOOL_QIANCHUAN_WRITER, name=f"rs-{uuid.uuid4().hex[:6]}",
+                          test_case_selector={"all": True}, dimension_weight_overrides={},
+                          rubric_selector={}, is_active=True)
+        test_session.add(st); await test_session.flush()
+        from app.evaluation.models import EvalTestCase
+        tc = EvalTestCase(tool_code=EVAL_TOOL_QIANCHUAN_WRITER, name=f"rtc-{uuid.uuid4().hex[:6]}",
+                          input_payload={}, tags=[], is_active=True)
+        test_session.add(tc); await test_session.flush()
+        run = EvalRun(version_id=v.id, strategy_id=st.id, name="r", trigger_type="manual",
+                      status="failed", filter_tags=[], total_cases=1,
+                      completed_cases=0, failed_cases=1, metadata_={})
+        test_session.add(run)
+        await test_session.flush()
+        job = EvalCaseJob(run_id=run.id, test_case_id=tc.id, status=JOB_STATUS_FAILED,
+                          last_error="429")
+        test_session.add(job)
+        await test_session.commit()
+        jid, rid = job.id, run.id
+
+        enqueued = []
+        async def fake_enq(j):
+            enqueued.append(j)
+            return f"arq:{j}"
+
+        out = await w.retry_failed_job(test_session, jid, enqueue=fake_enq)
+
+        assert out["job_id"] == jid and enqueued == [jid]
+        # 用裸 SQL 断言（绕过 ORM 身份缓存：UPDATE 后同 session 已加载对象不刷新）
+        from sqlalchemy import text as _t
+        jr = (await test_session.execute(_t(
+            "SELECT status, last_error FROM eval_case_jobs WHERE id = :i"), {"i": jid})).fetchone()
+        assert jr[0] == JOB_STATUS_PENDING and jr[1] is None
+        rr = (await test_session.execute(_t(
+            "SELECT failed_cases, status FROM eval_runs WHERE id = :i"), {"i": rid})).fetchone()
+        assert rr[0] == 0 and rr[1] == "running"
+
+    async def test_retry_non_failed_rejected(self, test_session):
+        """非 failed（done/pending/running）→ ValueError 拒绝（防重复入队与计数错乱）。"""
+        from app.evaluation.constants import JOB_STATUS_DONE
+        from app.evaluation.models import EvalCaseJob, EvalRun
+        from app.evaluation import worker as w
+
+        from app.evaluation.models import EvalVersion, EvalStrategy
+        from app.evaluation.constants import EVAL_TOOL_QIANCHUAN_WRITER
+        v2 = EvalVersion(tool_code=EVAL_TOOL_QIANCHUAN_WRITER, name=f"rv-{uuid.uuid4().hex[:6]}", config_payload={}, is_active=True)
+        test_session.add(v2); await test_session.flush()
+        st2 = EvalStrategy(tool_code=EVAL_TOOL_QIANCHUAN_WRITER, name=f"rs-{uuid.uuid4().hex[:6]}",
+                           test_case_selector={"all": True}, dimension_weight_overrides={},
+                           rubric_selector={}, is_active=True)
+        test_session.add(st2); await test_session.flush()
+        from app.evaluation.models import EvalTestCase
+        tc2 = EvalTestCase(tool_code=EVAL_TOOL_QIANCHUAN_WRITER, name=f"rtc-{uuid.uuid4().hex[:6]}",
+                           input_payload={}, tags=[], is_active=True)
+        test_session.add(tc2); await test_session.flush()
+        run = EvalRun(version_id=v2.id, strategy_id=st2.id, name="r2", trigger_type="manual",
+                      status="completed", filter_tags=[], total_cases=1,
+                      completed_cases=1, failed_cases=0, metadata_={})
+        test_session.add(run)
+        await test_session.flush()
+        job = EvalCaseJob(run_id=run.id, test_case_id=tc2.id, status=JOB_STATUS_DONE)
+        test_session.add(job)
+        await test_session.commit()
+
+        import pytest
+        with pytest.raises(ValueError, match="only failed"):
+            await w.retry_failed_job(test_session, job.id, enqueue=None)
+
+    async def test_retry_nonexistent_job(self, test_session):
+        from app.evaluation import worker as w
+        import pytest
+        with pytest.raises(ValueError, match="not found"):
+            await w.retry_failed_job(test_session, 999999, enqueue=None)

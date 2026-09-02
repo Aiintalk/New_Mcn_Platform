@@ -9,6 +9,8 @@
 > 2026-08-04：Sprint25 达人档案统一以正式 `kols.id` 贯通人格定位、当前运营关联入驻资料、报告历史、七字段档案同步和下游上下文；迁移 055 保留历史未绑定记录。PM 独立验收返修后，只有结构完整的“人格档案 + 内容规划”双段输出可归档，人物事实补全状态按同一报告最新结果展示。接口与数据库契约见 `base/MCN_M2_Base_API.md`、`base/MCN_M2_Base_Database.md`，测试证据见 `tests/M2_Sprint25_测试报告_达人档案统一_v1.md`。
 >
 > 2026-08-07：新增外部录屏主播同步接口 `/api/external/recording-anchors`，合并输出红人主播与直播对标主播，内容对标不返回；`kol_benchmarks` 通过 migration 056 补充 `account_input`、`sec_uid`、`avatar_url`、`follower_count`，用于远程录屏项目同步 TikHub 标识。
+>
+> 2026-08-18：评测测试集接入真实数据——`scripts/seed_eval_testcases_real.py` 灌入张翀第一批 10 条真实测试例（`真实数据` 溯源 tag，纯业务 input_payload：达人/人设/产品信息/参考脚本）；migration 057 剥离 `input_payload.messages` 死字段（改写指令归版本提示词，generator 从不读它）并停用 `demo` tag 占位例。方案与测试证据见 `docs/evaluation/张翀真实测试集-集成方案说明.md`、`docs/evaluation/测试报告-真实测试集集成.md`。
 
 ---
 

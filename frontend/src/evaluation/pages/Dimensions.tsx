@@ -24,7 +24,6 @@ import type {
   EvalDimension,
   EvalDimensionCreate,
   EvalDimensionUpdate,
-  EvalRubric,
   EvalRubricItemInput,
 } from '../types';
 import { Callout, PageHeader, WeightBar } from '../components/primitives';
@@ -43,7 +42,6 @@ export default function DimensionsPage() {
   const [loading, setLoading] = useState(false);
   const [dimensions, setDimensions] = useState<EvalDimension[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
-  const [rubrics, setRubrics] = useState<EvalRubric[]>([]);
   const [rubricLoading, setRubricLoading] = useState(false);
   const [rubricScenario, setRubricScenario] = useState<string>('default');
   const [savingRubric, setSavingRubric] = useState(false);
@@ -101,7 +99,7 @@ export default function DimensionsPage() {
       try {
         const data = await listRubrics(selected.id);
         if (cancelled) return;
-        setRubrics(data);
+
         setDraftRubrics(
           data.map((r) => ({
             key: `${r.level}-${r.scenario_tag}-${r.id}`,
@@ -131,14 +129,6 @@ export default function DimensionsPage() {
       cancelled = true;
     };
   }, [selected, editForm, message]);
-
-  // 场景变体列表（来自 rubrics）
-  const scenarios = useMemo(() => {
-    const set = new Set<string>();
-    rubrics.forEach((r) => set.add(r.scenario_tag));
-    set.add('default');
-    return Array.from(set);
-  }, [rubrics]);
 
   const filteredDraft = useMemo(
     () => draftRubrics.filter((r) => r.scenario_tag === rubricScenario),
@@ -177,7 +167,7 @@ export default function DimensionsPage() {
       message.success(`Rubric 已保存（共 ${items.length} 条）`);
       // 重新加载
       const fresh = await listRubrics(selected.id);
-      setRubrics(fresh);
+
       setDraftRubrics(
         fresh.map((r) => ({
           key: `${r.level}-${r.scenario_tag}-${r.id}`,
@@ -352,19 +342,6 @@ export default function DimensionsPage() {
       ),
     },
     {
-      title: '场景变体',
-      dataIndex: 'scenario_tag',
-      key: 'scenario_tag',
-      width: 160,
-      render: (v: string, r) => (
-        <Input
-          value={v}
-          onChange={(e) => handleUpdateDraft(r.key, { scenario_tag: e.target.value || 'default' })}
-          style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}
-        />
-      ),
-    },
-    {
       title: '启用',
       dataIndex: 'is_active',
       key: 'is_active',
@@ -389,7 +366,7 @@ export default function DimensionsPage() {
       <PageHeader
         title="维度与评分标准"
         titleTag="v2 · 权重 TBD 安雅"
-        description="Dimension → Rubric（场景变体）→ Prompt Template 三层结构。权重独立配置不硬编码：策略层 > 版本快照 > 维度默认三级覆盖。"
+        description="Dimension → Rubric → Prompt Template 三层结构。权重独立配置不硬编码：策略层 > 版本快照 > 维度默认三级覆盖。"
         actions={
           <>
             <Button icon={<ReloadOutlined />} onClick={() => void loadDimensions()}>
@@ -490,10 +467,7 @@ export default function DimensionsPage() {
           <Card
             title={
               <span>
-                Rubric 评分标准{' '}
-                <Tag color="default" style={{ marginInlineStart: 8 }}>
-                  {scenarios.length} 场景变体
-                </Tag>
+                Rubric 评分标准
               </span>
             }
             extra={
@@ -508,24 +482,6 @@ export default function DimensionsPage() {
             }
             styles={{ body: { padding: 0 } }}
           >
-            <div className="text-xs text-muted" style={{ padding: '12px var(--sp-5) 0' }}>
-              v2：同一维度按业务场景维护多套细则变体，策略用 rubric_selector 挑哪套；一期仅用 default 变体
-            </div>
-            <div className="sub-tabs" style={{ padding: '0 var(--sp-5)', marginBottom: 0 }}>
-              {scenarios.map((s) => {
-                const count = rubrics.filter((r) => r.scenario_tag === s).length;
-                return (
-                  <button
-                    key={s}
-                    type="button"
-                    className={`sub-tab ${rubricScenario === s ? 'active' : ''}`}
-                    onClick={() => setRubricScenario(s)}
-                  >
-                    {s} <span className="count">{count}</span>
-                  </button>
-                );
-              })}
-            </div>
 
             {rubricLoading ? (
               <Skeleton active paragraph={{ rows: 4 }} style={{ padding: 'var(--sp-5)' }} />

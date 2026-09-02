@@ -45,7 +45,9 @@ from app.evaluation.constants import (
     TRIGGER_TYPE_MANUAL,
 )
 from app.evaluation.models import (
+    EvalCaseJob,
     EvalCaseResult,
+    EvalDimension,
     EvalHumanLabel,
     EvalRun,
     EvalScore,
@@ -58,6 +60,7 @@ from app.evaluation.schemas import (
     TestCaseUpdate,
 )
 from app.evaluation.services import scheduler
+from app.evaluation.worker import retry_failed_job
 from app.evaluation.services.comparator import compare_runs
 
 router = APIRouter(
@@ -157,17 +160,23 @@ def _run_to_dict(r: EvalRun) -> dict:
     }
 
 
+def _num(v):
+    """Numeric 列（Decimal）→ float。不转的话 FastAPI 会把 Decimal 序列化成 JSON 字符串，
+    前端按 number 消费（如 ai_score.toFixed）直接崩（RunDetail 白屏的根因）。"""
+    return float(v) if v is not None else None
+
+
 def _score_to_dict(s: EvalScore) -> dict:
     return {
         "id": s.id,
         "case_result_id": s.case_result_id,
         "dimension_id": s.dimension_id,
-        "weight_used": s.weight_used,
-        "ai_score": s.ai_score,
+        "weight_used": _num(s.weight_used),
+        "ai_score": _num(s.ai_score),
         "ai_reasoning": s.ai_reasoning,
         "ai_strengths": list(s.ai_strengths or []),
         "ai_weaknesses": list(s.ai_weaknesses or []),
-        "human_score": s.human_score,
+        "human_score": _num(s.human_score),
         "human_feedback": s.human_feedback,
         "created_at": _ts(s.created_at),
         "updated_at": _ts(s.updated_at),
@@ -444,6 +453,7 @@ async def trigger_run(
 
     filter_tags = list(body.get("filter_tags") or [])
     trigger_type = body.get("trigger_type") or TRIGGER_TYPE_MANUAL
+    run_name = (str(body.get("name") or "").strip()) or None  # 用户自定义运行名（空则后端默认生成）
 
     # OperationLog（run_id 在 trigger_run 内部生成，这里先记录触发意图）
     db.add(OperationLog(
@@ -469,6 +479,7 @@ async def trigger_run(
         trigger_type=trigger_type,
         user_id=current_user.id,
         db=db,
+        name=run_name,
     )
     # run 现为 pending；执行由 worker 异步推进（不在此 await）
     run = await db.get(EvalRun, run_id)
@@ -527,7 +538,22 @@ async def list_run_scores(
         .order_by(EvalCaseResult.test_case_id.asc(), EvalScore.dimension_id.asc())
     )
     rows = (await db.execute(stmt)).scalars().all()
-    return success_response(data=[_score_to_dict(s) for s in rows])
+
+    # 维度 id → 显示名（徽章直接显示「开头钩子力」而非 d4；前端不再自行拉维度）
+    dim_ids = {s.dimension_id for s in rows}
+    dim_names: dict[int, str | None] = {}
+    if dim_ids:
+        dim_rows = (await db.execute(
+            select(EvalDimension).where(EvalDimension.id.in_(dim_ids))
+        )).scalars().all()
+        dim_names = {d.id: d.display_name or d.name for d in dim_rows}
+
+    data = []
+    for s in rows:
+        d = _score_to_dict(s)
+        d["dimension_name"] = dim_names.get(s.dimension_id)
+        data.append(d)
+    return success_response(data=data)
 
 
 @router.get("/runs/{run_id}/case-results")
@@ -546,15 +572,26 @@ async def list_run_case_results(
             status_code=404,
             detail={"code": ErrorCode.RESOURCE_NOT_FOUND, "message": "运行不存在"},
         )
+    from sqlalchemy import and_
     stmt = (
-        select(EvalCaseResult, EvalTestCase.name)
+        select(EvalCaseResult, EvalTestCase.name, EvalCaseJob.id, EvalCaseJob.status, EvalCaseJob.last_error)
         .outerjoin(EvalTestCase, EvalTestCase.id == EvalCaseResult.test_case_id)
+        # job 按 (run, test_case) 匹配且仅取最新一条（同 case 重跑会产生多 job 时以 id 最大为准）
+        .outerjoin(EvalCaseJob, and_(
+            EvalCaseJob.run_id == EvalCaseResult.run_id,
+            EvalCaseJob.test_case_id == EvalCaseResult.test_case_id,
+        ))
         .where(EvalCaseResult.run_id == run_id)
-        .order_by(EvalCaseResult.test_case_id.asc())
+        .order_by(EvalCaseResult.test_case_id.asc(), EvalCaseJob.id.desc())
     )
-    rows = (await db.execute(stmt)).all()
-    return success_response(data=[
-        {
+    # 同 (case_result) 可能 join 出多条 job（历史重跑）——按 case_result 去重取第一条（最新 job）
+    seen: set[int] = set()
+    items = []
+    for cr, name, job_id, job_status, job_error in (await db.execute(stmt)).all():
+        if cr.id in seen:
+            continue
+        seen.add(cr.id)
+        items.append({
             "id": cr.id,
             "test_case_id": cr.test_case_id,
             "test_case_name": name or f"样本 #{cr.test_case_id}",
@@ -562,9 +599,12 @@ async def list_run_case_results(
             "output_payload": cr.output_payload,
             "input_snapshot": cr.input_snapshot,
             "created_at": _ts(cr.created_at),
-        }
-        for cr, name in rows
-    ])
+            # job 状态（P2 重跑按钮依据）
+            "job_id": job_id,
+            "job_status": job_status,
+            "job_error": job_error,
+        })
+    return success_response(data=items)
 
 
 @router.post("/runs/{run_id}/cancel")
@@ -617,6 +657,92 @@ async def cancel_run(
     await db.commit()
     await db.refresh(run)
     return success_response(data=_run_to_dict(run))
+
+
+@router.get("/runs/{run_id}/jobs")
+async def list_run_jobs(
+    run_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_operator),
+):
+    """单 run 的逐 job 明细（失败 case 重跑入口：无 case_result 的 failed job 只在此可见）。"""
+    run = await db.get(EvalRun, run_id)
+    if run is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": ErrorCode.RESOURCE_NOT_FOUND, "message": "运行不存在"},
+        )
+    rows = (await db.execute(
+        select(EvalCaseJob).where(EvalCaseJob.run_id == run_id).order_by(EvalCaseJob.id)
+    )).scalars().all()
+    return success_response(data=[
+        {
+            "id": j.id,
+            "test_case_id": j.test_case_id,
+            "status": j.status,
+            "attempts": j.attempts,
+            "last_error": j.last_error,
+            "started_at": _ts(j.started_at),
+            "finished_at": _ts(j.finished_at),
+        }
+        for j in rows
+    ])
+
+
+@router.post("/runs/{run_id}/jobs/{job_id}/retry")
+async def retry_job(
+    run_id: int,
+    job_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_operator),
+):
+    """重跑单个失败 case-job（run 详情页"重跑"按钮）。
+
+    - job 必须属于该 run 且状态 failed（否则 409）
+    - 重置 pending + failed_cases-1 + run 终态回 running + 重新入队
+    - redis 不可用时 503（trigger 同款降级：队列故障不应把 job 状态卡在半途——
+      先入队后 commit 的顺序由 retry_failed_job 保证，此处仅转发其错误）
+    """
+    # 归属校验
+    row = (
+        await db.execute(
+            text("SELECT run_id, status FROM eval_case_jobs WHERE id = :id"),
+            {"id": job_id},
+        )
+    ).fetchone()
+    if row is None or row[0] != run_id:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": ErrorCode.RESOURCE_NOT_FOUND, "message": "job 不存在或不属于该运行"},
+        )
+
+    try:
+        result = await retry_failed_job(db, job_id)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "CONFLICT", "message": str(e)},
+        )
+    except Exception as e:  # redis/arq 入队失败
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "EXTERNAL_SERVICE_ERROR", "message": f"队列暂不可用，稍后重试: {str(e)[:120]}"},
+        )
+
+    db.add(OperationLog(
+        user_id=current_user.id,
+        username=current_user.username,
+        role=current_user.role,
+        action="evaluation_job_retry",
+        target_type="eval_case_job",
+        target_id=job_id,
+        detail={"run_id": run_id},
+        ip=_get_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    ))
+    await db.commit()
+    return success_response(data=result, message="已重新入队，稍后刷新查看结果")
 
 
 # ---------------------------------------------------------------------------

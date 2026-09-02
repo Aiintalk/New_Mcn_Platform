@@ -239,6 +239,8 @@ export interface EvalScore {
   id: number;
   case_result_id: number;
   dimension_id: number;
+  /** 维度显示名（scores 端点附带；旧数据兜底用 d{id}） */
+  dimension_name?: string | null;
   weight_used: number;
   ai_score: number | null;
   ai_reasoning: string | null;
@@ -259,6 +261,10 @@ export interface EvalCaseResult {
   output_payload: Record<string, unknown> | null;
   input_snapshot: Record<string, unknown> | null;
   created_at: string | null;
+  /** 关联 case-job 状态（P2 失败重跑按钮依据；无 job 时为 null） */
+  job_id?: number | null;
+  job_status?: string | null;
+  job_error?: string | null;
 }
 
 /** GET /admin/evaluation/queue-stats — 队列健康度 */

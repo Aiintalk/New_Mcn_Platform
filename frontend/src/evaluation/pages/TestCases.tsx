@@ -61,7 +61,16 @@ export default function TestCasesPage() {
     void load();
   }, [load]);
 
-  // 客户端二次过滤（搜索 + 状态；后端一期只支持 tool_code/tag）
+  // 标签筛选走服务端（后端 /test-cases 原生支持 tag 参数）；切换时重置回第 1 页
+  const handleTagFilterChange = useCallback(
+    (tag: string | undefined) => {
+      setTagFilter(tag);
+      setParams((prev) => ({ ...prev, page: 1, tag }));
+    },
+    [],
+  );
+
+  // 客户端二次过滤（搜索 + 状态；标签已由服务端过滤）
   const filteredRows = useMemo(() => {
     let list = rows;
     if (search.trim()) {
@@ -77,12 +86,17 @@ export default function TestCasesPage() {
     return list;
   }, [rows, search, statusFilter]);
 
-  // 提取标签选项（用于筛选下拉）
-  const tagOptions = useMemo(() => {
+  // 提取标签选项（用于筛选下拉）。
+  // 筛选中冻结选项（否则按 tag 过滤后当前页只剩该 tag，其他选项会消失），清空后重算
+  const allTagOptions = useMemo(() => {
     const set = new Set<string>();
     rows.forEach((r) => r.tags.forEach((t) => set.add(t)));
     return Array.from(set).sort();
   }, [rows]);
+  const [tagOptions, setTagOptions] = useState<string[]>([]);
+  useEffect(() => {
+    if (!tagFilter) setTagOptions(allTagOptions);
+  }, [allTagOptions, tagFilter]);
 
   // 占位统计（来自当前页 + 全量 total）
   const stats: TestCasesStats = useMemo(() => {
@@ -238,7 +252,7 @@ export default function TestCasesPage() {
                 placeholder="全部标签"
                 allowClear
                 value={tagFilter}
-                onChange={setTagFilter}
+                onChange={handleTagFilterChange}
                 options={tagOptions.map((t) => ({ label: t, value: t }))}
               />
               <Select

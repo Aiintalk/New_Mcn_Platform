@@ -246,6 +246,52 @@ async def eval_case_job(ctx, job_id: int) -> str:
         return await run_case_job_logic(db, job_id, execute=execute_case)
 
 
+async def retry_failed_job(db: AsyncSession, job_id: int, *, enqueue=None) -> dict:
+    """手动重跑单个失败 case-job（run 详情页"重跑"按钮的后端逻辑）。
+
+    - 仅 failed 可重跑（done/running/pending 409——防重复入队与计数错乱）
+    - job → pending（清 last_error，attempts 保留累计）
+    - 计数修正：failed_cases -1（原失败计数回退；重跑成败由 aggregate 重新累加）
+    - run 若已终态（completed/failed）→ 回 running（重开收尾窗口）
+    - 重新入队（arq _job_id 去重：原 job 若还在 arq 重试队列不会重复）
+    """
+    from app.evaluation.constants import JOB_STATUS_PENDING, JOB_STATUS_FAILED
+    from app.evaluation.constants import RUN_STATUS_RUNNING
+
+    row = (
+        await db.execute(
+            text("SELECT id, run_id, status FROM eval_case_jobs WHERE id = :id"),
+            {"id": job_id},
+        )
+    ).fetchone()
+    if row is None:
+        raise ValueError(f"job {job_id} not found")
+    _id, run_id, status = row
+    if status != JOB_STATUS_FAILED:
+        raise ValueError(f"job {job_id} status={status}, only failed jobs can retry")
+
+    await db.execute(
+        text(
+            "UPDATE eval_case_jobs SET status = :s, started_at = NULL, "
+            "finished_at = NULL, last_error = NULL WHERE id = :id"
+        ),
+        {"s": JOB_STATUS_PENDING, "id": job_id},
+    )
+    # 计数修正：failed_cases-1（下界 0）；run 终态 → running
+    await db.execute(
+        text(
+            "UPDATE eval_runs SET failed_cases = GREATEST(failed_cases - 1, 0), "
+            "status = :rs, finished_at = NULL WHERE id = :rid"
+        ),
+        {"rs": RUN_STATUS_RUNNING, "rid": run_id},
+    )
+    await db.commit()
+
+    enq = enqueue or enqueue_case_job
+    arq_job_id = await enq(job_id)
+    return {"job_id": job_id, "run_id": run_id, "arq_job_id": arq_job_id}
+
+
 class WorkerSettings:
     """arq worker 配置。
 
@@ -260,3 +306,6 @@ class WorkerSettings:
     # 5×150=750s + DB/渲染/解析开销 → job_timeout=900 留余量（reviewer 算术修正：原 600 余量为 0）
     job_timeout = 900
     max_tries = 3         # 失败重试次数
+    # 重试退避（秒，按尝试次数取值）：429 限流时立即重试（arq 默认 0s）会继续撞限流，
+    # run20 实测 5/10 case 因 kimi 429 失败。递增间隔让重试错开限流窗口。
+    retry_delay = 60

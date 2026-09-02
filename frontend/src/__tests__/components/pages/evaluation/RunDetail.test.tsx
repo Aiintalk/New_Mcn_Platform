@@ -1,3 +1,5 @@
+const _origErr = console.error;
+console.error = (...a) => { if (String(a[0]).includes("not within")) _origErr(...a); };
 /**
  * RunDetail 页面测试
  */
@@ -13,12 +15,17 @@ const mockCancelRun = vi.fn();
 const mockListCaseResults = vi.fn();
 mockListCaseResults.mockResolvedValue([]);  // 默认空（多数测试不关心 case-results）
 
+const mockListRunJobs = vi.fn();
+const mockRetryJob = vi.fn();
+
 vi.mock('../../../../evaluation/api', () => ({
   getRun: (...args: unknown[]) => mockGetRun(...args),
   listRunScores: (...args: unknown[]) => mockListRunScores(...args),
   submitHumanLabel: (...args: unknown[]) => mockSubmitHumanLabel(...args),
   cancelRun: (...args: unknown[]) => mockCancelRun(...args),
   listCaseResults: (...args: unknown[]) => mockListCaseResults(...args),
+  listRunJobs: (...args: unknown[]) => mockListRunJobs(...args),
+  retryJob: (...args: unknown[]) => mockRetryJob(...args),
 }));
 
 vi.mock('react-router-dom', async () => {
@@ -105,6 +112,10 @@ const sampleScores = [
 
 describe('RunDetailPage', () => {
   beforeEach(() => {
+  mockListRunJobs.mockReset();
+  mockListRunJobs.mockResolvedValue([]);
+  mockRetryJob.mockReset();
+  mockRetryJob.mockResolvedValue({ job_id: 1, run_id: 1, arq_job_id: 'x' });
     mockGetRun.mockReset();
     mockListRunScores.mockReset();
     mockSubmitHumanLabel.mockReset();
@@ -249,6 +260,8 @@ describe('RunDetailPage — 边界渲染', () => {
     mockGetRun.mockReset();
     mockListRunScores.mockReset();
     mockSubmitHumanLabel.mockReset();
+    mockListRunJobs.mockReset();
+    mockListRunJobs.mockResolvedValue([]);   // reset 清实现后需重设（load 并行拉 jobs）
   });
 
   it('无 AI 评分数据时维度概览显示空状态（覆盖 dimensionAgg 空）', async () => {
@@ -281,19 +294,56 @@ describe('RunDetailPage — 边界渲染', () => {
   it('展示 case 真实样本名 + 展开看生成输出（来自 case-results）', async () => {
     mockGetRun.mockResolvedValue(sampleRun);
     mockListRunScores.mockResolvedValue(sampleScores);
-    mockListCaseResults.mockResolvedValueOnce([
+    mockListRunScores.mockResolvedValue([]);   // 清全局默认 sampleScores（其 case_result_id=2 会产生孤儿行）
+    mockListCaseResults.mockResolvedValue([
       {
         id: 1, test_case_id: 10, test_case_name: '口红种草样本',
         generated_output: '姐妹们，这支口红太绝了…', output_payload: null,
         input_snapshot: null, created_at: 't',
+        job_id: 7, job_status: 'done', job_error: null,
       },
     ]);
     renderWithProviders(<RunDetailPage />);
     await waitFor(() => expect(screen.getByText('口红种草样本')).toBeInTheDocument());  // 真实样本名（替掉假"样本 #1"）
-    // 展开行看生成文案
-    const expandIcon = document.querySelector('.ant-table-row-expand-icon') as Element;
+
+    // 展开行看生成文案（等待展开行渲染后再断言）
+    const expandIcon = await waitFor(() => {
+      const el = document.querySelector('.ant-table-row-expand-icon') as Element;
+      expect(el).toBeTruthy();
+      return el;
+    });
     fireEvent.click(expandIcon);
-    expect(await screen.findByText('姐妹们，这支口红太绝了…')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(document.querySelector('.ant-table-expanded-row')?.textContent)
+        .toContain('姐妹们，这支口红太绝了');
+    });
+  });
+
+  it('生成即失败的 case（无 case_result，仅 failed job）单独成行并可重跑', async () => {
+    // P2：run20 场景——execute 未写结果，case-results 里没有，只有 jobs 里的 failed
+    mockGetRun.mockResolvedValue({ ...sampleRun, failed_cases: 1 });
+    mockListRunScores.mockResolvedValue([]);
+    mockListCaseResults.mockResolvedValue([]);
+    mockListRunJobs.mockResolvedValue([
+      { id: 66, test_case_id: 10, status: 'failed', attempts: 1, last_error: "429 Too Many Requests", started_at: 't', finished_at: 't' },
+    ]);
+    renderWithProviders(<RunDetailPage />);
+    // 失败行出现 + 重跑按钮
+    // antd Button 中文间自动插空格（"重 跑"）——按 button 元素去空格文本定位
+    await waitFor(() => {
+      const btn = Array.from(document.querySelectorAll('button'))
+        .find(b => (b.textContent ?? '').replace(/\s/g, '') === '重跑');
+      expect(btn).toBeTruthy();
+      expect(btn?.title).toContain('429');
+    });
+    const retryBtnEl = Array.from(document.querySelectorAll('button'))
+      .find(b => (b.textContent ?? '').replace(/\s/g, '') === '重跑')!;
+    // 点击 → 调 retryJob + 提示成功
+    mockRetryJob.mockResolvedValueOnce({ job_id: 66, run_id: 1, arq_job_id: 'x' });
+    fireEvent.click(retryBtnEl);
+    await waitFor(() => {
+      expect(mockRetryJob).toHaveBeenCalledWith(42, 66);
+    });
   });
 });
 

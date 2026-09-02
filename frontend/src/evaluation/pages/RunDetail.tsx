@@ -19,7 +19,8 @@ const { TextArea } = Input;
 import type { ColumnsType } from 'antd/es/table';
 import '../../styles/variables.css';
 import '../styles/eval.css';
-import { cancelRun, getRun, listCaseResults, listRunScores, submitHumanLabel } from '../api';
+import { cancelRun, getRun, listCaseResults, listRunJobs, listRunScores, retryJob, submitHumanLabel } from '../api';
+import type { EvalJob } from '../api';
 import type { EvalCaseResult, EvalRun, EvalScore } from '../types';
 import {
   Callout,
@@ -37,6 +38,10 @@ interface CaseRow {
   aiAvg: number | null;
   humanCalibrated: boolean;
   generated_output: string | null;
+  /** P2 失败重跑 */
+  job_id: number | null;
+  job_status: string | null;
+  job_error: string | null;
 }
 
 export default function RunDetailPage() {
@@ -49,6 +54,7 @@ export default function RunDetailPage() {
   const [run, setRun] = useState<EvalRun | null>(null);
   const [scores, setScores] = useState<EvalScore[]>([]);
   const [caseResults, setCaseResults] = useState<EvalCaseResult[]>([]);
+  const [jobs, setJobs] = useState<EvalJob[]>([]);
   const [calibrating, setCalibrating] = useState<EvalScore | null>(null);
   const [humanScore, setHumanScore] = useState(7);
   const [humanFeedback, setHumanFeedback] = useState('');
@@ -58,14 +64,16 @@ export default function RunDetailPage() {
     if (!runId) return;
     setLoading(true);
     try {
-      const [runData, scoreData, crData] = await Promise.all([
+      const [runData, scoreData, crData, jobData] = await Promise.all([
         getRun(runId),
         listRunScores(runId),
         listCaseResults(runId),
+        listRunJobs(runId),
       ]);
       setRun(runData);
       setScores(scoreData);
       setCaseResults(crData);
+      setJobs(jobData);
     } catch (err) {
       const msg = err instanceof Error ? err.message : '加载失败';
       message.error(msg);
@@ -124,27 +132,74 @@ export default function RunDetailPage() {
     });
     const crMap = new Map<number, EvalCaseResult>();
     caseResults.forEach((cr) => crMap.set(cr.id, cr));
-    const allIds = new Set<number>([...byCase.keys(), ...crMap.keys()]);
-    return Array.from(allIds).sort((a, b) => a - b).map((caseResultId) => {
+    const rows: CaseRow[] = [];
+    const seenTestCaseIds = new Set<number>();
+
+    // 1) 有 case_result 的行（成功/已评分）——以 case_results 为主体（scores 可能为空：
+    //    生成成功但未评分/评分中的 case 也算一行），再并入仅有 score 的孤儿
+    const allCaseResultIds = new Set<number>([...byCase.keys(), ...crMap.keys()]);
+    for (const caseResultId of allCaseResultIds) {
       const scoreList = byCase.get(caseResultId) ?? [];
       const cr = crMap.get(caseResultId);
-      const aiScores = scoreList.map((s) => s.ai_score).filter((v): v is number => v !== null);
-      const aiAvg = aiScores.length > 0 ? aiScores.reduce((a, b) => a + b, 0) / aiScores.length : null;
-      const anyHuman = scoreList.some((s) => s.human_score !== null);
-      return {
+      if (cr) seenTestCaseIds.add(cr.test_case_id);
+      const aiScores = scoreList.map((s) => (s.ai_score === null ? null : Number(s.ai_score))).filter((v): v is number => v !== null);
+      rows.push({
         key: String(caseResultId),
         case_result_id: caseResultId,
         test_case_id: cr?.test_case_id ?? caseResultId,
         test_case_name: cr?.test_case_name ?? `样本 #${caseResultId}`,
         scores: scoreList,
-        aiAvg,
-        humanCalibrated: anyHuman,
+        aiAvg: aiScores.length > 0 ? aiScores.reduce((a, b) => a + b, 0) / aiScores.length : null,
+        humanCalibrated: scoreList.some((s) => s.human_score !== null),
         generated_output: cr?.generated_output ?? null,
-      };
-    });
-  }, [scores, caseResults]);
+        job_id: cr?.job_id ?? null,
+        job_status: cr?.job_status ?? null,
+        job_error: cr?.job_error ?? null,
+      });
+    }
+
+    // 2) 无 case_result 的 job 行（生成即失败：execute_case 未写结果——run20 的 5 个 429 失败 case）
+    //    以 jobs 为准并入；有 case_result 的 test_case 不重复（取最新 job 补状态）
+    const jobsByTestCase = new Map<number, EvalJob>();
+    jobs.forEach((j) => jobsByTestCase.set(j.test_case_id, j));   // 后者覆盖 = id 大 = 最新
+    for (const [tcId, j] of jobsByTestCase) {
+      if (seenTestCaseIds.has(tcId)) {
+        // 已有行：若 job 更新（如重跑中 pending）覆盖其 job 状态
+        const row = rows.find((r) => r.test_case_id === tcId);
+        if (row && (row.job_status !== 'failed' || j.status === 'running' || j.status === 'pending')) {
+          row.job_id = j.id;
+          row.job_status = j.status;
+          row.job_error = j.last_error;
+        }
+        continue;
+      }
+      rows.push({
+        key: `job-${j.id}`,
+        case_result_id: -j.id,   // 负数避免与真实 id 冲突
+        test_case_id: tcId,
+        test_case_name: `样本 #${tcId}`,
+        scores: [],
+        aiAvg: null,
+        humanCalibrated: false,
+        generated_output: null,
+        job_id: j.id,
+        job_status: j.status,
+        job_error: j.last_error,
+      });
+    }
+    return rows.sort((a, b) => a.test_case_id - b.test_case_id);
+  }, [scores, caseResults, jobs]);
 
   // 维度聚合（雷达图 + 列表）
+  // 维度 id → 显示名（scores 端点附带；雷达图/徽章统一用，d{id} 兜底）
+  const dimNameMap = useMemo(() => {
+    const m = new Map<number, string>();
+    scores.forEach((s) => {
+      if (s.dimension_name) m.set(s.dimension_id, s.dimension_name);
+    });
+    return m;
+  }, [scores]);
+
   const dimensionAgg = useMemo(() => {
     const byDim = new Map<number, { sum: number; count: number }>();
     scores.forEach((s) => {
@@ -156,14 +211,33 @@ export default function RunDetailPage() {
     });
     return Array.from(byDim.entries()).map(([dimId, v]) => ({
       dimension_id: dimId,
+      name: dimNameMap.get(dimId) || `d${dimId}`,
       avg: v.count > 0 ? v.sum / v.count : null,
     }));
   }, [scores]);
 
   const overallAvg = useMemo(() => {
-    const all = scores.map((s) => s.ai_score).filter((v): v is number => v !== null);
+    // Number() 防御：后端 Decimal 曾序列化成字符串导致 a+b 拼接 + 雷达图 NaN
+    const all = scores.map((s) => (s.ai_score === null ? null : Number(s.ai_score))).filter((v): v is number => v !== null);
     return all.length > 0 ? all.reduce((a, b) => a + b, 0) / all.length : null;
   }, [scores]);
+
+  // P2 失败 case 单独重跑（429 限流等瞬时失败无需整 run 重跑）
+  const [retryingJobId, setRetryingJobId] = useState<number | null>(null);
+  const handleRetryJob = async (jobId: number) => {
+    if (!runId) return;
+    setRetryingJobId(jobId);
+    try {
+      await retryJob(runId, jobId);
+      message.success('已重新入队，稍后刷新查看结果');
+      setTimeout(() => void load(), 1500);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '重跑失败';
+      message.error(msg);
+    } finally {
+      setRetryingJobId(null);
+    }
+  };
 
   const handleCancel = async () => {
     if (!run) return;
@@ -222,10 +296,10 @@ export default function RunDetailPage() {
       render: (_, r) => (
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           {r.scores.map((s) => (
-            <Tag key={s.id} style={{ margin: 0, fontFamily: 'var(--font-mono)', fontSize: 12 }}>
-              d{s.dimension_id}: <b>{s.ai_score !== null ? s.ai_score.toFixed(1) : '—'}</b>
+            <Tag key={s.id} style={{ margin: 0, fontSize: 12 }}>
+              {s.dimension_name || `d${s.dimension_id}`}: <b>{s.ai_score !== null ? Number(s.ai_score).toFixed(1) : '—'}</b>
               {s.human_score !== null ? (
-                <span style={{ color: 'var(--success)', marginLeft: 4 }}>★{s.human_score.toFixed(1)}</span>
+                <span style={{ color: 'var(--success)', marginLeft: 4 }}>★{Number(s.human_score).toFixed(1)}</span>
               ) : null}
             </Tag>
           ))}
@@ -255,6 +329,17 @@ export default function RunDetailPage() {
       align: 'right',
       render: (_, r) => (
         <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+          {r.job_status === 'failed' && r.job_id !== null && (
+            <Button
+              size="small"
+              danger
+              loading={retryingJobId === r.job_id}
+              title={r.job_error || 'case 执行失败'}
+              onClick={() => void handleRetryJob(r.job_id!)}
+            >
+              重跑
+            </Button>
+          )}
           {r.scores.map((s) => (
             <Button
               key={s.id}
@@ -262,7 +347,7 @@ export default function RunDetailPage() {
               type={s.human_score === null ? 'primary' : 'link'}
               onClick={() => openCalibrate(s)}
             >
-              校准 d{s.dimension_id}
+              校准 {s.dimension_name || `d${s.dimension_id}`}
             </Button>
           ))}
         </div>
@@ -377,7 +462,7 @@ export default function RunDetailPage() {
           ) : (
             <div className="radar-wrap">
               <RadarChart
-                labels={dimensionAgg.map((d) => `d${d.dimension_id}`)}
+                labels={dimensionAgg.map((d) => d.name)}
                 values={dimensionAgg.map((d) => d.avg ?? 0)}
               />
               <div className="radar-legend">
