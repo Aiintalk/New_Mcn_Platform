@@ -1,0 +1,68 @@
+{
+  "schema_version": "phase1",
+  "contents": [
+    {
+      "account_id": "account-001",
+      "source": "manual",
+      "identity": {
+        "platform_content_id": "sample-work-001",
+        "external_url": "https://example.invalid/video/sample-001"
+      },
+      "category": "persona",
+      "published_at": "2026-09-01T09:00:00+08:00",
+      "captured_at": "2026-09-02T09:00:00+08:00",
+      "metrics": {
+        "like_count": 18,
+        "comment_count": 2,
+        "share_count": 1,
+        "favorite_count": 3,
+        "play_count": 120
+      },
+      "transcript": "合成短文案：问题、方法和结果。",
+      "video_reference": null,
+      "sync_status": "synced"
+    },
+    {
+      "account_id": "account-002",
+      "source": "manual",
+      "identity": {
+        "platform_content_id": "sample-work-002",
+        "external_url": "https://example.invalid/video/sample-002"
+      },
+      "category": "qianchuan",
+      "published_at": "2026-09-02T11:00:00+08:00",
+      "captured_at": "2026-09-03T11:00:00+08:00",
+      "metrics": {
+        "like_count": 25,
+        "comment_count": 3,
+        "share_count": 2,
+        "favorite_count": 4,
+        "play_count": 0
+      },
+      "transcript": "合成短文案：展示一个可验证的使用场景。",
+      "video_reference": "sample-video-002",
+      "sync_status": "synced"
+    },
+    {
+      "account_id": "account-001",
+      "source": "manual",
+      "identity": {
+        "platform_content_id": "sample-work-003",
+        "external_url": null
+      },
+      "category": "other",
+      "published_at": "2026-08-28T15:00:00+08:00",
+      "captured_at": "2026-09-02T15:00:00+08:00",
+      "metrics": {
+        "like_count": null,
+        "comment_count": 0,
+        "share_count": null,
+        "favorite_count": 1,
+        "play_count": null
+      },
+      "transcript": null,
+      "video_reference": null,
+      "sync_status": "partial"
+    }
+  ]
+}
