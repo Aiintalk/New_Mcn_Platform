@@ -5,7 +5,15 @@ from statistics import median
 from typing import Iterable
 from zoneinfo import ZoneInfo
 
-from .domain import AnalysisWindows, BasicAnalysis, ContentCategory, ContentRecord, LikeBaseline
+from .domain import (
+    AnalysisWindows,
+    BasicAnalysis,
+    ContentCategory,
+    ContentRecord,
+    DataMaturity,
+    LikeBaseline,
+    WeeklyPersonaBaseline,
+)
 
 
 CHINA_TIMEZONE = ZoneInfo("Asia/Shanghai")
@@ -118,6 +126,7 @@ def qianchuan_top_three(
         if (
             analysis.category == ContentCategory.QIANCHUAN
             and start <= record.published_at < end
+            and record.metrics.like_count is not None
         ):
             records_by_account[record.account_id].append(record)
 
@@ -130,6 +139,54 @@ def qianchuan_top_three(
         )
         for account_id, records in records_by_account.items()
     }
+
+
+def derive_data_maturity(
+    published_at: datetime,
+    captured_at: datetime,
+) -> DataMaturity:
+    """只按发布时间到本次采集时间的年龄计算确定性成熟度。"""
+    _require_timezone(published_at, "published_at")
+    _require_timezone(captured_at, "captured_at")
+    age = captured_at - published_at
+    if age < timedelta(0):
+        raise ValueError("采集时间不能早于发布时间")
+    if age < timedelta(hours=6):
+        return DataMaturity.EARLY
+    if age < timedelta(hours=12):
+        return DataMaturity.INITIAL
+    return DataMaturity.QUALITATIVE
+
+
+def build_weekly_persona_baselines(
+    contents: Iterable[BasicAnalysis],
+    run_at: datetime,
+) -> tuple[WeeklyPersonaBaseline, ...]:
+    """独立计算周度 30 日人设点赞基准，不触发日报或智能分析。"""
+    windows = derive_windows(run_at)
+    remaining = list(contents)
+    selected: list[BasicAnalysis] = []
+    for record in deduplicate_contents(item.content for item in remaining):
+        match_index = next(
+            index
+            for index, analysis in enumerate(remaining)
+            if analysis.content == record
+        )
+        selected.append(remaining.pop(match_index))
+    baselines = persona_like_baseline(
+        selected,
+        windows.thirty_day_start,
+        windows.thirty_day_end,
+    )
+    return tuple(
+        WeeklyPersonaBaseline(
+            account_id=account_id,
+            window_start=windows.thirty_day_start,
+            window_end=windows.thirty_day_end,
+            baseline=baseline,
+        )
+        for account_id, baseline in sorted(baselines.items())
+    )
 
 
 def _qianchuan_rank_key(record: ContentRecord) -> tuple[object, ...]:
@@ -154,8 +211,6 @@ def _qianchuan_rank_key(record: ContentRecord) -> tuple[object, ...]:
         -(record.metrics.share_count or 0),
         record.metrics.favorite_count is None,
         -(record.metrics.favorite_count or 0),
-        record.metrics.play_count is None,
-        -(record.metrics.play_count or 0),
         record.sync_status.value,
     )
 

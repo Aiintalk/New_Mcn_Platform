@@ -1,65 +1,107 @@
 {
   "schema_version": "phase1",
-  "contents": [
+  "run_at": "2026-09-04T09:00:00+08:00",
+  "sync_results": [
     {
       "account_id": "account-001",
-      "source": "manual",
-      "identity": {
-        "platform_content_id": "sample-work-001",
-        "external_url": "https://example.invalid/video/sample-001"
+      "status": "success_with_content",
+      "checked_at": "2026-09-04T08:30:00+08:00",
+      "coverage_window": {
+        "start": "2026-09-01T00:00:00+08:00",
+        "end": "2026-09-04T00:00:00+08:00"
       },
-      "published_at": "2026-09-01T09:00:00+08:00",
-      "captured_at": "2026-09-02T09:00:00+08:00",
-      "metrics": {
-        "like_count": 18,
-        "comment_count": 2,
-        "share_count": 1,
-        "favorite_count": 3,
-        "play_count": 120
-      },
-      "transcript": "合成短文案：问题、方法和结果。",
-      "video_reference": null,
-      "sync_status": "success_with_content"
+      "issue": null,
+      "contents": [
+        {
+          "account_id": "account-001",
+          "source": "manual",
+          "identity": {
+            "platform_content_id": "sample-work-001",
+            "external_url": "https://example.invalid/video/sample-001"
+          },
+          "published_at": "2026-09-01T09:00:00+08:00",
+          "captured_at": "2026-09-02T09:00:00+08:00",
+          "metrics": {
+            "like_count": 18,
+            "comment_count": 2,
+            "share_count": 1,
+            "favorite_count": 3,
+            "play_count": 0
+          },
+          "transcript": "合成短文案：问题、方法和结果。",
+          "video_reference": null,
+          "media_read_result": {
+            "status": "missing",
+            "evidence_refs": [],
+            "issue": null
+          },
+          "sync_status": "success_with_content"
+        }
+      ]
     },
     {
       "account_id": "account-002",
-      "source": "manual",
-      "identity": {
-        "platform_content_id": "sample-work-002",
-        "external_url": "https://example.invalid/video/sample-002"
+      "status": "success_with_content",
+      "checked_at": "2026-09-04T08:31:00+08:00",
+      "coverage_window": {
+        "start": "2026-09-01T00:00:00+08:00",
+        "end": "2026-09-04T00:00:00+08:00"
       },
-      "published_at": "2026-09-02T11:00:00+08:00",
-      "captured_at": "2026-09-03T11:00:00+08:00",
-      "metrics": {
-        "like_count": 25,
-        "comment_count": 3,
-        "share_count": 2,
-        "favorite_count": 4,
-        "play_count": 0
-      },
-      "transcript": "合成短文案：展示一个可验证的使用场景。",
-      "video_reference": "sample-video-002",
-      "sync_status": "success_with_content"
-    },
-    {
-      "account_id": "account-001",
-      "source": "manual",
-      "identity": {
-        "platform_content_id": "sample-work-003",
-        "external_url": null
-      },
-      "published_at": "2026-08-28T15:00:00+08:00",
-      "captured_at": "2026-09-02T15:00:00+08:00",
-      "metrics": {
-        "like_count": null,
-        "comment_count": 0,
-        "share_count": null,
-        "favorite_count": 1,
-        "play_count": null
-      },
-      "transcript": null,
-      "video_reference": null,
-      "sync_status": "partial_success"
+      "issue": null,
+      "contents": [
+        {
+          "account_id": "account-002",
+          "source": "manual",
+          "identity": {
+            "platform_content_id": "sample-work-002",
+            "external_url": "https://example.invalid/video/sample-002"
+          },
+          "published_at": "2026-09-02T11:00:00+08:00",
+          "captured_at": "2026-09-03T11:00:00+08:00",
+          "metrics": {
+            "like_count": 25,
+            "comment_count": 3,
+            "share_count": 2,
+            "favorite_count": 4,
+            "play_count": 0
+          },
+          "transcript": "合成短文案：展示一个可验证的使用场景。",
+          "video_reference": "sample-video-002",
+          "media_read_result": {
+            "status": "unreadable",
+            "evidence_refs": [],
+            "issue": "冻结样本不包含可读画面"
+          },
+          "sync_status": "success_with_content"
+        }
+      ]
     }
-  ]
+  ],
+  "relations": [
+    {
+      "project_id": "project-001",
+      "account_id": "account-001",
+      "context_version": "context-v1"
+    }
+  ],
+  "contexts": [
+    {
+      "project_id": "project-001",
+      "version": "context-v1",
+      "effective_at": "2026-09-01T00:00:00+08:00",
+      "project_persona": "匿名项目人设",
+      "target_users": "匿名目标用户",
+      "content_plan": "匿名内容规划",
+      "operating_direction": "匿名经营方向",
+      "confirmed_facts": [
+        {
+          "key": "product_scope",
+          "value": "匿名当前项目商品范围"
+        }
+      ]
+    }
+  ],
+  "saved_states": [],
+  "saved_library_records": [],
+  "persona_baselines": []
 }

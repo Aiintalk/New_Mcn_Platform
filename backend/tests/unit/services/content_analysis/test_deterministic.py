@@ -1,11 +1,13 @@
 """阶段一确定性内容分析规则的测试。"""
 import json
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
 
+import app.services.content_analysis as content_analysis
+import app.services.content_analysis.domain as content_domain
 from app.services.content_analysis.deterministic import (
     deduplicate_contents,
     derive_windows,
@@ -17,14 +19,11 @@ from app.services.content_analysis.domain import (
     AnalysisEvidence,
     AnalysisWindows,
     BasicAnalysis,
-    BusinessStatus,
     ConfidenceLevel,
-    ContentCandidate,
     ContentCategory,
     ContentIdentity,
     ContentRecord,
     ContentSource,
-    DailyReport,
     EngagementMetrics,
     EvidenceType,
     OpeningAnnotation,
@@ -32,7 +31,6 @@ from app.services.content_analysis.domain import (
     OpeningTagStatus,
     ProjectContextVersion,
     ProjectFact,
-    ProjectJudgment,
     ReusableMethod,
     SourceAssumption,
     SourceConstraint,
@@ -203,6 +201,12 @@ def test_normalized_input_marks_non_positive_play_count_unavailable_and_excludes
     assert normalize_play_count(101) == 101
 
 
+@pytest.mark.parametrize("invalid", (-1, True, 1.5, "1"))
+def test_four_engagement_metrics_reject_non_integer_or_negative_values(invalid) -> None:
+    with pytest.raises(ValueError, match="互动值"):
+        EngagementMetrics(like_count=invalid)
+
+
 def test_persona_like_baseline_uses_only_thirty_day_analyzed_persona_contents_with_likes() -> None:
     window_start = datetime(2026, 8, 5, tzinfo=SHANGHAI)
     window_end = datetime(2026, 9, 4, tzinfo=SHANGHAI)
@@ -225,6 +229,18 @@ def test_persona_like_baseline_uses_only_thirty_day_analyzed_persona_contents_wi
     assert baseline["account-001"].sample_size == 3
     assert baseline["account-001"].maximum == 40
     assert baseline["account-001"].minimum == 10
+
+
+@pytest.mark.parametrize("invalid_number", (float("nan"), float("inf")))
+def test_like_baseline_rejects_non_finite_statistics(invalid_number: float) -> None:
+    with pytest.raises(ValueError, match="有限"):
+        content_analysis.LikeBaseline(
+            mean=invalid_number,
+            median=10.0,
+            sample_size=1,
+            maximum=10,
+            minimum=10,
+        )
 
 
 def test_qianchuan_top_three_uses_current_likes_with_left_boundary_and_account_isolation() -> None:
@@ -283,6 +299,129 @@ def test_qianchuan_top_three_uses_current_likes_with_left_boundary_and_account_i
     assert [item.identity.platform_content_id for item in top_three["account-002"]] == [
         "sample-account-002"
     ]
+
+
+def test_qianchuan_top_three_excludes_unknown_likes_instead_of_backfilling() -> None:
+    window_start = datetime(2026, 9, 1, tzinfo=SHANGHAI)
+    window_end = datetime(2026, 9, 4, tzinfo=SHANGHAI)
+    records = [
+        analysis(
+            content(platform_content_id=f"known-{index}", likes=likes),
+            category=ContentCategory.QIANCHUAN,
+        )
+        for index, likes in enumerate((30, 20), start=1)
+    ] + [
+        analysis(
+            content(platform_content_id="unknown", likes=None, play_count=999999),
+            category=ContentCategory.QIANCHUAN,
+        )
+    ]
+
+    result = qianchuan_top_three(records, window_start, window_end)
+
+    assert [item.identity.platform_content_id for item in result["account-001"]] == [
+        "known-1",
+        "known-2",
+    ]
+
+
+def test_qianchuan_like_tie_never_uses_play_count_as_a_ranking_signal() -> None:
+    low_play = content(platform_content_id=None, likes=50, play_count=10)
+    high_play = content(platform_content_id=None, likes=50, play_count=999999)
+
+    result = qianchuan_top_three(
+        (
+            analysis(low_play, category=ContentCategory.QIANCHUAN),
+            analysis(high_play, category=ContentCategory.QIANCHUAN),
+        ),
+        datetime(2026, 9, 1, tzinfo=SHANGHAI),
+        datetime(2026, 9, 4, tzinfo=SHANGHAI),
+    )
+
+    assert result["account-001"] == (low_play, high_play)
+
+
+def test_weekly_persona_baseline_and_data_maturity_have_independent_public_entrypoints() -> None:
+    assert hasattr(content_analysis, "build_weekly_persona_baselines")
+    assert hasattr(content_analysis, "derive_data_maturity")
+
+    records = (
+        analysis(
+            content(
+                account_id="account-001",
+                platform_content_id="persona-1",
+                likes=10,
+                published_at=datetime(2026, 8, 5, tzinfo=SHANGHAI),
+            )
+        ),
+        analysis(
+            content(
+                account_id="account-001",
+                platform_content_id="persona-2",
+                likes=30,
+                published_at=datetime(2026, 9, 3, 23, tzinfo=SHANGHAI),
+            )
+        ),
+    )
+
+    weekly = content_analysis.build_weekly_persona_baselines(
+        records,
+        datetime(2026, 9, 4, 9, tzinfo=SHANGHAI),
+    )
+
+    assert len(weekly) == 1
+    assert weekly[0].account_id == "account-001"
+    assert weekly[0].baseline.mean == 20
+    assert weekly[0].baseline.median == 20
+    assert weekly[0].baseline.sample_size == 2
+    assert weekly[0].baseline.maximum == 30
+    assert weekly[0].baseline.minimum == 10
+    assert weekly[0].window_start == datetime(2026, 8, 5, tzinfo=SHANGHAI)
+    assert weekly[0].window_end == datetime(2026, 9, 4, tzinfo=SHANGHAI)
+
+
+def test_weekly_persona_baseline_deduplicates_stable_content_before_statistics() -> None:
+    older = content(
+        platform_content_id="duplicate-persona",
+        likes=10,
+        captured_at=datetime(2026, 9, 2, 8, tzinfo=SHANGHAI),
+    )
+    newer = content(
+        platform_content_id="duplicate-persona",
+        likes=30,
+        captured_at=datetime(2026, 9, 3, 8, tzinfo=SHANGHAI),
+    )
+
+    result = content_analysis.build_weekly_persona_baselines(
+        (analysis(older), analysis(newer)),
+        datetime(2026, 9, 4, 9, tzinfo=SHANGHAI),
+    )
+
+    assert result[0].baseline.sample_size == 1
+    assert result[0].baseline.mean == 30
+
+
+@pytest.mark.parametrize(
+    ("age", "expected"),
+    (
+        (timedelta(hours=5, minutes=59), "early"),
+        (timedelta(hours=6), "initial"),
+        (timedelta(hours=11, minutes=59), "initial"),
+        (timedelta(hours=12), "qualitative"),
+    ),
+)
+def test_data_maturity_uses_published_to_current_capture_boundaries(
+    age: timedelta,
+    expected: str,
+) -> None:
+    published_at = datetime(2026, 9, 3, 8, tzinfo=SHANGHAI)
+
+    maturity = content_analysis.derive_data_maturity(
+        published_at,
+        published_at + age,
+    )
+
+    assert maturity.value == expected
 
 
 def test_qianchuan_equal_likes_use_publish_time_then_stable_identity() -> None:
@@ -380,6 +519,55 @@ def test_basic_analysis_requires_reason_for_undetermined_category() -> None:
     assert result.undetermined_reason == "缺少可判定标签"
 
 
+@pytest.mark.parametrize("invalid", (1, "  "))
+def test_undetermined_reason_must_be_non_empty_text(invalid) -> None:
+    with pytest.raises(ValueError, match="无法判断原因"):
+        BasicAnalysis(
+            content=content(),
+            category=ContentCategory.UNDETERMINED,
+            confidence=ConfidenceLevel.LOW,
+            opening=OpeningAnnotation(status=OpeningTagStatus.UNANNOTATED),
+            undetermined_reason=invalid,
+        )
+
+
+def test_determined_analysis_rejects_mutable_undetermined_reason() -> None:
+    with pytest.raises(ValueError, match="无法判断原因"):
+        BasicAnalysis(
+            content=content(),
+            category=ContentCategory.PERSONA,
+            confidence=ConfidenceLevel.HIGH,
+            opening=OpeningAnnotation(status=OpeningTagStatus.UNANNOTATED),
+            undetermined_reason=[],
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "invalid"),
+    (
+        ("category", "persona"),
+        ("confidence", "high"),
+        ("opening", "available"),
+        ("source_information", {}),
+        ("reusable_methods", ("自由文本方法",)),
+        ("structure", (1,)),
+        ("persuasion_chain", ("",)),
+        ("shot_observations", ("画面",)),
+    ),
+)
+def test_basic_analysis_strictly_validates_model_nested_output(field, invalid) -> None:
+    values = {
+        "content": content(),
+        "category": ContentCategory.PERSONA,
+        "confidence": ConfidenceLevel.MEDIUM,
+        "opening": OpeningAnnotation(status=OpeningTagStatus.UNANNOTATED),
+        field: invalid,
+    }
+
+    with pytest.raises(ValueError):
+        BasicAnalysis(**values)
+
+
 def test_opening_annotation_represents_available_evidence_or_unavailable_reason() -> None:
     available = OpeningAnnotation(
         status=OpeningTagStatus.AVAILABLE,
@@ -428,7 +616,6 @@ def test_project_context_keeps_confirmed_facts_separate_from_source_limited_info
         judgments=(SourceJudgment(statement="开头可能吸引目标用户"),),
         assumptions=(SourceAssumption(statement="样本可代表当前表达方式"),),
         limitations=(SourceLimitation(statement="没有完整画面来源"),),
-        reusable_methods=(ReusableMethod(name="问题-方法-结果", description="按三段结构整理"),),
         source_constraints=(SourceConstraint(statement="只适用于该合成样本"),),
     )
     context = ProjectContextVersion(
@@ -442,7 +629,28 @@ def test_project_context_keeps_confirmed_facts_separate_from_source_limited_info
         confirmed_facts=(ProjectFact(key="product_scope", value="合成产品范围"),),
     )
 
-    result = analysis(content(), source_information=source_information)
+    result = BasicAnalysis(
+        content=content(),
+        category=ContentCategory.PERSONA,
+        confidence=ConfidenceLevel.MEDIUM,
+        opening=OpeningAnnotation(status=OpeningTagStatus.UNANNOTATED),
+        source_information=source_information,
+        reusable_methods=(
+            ReusableMethod(
+                name="问题-方法-结果",
+                description="按三段结构整理",
+                method_key="problem-method-result",
+                evidence=(
+                    AnalysisEvidence(
+                        EvidenceType.METADATA,
+                        "sample-work-001",
+                        "合成样本结构",
+                    ),
+                ),
+                applicable_boundaries=(SourceConstraint("仅复用结构"),),
+            ),
+        ),
+    )
 
     assert result.source_information.facts[0].source == "sample-work-001"
     assert result.source_information.limitations[0].statement == "没有完整画面来源"
@@ -450,53 +658,142 @@ def test_project_context_keeps_confirmed_facts_separate_from_source_limited_info
     assert context.project_persona == "项目角色"
 
 
-def test_daily_report_rejects_judgments_from_another_project_and_candidate_binds_context() -> None:
-    own_judgment = ProjectJudgment(
-        project_id="project-001",
-        context_version="context-v1",
-        status=BusinessStatus.ACTIVE,
-        confidence=ConfidenceLevel.HIGH,
-        conclusion="项目内判断",
-    )
-    foreign_judgment = ProjectJudgment(
-        project_id="project-002",
-        context_version="context-v1",
-        status=BusinessStatus.ACTIVE,
-        confidence=ConfidenceLevel.HIGH,
-        conclusion="其他项目判断",
-    )
-    report = DailyReport(
-        project_id="project-001",
-        context_version="context-v1",
-        report_date=date(2026, 9, 3),
-        generated_at=datetime(2026, 9, 4, tzinfo=SHANGHAI),
-        judgments=(own_judgment,),
-    )
-    candidate = ContentCandidate(
-        project_id="project-001",
-        context_version="context-v1",
-        content=content(),
-        status=BusinessStatus.ACTIVE,
-        confidence=ConfidenceLevel.MEDIUM,
-    )
+@pytest.mark.parametrize(
+    ("field", "invalid"),
+    (
+        ("facts", ("事实",)),
+        ("judgments", ("判断",)),
+        ("assumptions", ("假设",)),
+        ("limitations", ("限制",)),
+        ("source_constraints", ("边界",)),
+    ),
+)
+def test_source_information_rejects_unstructured_nested_values(field, invalid) -> None:
+    with pytest.raises(ValueError, match="来源限定信息"):
+        SourceInformation(**{field: invalid})
 
+
+@pytest.mark.parametrize(
+    "factory",
+    (
+        lambda: SourceJudgment(statement=""),
+        lambda: SourceAssumption(statement=1),
+        lambda: SourceLimitation(statement="  "),
+        lambda: SourceConstraint(statement=None),
+    ),
+)
+def test_source_information_nested_objects_require_non_empty_text(factory) -> None:
     with pytest.raises(ValueError):
-        DailyReport(
-            project_id="project-001",
-            context_version="context-v1",
-            report_date=date(2026, 9, 3),
-            generated_at=datetime(2026, 9, 4, tzinfo=SHANGHAI),
-            judgments=(own_judgment, foreign_judgment),
+        factory()
+
+
+def test_sensitive_source_fact_requires_explicit_restricted_fragments() -> None:
+    with pytest.raises(ValueError, match="来源限定片段"):
+        SourceFact(
+            statement="原视频展示欧莱雅商品",
+            source="sample-work-source",
+            kind=content_analysis.SourceFactKind.BRAND,
         )
 
-    assert report.judgments == (own_judgment,)
-    assert candidate.project_id == "project-001"
-    assert candidate.context_version == "context-v1"
+
+def test_source_fact_restricted_fragments_must_be_immutable_and_bound_to_statement() -> None:
+    with pytest.raises(ValueError, match="来源限定片段"):
+        SourceFact(
+            statement="原视频展示欧莱雅商品",
+            source="sample-work-source",
+            kind=content_analysis.SourceFactKind.BRAND,
+            restricted_fragments=["欧莱雅"],
+        )
+    with pytest.raises(ValueError, match="来源限定片段"):
+        SourceFact(
+            statement="原视频展示欧莱雅商品",
+            source="sample-work-source",
+            kind=content_analysis.SourceFactKind.BRAND,
+            restricted_fragments=("另一个品牌",),
+        )
+
+
+@pytest.mark.parametrize("generic_fragment", ("原视频", "展示", "商品", "来源内容"))
+def test_sensitive_source_fact_rejects_generic_context_as_restricted_fragment(
+    generic_fragment: str,
+) -> None:
+    statement = f"来源内容原视频展示欧莱雅商品"
+    with pytest.raises(ValueError, match="具体来源实体"):
+        SourceFact(
+            statement=statement,
+            source="sample-work-source",
+            kind=content_analysis.SourceFactKind.BRAND,
+            restricted_fragments=(generic_fragment,),
+        )
+
+
+def test_source_fact_kind_members_remain_distinct_enum_values() -> None:
+    assert content_analysis.SourceFactKind.PRICE != content_analysis.SourceFactKind.OTHER
+    assert len(set(content_analysis.SourceFactKind)) == len(tuple(content_analysis.SourceFactKind))
+
+
+@pytest.mark.parametrize(
+    "field",
+    (
+        "reusable_methods",
+        "structure",
+        "persuasion_chain",
+        "shot_observations",
+        "interaction_observations",
+    ),
+)
+def test_basic_analysis_rejects_mutable_nested_collections(field) -> None:
+    values = {
+        "content": content(),
+        "category": ContentCategory.PERSONA,
+        "confidence": ConfidenceLevel.MEDIUM,
+        "opening": OpeningAnnotation(status=OpeningTagStatus.UNANNOTATED),
+        field: [],
+    }
+
+    with pytest.raises(ValueError, match="不可变元组"):
+        BasicAnalysis(**values)
+
+
+@pytest.mark.parametrize(
+    "factory",
+    (
+        lambda: SourceInformation(facts=[]),
+        lambda: OpeningAnnotation(
+            status=OpeningTagStatus.UNANNOTATED,
+            evidence=[],
+        ),
+        lambda: ReusableMethod(
+            name="方法",
+            description="结构",
+            method_key="method",
+            evidence=[],
+            applicable_boundaries=(),
+        ),
+        lambda: ProjectContextVersion(
+            project_id="project-001",
+            version="v1",
+            effective_at=datetime(2026, 9, 1, tzinfo=SHANGHAI),
+            project_persona="匿名人设",
+            target_users="匿名用户",
+            content_plan="匿名规划",
+            operating_direction="匿名方向",
+            confirmed_facts=[],
+        ),
+    ),
+)
+def test_frozen_domain_objects_reject_mutable_nested_collections(factory) -> None:
+    with pytest.raises(ValueError, match="不可变元组"):
+        factory()
 
 
 def test_phase1_fixture_is_small_anonymous_standard_input_without_category_or_local_path() -> None:
     fixture = json.loads(FIXTURE_PATH.read_text(encoding="utf-8"))
-    contents = fixture["contents"]
+    contents = [
+        content
+        for sync_result in fixture["sync_results"]
+        for content in sync_result["contents"]
+    ]
 
     assert 1 <= len(contents) <= 10
     assert all(item["account_id"].startswith("account-") for item in contents)
@@ -506,5 +803,14 @@ def test_phase1_fixture_is_small_anonymous_standard_input_without_category_or_lo
     )
     assert all("category" not in item for item in contents)
     assert all(len(item.get("transcript") or "") <= 120 for item in contents)
+    assert fixture["relations"]
+    assert fixture["contexts"]
     assert "/Users/" not in FIXTURE_PATH.read_text(encoding="utf-8")
     assert "C:\\" not in FIXTURE_PATH.read_text(encoding="utf-8")
+
+
+def test_domain_has_only_one_daily_report_and_candidate_model_family() -> None:
+    assert not hasattr(content_domain, "DailyReport")
+    assert not hasattr(content_domain, "ContentCandidate")
+    assert not hasattr(content_domain, "ProjectJudgment")
+    assert not hasattr(content_domain, "ContentStatistics")
