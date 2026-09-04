@@ -62,6 +62,9 @@ async def test_anonymous_fixture_adapts_to_domain_and_runs_through_offline_engin
     assert first.metrics.share_count == 1
     assert first.metrics.favorite_count == 3
     assert first.metrics.play_count is None
+    assert first.title == "匿名样本标题一"
+    assert first.operations_review_url is None
+    assert not hasattr(first, "sync_status")
     assert run_input.relations[0].project_id == "project-001"
     assert run_input.contexts[0].project_id == "project-001"
     assert [item.account_id for item in analyzer.basic_calls] == ["account-001"]
@@ -257,6 +260,24 @@ def test_standard_input_adapter_maps_structured_sync_issue() -> None:
     assert issue.affected_account_ids == ("account-001",)
     assert issue.affected_window == run_input.sync_results[0].coverage_window
     assert issue.impact == content_analysis.SyncIssueImpact.CONTENT_MAY_BE_INCOMPLETE
+
+
+def test_standard_input_adapter_redacts_arbitrary_sync_issue_reason() -> None:
+    payload = json.loads(FIXTURE_PATH.read_text(encoding="utf-8"))
+    sync_result = payload["sync_results"][0]
+    sync_result["status"] = "partial_success"
+    sync_result["issue"] = {
+        "affected_account_ids": ["account-001"],
+        "affected_window": copy.deepcopy(sync_result["coverage_window"]),
+        "impact": "content_may_be_incomplete",
+        "reason": "access_token=SENTINEL_PRIVATE_VALUE",
+    }
+
+    run_input = content_analysis.adapt_offline_run_input(payload)
+
+    reason = run_input.sync_results[0].issue.reason
+    assert reason == "内容源读取失败，详见上游读取日志"
+    assert "SENTINEL_PRIVATE_VALUE" not in reason
 
 
 def test_standard_input_adapter_rejects_unstructured_sync_issue() -> None:

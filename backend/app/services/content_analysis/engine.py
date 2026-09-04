@@ -13,12 +13,12 @@ from .analyzer import (
     CandidateValueSignal,
     ContentAnalyzer,
     ProjectAssessment,
-    ProjectFitDimension,
     ProjectFitReason,
     enforce_analysis_boundaries,
     enforce_project_assessment_boundaries,
     is_reusable_method_safe,
     is_source_limited_text,
+    is_visual_claim,
 )
 from .deterministic import (
     deduplicate_contents,
@@ -34,8 +34,7 @@ from .domain import (
     InteractionMetric,
     InteractionObservation,
     InteractionObservationType,
-    MediaReadResult,
-    MediaReadStatus,
+    OpeningAnnotation,
     OpeningKind,
     OpeningTagStatus,
     ProjectAccountRelation,
@@ -44,6 +43,7 @@ from .domain import (
     ReusableMethod,
     RelativePerformanceLevel,
     SourceInformation,
+    SourceLimitation,
     SyncStatus,
     WeeklyPersonaBaseline,
 )
@@ -78,6 +78,26 @@ class SyncIssueImpact(str, Enum):
     CONTENT_UNAVAILABLE = "content_unavailable"
 
 
+class ReadSource(str, Enum):
+    """内部读取结果的来源，不要求上游提供同名字段。"""
+
+    STANDARD_INPUT = "standard_input"
+    FEISHU = "feishu"
+
+
+_SAFE_SYNC_ISSUE_REASONS = frozenset(
+    {
+        "飞书只读鉴权失败",
+        "飞书字段校验失败",
+        "飞书读取超时",
+        "飞书分页读取未完成",
+        "飞书读取失败",
+        "内容源读取失败",
+        "内容源读取失败，详见上游读取日志",
+    }
+)
+
+
 @dataclass(frozen=True)
 class SyncIssue:
     """不携带上游原始错误的结构化同步缺口。"""
@@ -85,6 +105,7 @@ class SyncIssue:
     affected_account_ids: tuple[str, ...]
     affected_window: SyncCoverageWindow
     impact: SyncIssueImpact
+    reason: str | None = None
 
     def __post_init__(self) -> None:
         _require_tuple_fields(self, "affected_account_ids")
@@ -99,6 +120,16 @@ class SyncIssue:
             raise ValueError("同步缺口必须包含受影响窗口")
         if not isinstance(self.impact, SyncIssueImpact):
             raise ValueError("同步缺口影响不受支持")
+        if self.reason is not None and (
+            not isinstance(self.reason, str) or not self.reason.strip()
+        ):
+            raise ValueError("同步缺口原因必须是非空文本或空值")
+        if self.reason is not None and self.reason not in _SAFE_SYNC_ISSUE_REASONS:
+            object.__setattr__(
+                self,
+                "reason",
+                "内容源读取失败，详见上游读取日志",
+            )
 
 
 @dataclass(frozen=True)
@@ -111,9 +142,12 @@ class AccountSyncResult:
     issue: SyncIssue | None = None
     checked_at: datetime | None = None
     coverage_window: SyncCoverageWindow | None = None
+    read_source: ReadSource = ReadSource.STANDARD_INPUT
 
     def __post_init__(self) -> None:
         _require_tuple_fields(self, "contents")
+        if not isinstance(self.read_source, ReadSource):
+            raise ValueError("读取来源不受支持")
         if any(content.account_id != self.account_id for content in self.contents):
             raise ValueError("同步结果不能包含其他账号的内容")
 
@@ -156,26 +190,10 @@ def _validate_daily_sync_contract(
     elif sync_result.issue is not None:
         raise ValueError("同步成功状态不能携带同步缺口")
     if sync_result.status == SyncStatus.SUCCESS_WITH_CONTENT and not any(
-        content.sync_status == SyncStatus.SUCCESS_WITH_CONTENT
-        and expected_window.start <= content.published_at < expected_window.end
+        expected_window.start <= content.published_at < expected_window.end
         for content in sync_result.contents
     ):
         raise ValueError("同步成功有内容状态必须携带日报窗口内的成功内容")
-
-
-def _sanitize_content_for_output(content: ContentRecord) -> ContentRecord:
-    media_result = content.media_read_result
-    if media_result.status != MediaReadStatus.UNREADABLE or media_result.issue == (
-        "媒体不可读，详见上游媒体解析日志"
-    ):
-        return content
-    return replace(
-        content,
-        media_read_result=MediaReadResult(
-            status=MediaReadStatus.UNREADABLE,
-            issue="媒体不可读，详见上游媒体解析日志",
-        ),
-    )
 
 
 @dataclass(frozen=True)
@@ -505,6 +523,7 @@ class ProjectDailyReport:
     qianchuan_opportunities: tuple[ReportItem, ...]
     library_candidates: tuple[LibraryCandidate, ...]
     cross_project_candidates: tuple[CrossProjectCandidate, ...]
+    no_content_summary: "NoContentDailySummary | None" = None
 
     def __post_init__(self) -> None:
         _require_tuple_fields(
@@ -554,6 +573,118 @@ class ProjectDailyReport:
             raise ValueError("categories 必须是 CategoryOverview")
         if not isinstance(self.interactions, InteractionOverview):
             raise ValueError("interactions 必须是 InteractionOverview")
+        if self.no_content_summary is not None and not isinstance(
+            self.no_content_summary,
+            NoContentDailySummary,
+        ):
+            raise ValueError("no_content_summary 必须使用结构化无内容摘要")
+        if self.is_empty_daily != (self.no_content_summary is not None):
+            raise ValueError("无内容标记与结构化无内容摘要必须一致")
+        if self.no_content_summary is not None:
+            receipt = self.no_content_summary
+            if self.relation_issues:
+                raise ValueError("存在账号关系问题时不能确认无内容日报")
+            if not self.sync_results:
+                raise ValueError("无内容日报必须保留账号同步结果")
+            for sync_result in self.sync_results:
+                _validate_daily_sync_contract(sync_result, receipt.coverage_window)
+            if any(
+                sync_result.status != SyncStatus.SUCCESS_WITHOUT_CONTENT
+                for sync_result in self.sync_results
+            ):
+                raise ValueError("无内容日报同步结果必须全部确认无内容")
+            if tuple(item.account_id for item in self.sync_results) != (
+                receipt.checked_account_ids
+            ):
+                raise ValueError("无内容日报已检查账号与同步结果不一致")
+            if any(
+                item.read_source != receipt.read_source
+                for item in self.sync_results
+            ):
+                raise ValueError("无内容日报读取来源与同步结果不一致")
+            if max(item.checked_at for item in self.sync_results) != (
+                receipt.read_completed_at
+            ):
+                raise ValueError("无内容日报读取完成时间与同步结果不一致")
+            if self.daily_overview.content_count != 0:
+                raise ValueError("无内容日报的当日内容数必须为零")
+            category_values = (
+                self.categories.persona,
+                self.categories.qianchuan,
+                self.categories.undetermined,
+                self.daily_overview.categories.persona,
+                self.daily_overview.categories.qianchuan,
+                self.daily_overview.categories.undetermined,
+            )
+            if any(category_values):
+                raise ValueError("无内容日报的分类计数必须全部为零")
+            if any(
+                (metric.total, metric.missing_count) != (0, 0)
+                for overview in (self.interactions, self.daily_overview.interactions)
+                for metric in (
+                    overview.like_count,
+                    overview.comment_count,
+                    overview.share_count,
+                    overview.favorite_count,
+                )
+            ):
+                raise ValueError("无内容日报的互动计数必须全部为零")
+            if any(
+                (
+                    self.items,
+                    self.previous_two_day_changes,
+                    self.persona_opportunities,
+                    self.qianchuan_opportunities,
+                    self.library_candidates,
+                )
+            ):
+                raise ValueError("无内容日报不能携带内容或本次机会")
+
+
+@dataclass(frozen=True)
+class NoContentDailySummary:
+    """完整读取成功且项目窗口内零内容时的可追溯结果。"""
+
+    read_succeeded: bool
+    read_source: ReadSource
+    checked_account_ids: tuple[str, ...]
+    coverage_window: SyncCoverageWindow
+    read_completed_at: datetime
+    content_count: int = 0
+    persona_opportunity_count: int = 0
+    qianchuan_opportunity_count: int = 0
+    library_candidate_count: int = 0
+    cross_project_candidate_count: int = 0
+
+    def __post_init__(self) -> None:
+        _require_tuple_fields(self, "checked_account_ids")
+        if self.read_succeeded is not True:
+            raise ValueError("无内容日报只能来自完整读取成功")
+        if not isinstance(self.read_source, ReadSource):
+            raise ValueError("无内容日报读取来源不受支持")
+        if not self.checked_account_ids or any(
+            not isinstance(item, str) or not item.strip()
+            for item in self.checked_account_ids
+        ):
+            raise ValueError("无内容日报必须列出已检查账号")
+        if len(set(self.checked_account_ids)) != len(self.checked_account_ids):
+            raise ValueError("无内容日报不能重复列出已检查账号")
+        if not isinstance(self.coverage_window, SyncCoverageWindow):
+            raise ValueError("无内容日报必须包含分析窗口")
+        if (
+            self.read_completed_at.tzinfo is None
+            or self.read_completed_at.utcoffset() is None
+        ):
+            raise ValueError("无内容日报读取完成时间必须带时区")
+        counts = (
+            self.content_count,
+            self.persona_opportunity_count,
+            self.qianchuan_opportunity_count,
+            self.library_candidate_count,
+            self.cross_project_candidate_count,
+        )
+        if any(type(value) is not int or value != 0 for value in counts):
+            raise ValueError("无内容日报的内容和新增机会数量必须全部为零")
 
 
 @dataclass(frozen=True)
@@ -693,18 +824,15 @@ def _library_candidate(
 ) -> LibraryCandidate | None:
     content = item.analysis.content
     has_traceable_evidence = bool(
-        content.video_reference
-        and content.video_reference.strip()
+        content.identity.stable_keys()
         and content.transcript
         and content.transcript.strip()
     )
-    fit_dimensions = {reason.dimension for reason in item.assessment.fit_reasons}
-    required_fit_dimensions = set(ProjectFitDimension)
     if (
         item.analysis.category == ContentCategory.UNDETERMINED
         or not item.assessment.is_fit
         or not item.assessment.conclusion.strip()
-        or fit_dimensions != required_fit_dimensions
+        or not item.assessment.fit_reasons
         or not item.assessment.value_signals
         or not has_traceable_evidence
         or not item.analysis.topic
@@ -837,11 +965,7 @@ class ContentAnalysisEngine:
             in (SyncStatus.SUCCESS_WITH_CONTENT, SyncStatus.PARTIAL_SUCCESS)
         }
         successful_records_by_account = {
-            account_id: tuple(
-                _sanitize_content_for_output(content)
-                for content in sync_result.contents
-                if content.sync_status == SyncStatus.SUCCESS_WITH_CONTENT
-            )
+            account_id: sync_result.contents
             for account_id, sync_result in sync_by_account.items()
         }
         daily_records_by_account = {
@@ -877,12 +1001,6 @@ class ContentAnalysisEngine:
                     continue
                 safe_records.append(content)
             analysis_daily_records_by_account[account_id] = tuple(safe_records)
-        ignored_record_counts = {
-            account_id: len(sync_result.contents)
-            - len(successful_records_by_account[account_id])
-            for account_id, sync_result in sync_by_account.items()
-        }
-
         all_contents = [
             content
             for account_id, sync_result in sync_by_account.items()
@@ -907,15 +1025,35 @@ class ContentAnalysisEngine:
         analyses: list[BasicAnalysis] = []
         for run_key, content in content_entries:
             try:
-                raw_analysis = await asyncio.wait_for(
-                    self._analyzer.analyze_content(content),
-                    timeout=self._analyzer_timeout_seconds,
-                )
-                if not isinstance(raw_analysis, BasicAnalysis):
-                    raise ValueError("基础分析器返回类型无效")
-                if raw_analysis.content != content:
-                    raw_analysis = replace(raw_analysis, content=content)
-                analysis = enforce_analysis_boundaries(raw_analysis)
+                if not (content.transcript and content.transcript.strip()):
+                    analysis = BasicAnalysis(
+                        content=content,
+                        category=ContentCategory.UNDETERMINED,
+                        confidence=ConfidenceLevel.LOW,
+                        opening=OpeningAnnotation(
+                            status=OpeningTagStatus.UNAVAILABLE,
+                            kind=OpeningKind.LANGUAGE,
+                            unavailable_reason="缺少转写，无法判断语言开头",
+                        ),
+                        source_information=SourceInformation(
+                            limitations=(
+                                SourceLimitation(
+                                    "缺少转写，本期不做结构化内容分析"
+                                ),
+                            ),
+                        ),
+                        undetermined_reason="缺少转写，本期不做结构化内容分析",
+                    )
+                else:
+                    raw_analysis = await asyncio.wait_for(
+                        self._analyzer.analyze_content(content),
+                        timeout=self._analyzer_timeout_seconds,
+                    )
+                    if not isinstance(raw_analysis, BasicAnalysis):
+                        raise ValueError("基础分析器返回类型无效")
+                    if raw_analysis.content != content:
+                        raw_analysis = replace(raw_analysis, content=content)
+                    analysis = enforce_analysis_boundaries(raw_analysis)
                 maturity = derive_data_maturity(
                     content.published_at,
                     content.captured_at,
@@ -983,6 +1121,7 @@ class ContentAnalysisEngine:
         project_syncs: dict[str, tuple[AccountSyncResult, ...]] = {}
         project_relation_issues: dict[str, tuple[str, ...]] = {}
         project_data_issues: dict[str, tuple[str, ...]] = {}
+        project_empty_daily_eligible: dict[str, bool] = {}
         global_relation_issues: list[str] = []
         skipped_project_ids: set[str] = set()
 
@@ -1036,19 +1175,19 @@ class ContentAnalysisEngine:
                     )
                     account_ids.add(relation.account_id)
                     if sync_result.status == SyncStatus.FAILED:
+                        failure_reason = (
+                            sync_result.issue.reason
+                            if sync_result.issue and sync_result.issue.reason
+                            else "内容源读取失败"
+                        )
                         data_issues.append(
-                            f"账号 {relation.account_id} 同步失败，未使用其内容"
+                            f"账号 {relation.account_id} 读取失败，未使用其内容："
+                            f"{failure_reason}"
                         )
                     elif sync_result.status == SyncStatus.PARTIAL_SUCCESS:
                         data_issues.append(
                             f"账号 {relation.account_id} 部分同步成功，当前内容可能不完整"
                         )
-                    ignored_count = ignored_record_counts[relation.account_id]
-                    if ignored_count:
-                        data_issues.append(
-                            f"账号 {relation.account_id} 忽略了 {ignored_count} 条记录级非成功内容"
-                        )
-
             missing_fields = [
                 field_name
                 for field_name in (
@@ -1075,24 +1214,38 @@ class ContentAnalysisEngine:
                     continue
                 analysis = analyses_by_run_key[run_key]
                 try:
-                    raw_assessment = await asyncio.wait_for(
-                        self._analyzer.assess_project(
+                    if not (
+                        analysis.content.transcript
+                        and analysis.content.transcript.strip()
+                    ):
+                        assessment = ProjectAssessment(
+                            project_id=project_id,
+                            context_version=version,
+                            is_fit=False,
+                            is_opportunity=False,
+                            confidence=ConfidenceLevel.LOW,
+                            conclusion="缺少转写，无法完成项目适配判断",
+                            limitations=("缺少转写，本期不做结构化内容分析",),
+                        )
+                    else:
+                        raw_assessment = await asyncio.wait_for(
+                            self._analyzer.assess_project(
+                                analysis,
+                                project_context,
+                            ),
+                            timeout=self._analyzer_timeout_seconds,
+                        )
+                        if not isinstance(raw_assessment, ProjectAssessment):
+                            raise ValueError("项目判断器返回类型无效")
+                        assessment = replace(
+                            raw_assessment,
+                            project_id=project_id,
+                            context_version=version,
+                        )
+                        assessment = enforce_project_assessment_boundaries(
+                            assessment,
                             analysis,
-                            project_context,
-                        ),
-                        timeout=self._analyzer_timeout_seconds,
-                    )
-                    if not isinstance(raw_assessment, ProjectAssessment):
-                        raise ValueError("项目判断器返回类型无效")
-                    assessment = replace(
-                        raw_assessment,
-                        project_id=project_id,
-                        context_version=version,
-                    )
-                    assessment = enforce_project_assessment_boundaries(
-                        assessment,
-                        analysis,
-                    )
+                        )
                     if missing_fields and assessment.confidence in (
                         ConfidenceLevel.HIGH,
                         ConfidenceLevel.MEDIUM,
@@ -1132,6 +1285,14 @@ class ContentAnalysisEngine:
             project_syncs[project_id] = tuple(matched_syncs)
             project_relation_issues[project_id] = tuple(relation_issues)
             project_data_issues[project_id] = tuple(dict.fromkeys(data_issues))
+            related_account_ids = {
+                relation.account_id for relation in matching_relations
+            }
+            project_empty_daily_eligible[project_id] = (
+                not relation_issues
+                and not (related_account_ids & set(sync_contract_errors))
+                and account_ids == related_account_ids
+            )
 
         scoped_saved_library_records = tuple(
             saved_record
@@ -1186,6 +1347,7 @@ class ContentAnalysisEngine:
                             scenario,
                             record.source_information,
                         )
+                        and not is_visual_claim(scenario)
                     }
                 )
             )
@@ -1364,12 +1526,33 @@ class ContentAnalysisEngine:
             is_empty_daily = (
                 bool(matched_syncs)
                 and not relation_issues
+                and project_empty_daily_eligible.get(project_id, False)
                 and not has_window_content
                 and all(
                     item.status == SyncStatus.SUCCESS_WITHOUT_CONTENT
                     for item in matched_syncs
                 )
             )
+            no_content_summary = None
+            if is_empty_daily:
+                read_sources = {item.read_source for item in matched_syncs}
+                if len(read_sources) != 1:
+                    is_empty_daily = False
+                    report_data_issues.append(
+                        "同一项目无内容结果混用多个读取来源，不能确认无内容"
+                    )
+                else:
+                    no_content_summary = NoContentDailySummary(
+                        read_succeeded=True,
+                        read_source=next(iter(read_sources)),
+                        checked_account_ids=tuple(
+                            item.account_id for item in matched_syncs
+                        ),
+                        coverage_window=expected_sync_window,
+                        read_completed_at=max(
+                            item.checked_at for item in matched_syncs if item.checked_at
+                        ),
+                    )
             categories = CategoryOverview(
                 persona=category_counts[ContentCategory.PERSONA],
                 qianchuan=category_counts[ContentCategory.QIANCHUAN],
@@ -1386,9 +1569,17 @@ class ContentAnalysisEngine:
                 context_version=version,
                 report_date=windows.report_date,
                 summary=(
-                    f"当日 {len(current_items)} 条，前两天变化 {len(changed_previous)} 条；"
-                    f"人设机会 {len(persona_opportunities)} 条，"
-                    f"千川机会 {len(qianchuan_opportunities)} 条"
+                    (
+                        f"{'飞书' if no_content_summary.read_source == ReadSource.FEISHU else '内容源'}"
+                        "读取成功；发布内容 0 条，人设机会 0 条，千川机会 0 条，"
+                        "内容库新增 0 条，跨项目机会新增 0 条"
+                    )
+                    if no_content_summary is not None
+                    else (
+                        f"当日 {len(current_items)} 条，前两天变化 {len(changed_previous)} 条；"
+                        f"人设机会 {len(persona_opportunities)} 条，"
+                        f"千川机会 {len(qianchuan_opportunities)} 条"
+                    )
                 ),
                 daily_overview=daily_overview,
                 sync_results=matched_syncs,
@@ -1411,11 +1602,16 @@ class ContentAnalysisEngine:
                 persona_opportunities=persona_opportunities,
                 qianchuan_opportunities=qianchuan_opportunities,
                 library_candidates=library_candidates,
-                cross_project_candidates=tuple(
-                    candidate
-                    for candidate in cross_project_candidates
-                    if project_id in candidate.project_ids
+                cross_project_candidates=(
+                    ()
+                    if no_content_summary is not None
+                    else tuple(
+                        candidate
+                        for candidate in cross_project_candidates
+                        if project_id in candidate.project_ids
+                    )
                 ),
+                no_content_summary=no_content_summary,
             )
 
         return EngineResult(

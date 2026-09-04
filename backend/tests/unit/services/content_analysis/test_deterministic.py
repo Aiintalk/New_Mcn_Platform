@@ -38,7 +38,6 @@ from app.services.content_analysis.domain import (
     SourceInformation,
     SourceJudgment,
     SourceLimitation,
-    SyncStatus,
 )
 
 
@@ -77,8 +76,8 @@ def content(
             favorite_count=4,
             play_count=play_count,
         ),
+        title="合成标题",
         transcript=transcript,
-        sync_status=SyncStatus.SUCCESS_WITH_CONTENT,
     )
 
 
@@ -552,7 +551,6 @@ def test_determined_analysis_rejects_mutable_undetermined_reason() -> None:
         ("reusable_methods", ("自由文本方法",)),
         ("structure", (1,)),
         ("persuasion_chain", ("",)),
-        ("shot_observations", ("画面",)),
     ),
 )
 def test_basic_analysis_strictly_validates_model_nested_output(field, invalid) -> None:
@@ -571,33 +569,33 @@ def test_basic_analysis_strictly_validates_model_nested_output(field, invalid) -
 def test_opening_annotation_represents_available_evidence_or_unavailable_reason() -> None:
     available = OpeningAnnotation(
         status=OpeningTagStatus.AVAILABLE,
-        kind=OpeningKind.FIRST_FRAME,
-        fragment="前三秒画面提问",
+        kind=OpeningKind.LANGUAGE,
+        fragment="前三秒语言提问",
         evidence=(
             AnalysisEvidence(
-                evidence_type=EvidenceType.VISUAL,
-                locator="frame:0-3s",
-                detail="画面中出现提问字幕",
+                evidence_type=EvidenceType.TRANSCRIPT,
+                locator="transcript:0-3s",
+                detail="转写中出现提问",
             ),
         ),
     )
     unavailable = OpeningAnnotation(
         status=OpeningTagStatus.UNAVAILABLE,
-        kind=OpeningKind.FIRST_FRAME,
-        unavailable_reason="没有可用的视频或转写依据",
+        kind=OpeningKind.LANGUAGE,
+        unavailable_reason="没有可用的转写依据",
     )
 
-    assert available.fragment == "前三秒画面提问"
-    assert available.evidence[0].evidence_type == EvidenceType.VISUAL
-    assert available.evidence[0].locator == "frame:0-3s"
-    assert unavailable.unavailable_reason == "没有可用的视频或转写依据"
+    assert available.fragment == "前三秒语言提问"
+    assert available.evidence[0].evidence_type == EvidenceType.TRANSCRIPT
+    assert available.evidence[0].locator == "transcript:0-3s"
+    assert unavailable.unavailable_reason == "没有可用的转写依据"
 
 
 @pytest.mark.parametrize(
     ("evidence_type", "locator", "detail"),
     (
         ("visual", "frame:0-3s", "画面证据"),
-        (EvidenceType.VISUAL, "  ", "画面证据"),
+        (EvidenceType.TITLE, "  ", "标题证据"),
         (EvidenceType.TRANSCRIPT, "0-3s", "  "),
     ),
 )
@@ -738,7 +736,6 @@ def test_source_fact_kind_members_remain_distinct_enum_values() -> None:
         "reusable_methods",
         "structure",
         "persuasion_chain",
-        "shot_observations",
         "interaction_observations",
     ),
 )

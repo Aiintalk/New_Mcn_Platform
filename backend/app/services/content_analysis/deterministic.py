@@ -203,15 +203,15 @@ def _qianchuan_rank_key(record: ContentRecord) -> tuple[object, ...]:
         identity.external_url or "",
         -record.captured_at.timestamp(),
         record.source.value,
+        record.title or "",
         record.transcript or "",
-        record.video_reference or "",
+        record.operations_review_url or "",
         record.metrics.comment_count is None,
         -(record.metrics.comment_count or 0),
         record.metrics.share_count is None,
         -(record.metrics.share_count or 0),
         record.metrics.favorite_count is None,
         -(record.metrics.favorite_count or 0),
-        record.sync_status.value,
     )
 
 

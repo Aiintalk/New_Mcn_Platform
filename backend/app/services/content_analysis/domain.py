@@ -51,23 +51,14 @@ class OpeningKind(str, Enum):
     """开头结论的证据语义。"""
 
     LANGUAGE = "language"
-    FIRST_FRAME = "first_frame"
 
 
 class EvidenceType(str, Enum):
     """结论依据的来源类型。"""
 
+    TITLE = "title"
     TRANSCRIPT = "transcript"
-    VISUAL = "visual"
     METADATA = "metadata"
-
-
-class MediaReadStatus(str, Enum):
-    """视频引用对应媒体内容的实际读取状态。"""
-
-    MISSING = "missing"
-    UNREADABLE = "unreadable"
-    READABLE = "readable"
 
 
 class InteractionObservationType(str, Enum):
@@ -176,36 +167,6 @@ class EngagementMetrics:
 
 
 @dataclass(frozen=True)
-class MediaReadResult:
-    """可信媒体解析层给出的读取状态和可绑定证据定位。"""
-
-    status: MediaReadStatus
-    evidence_refs: tuple[str, ...] = ()
-    issue: str | None = None
-
-    def __post_init__(self) -> None:
-        _require_tuple(self.evidence_refs, "媒体证据定位")
-        if not isinstance(self.status, MediaReadStatus):
-            raise ValueError("媒体读取状态不受支持")
-        if any(
-            not isinstance(item, str) or not item.strip()
-            for item in self.evidence_refs
-        ):
-            raise ValueError("媒体证据定位不能为空")
-        if self.status == MediaReadStatus.READABLE:
-            if not self.evidence_refs or self.issue:
-                raise ValueError("媒体可读时必须有证据定位且不能带失败原因")
-        elif self.evidence_refs:
-            raise ValueError("媒体未读成功时不能携带画面证据定位")
-        if self.status == MediaReadStatus.UNREADABLE and not (
-            isinstance(self.issue, str) and self.issue.strip()
-        ):
-            raise ValueError("媒体不可读时必须说明原因")
-        if self.status == MediaReadStatus.MISSING and self.issue:
-            raise ValueError("媒体缺失状态不能携带解析失败原因")
-
-
-@dataclass(frozen=True)
 class ContentRecord:
     """标准化后的单条内容输入，不含预先判定的主分类。"""
 
@@ -215,21 +176,19 @@ class ContentRecord:
     published_at: datetime
     captured_at: datetime
     metrics: EngagementMetrics
+    title: str | None = None
     transcript: str | None = None
-    video_reference: str | None = None
-    media_read_result: MediaReadResult = MediaReadResult(MediaReadStatus.MISSING)
-    sync_status: SyncStatus = SyncStatus.SUCCESS_WITH_CONTENT
+    operations_review_url: str | None = None
 
     def __post_init__(self) -> None:
         _require_timezone(self.published_at, "published_at")
         _require_timezone(self.captured_at, "captured_at")
-        if not isinstance(self.media_read_result, MediaReadResult):
-            raise ValueError("媒体读取结果必须使用结构化类型")
-        if (
-            self.media_read_result.status != MediaReadStatus.MISSING
-            and not (isinstance(self.video_reference, str) and self.video_reference.strip())
-        ):
-            raise ValueError("媒体读取结果必须绑定视频引用")
+        for field_name in ("title", "transcript", "operations_review_url"):
+            value = getattr(self, field_name)
+            if value is not None and (
+                not isinstance(value, str) or not value.strip()
+            ):
+                raise ValueError(f"{field_name} 必须是非空文本或空值")
 
 
 @dataclass(frozen=True)
@@ -712,7 +671,6 @@ class BasicAnalysis:
     summary: str | None = None
     structure: tuple[str, ...] = ()
     persuasion_chain: tuple[str, ...] = ()
-    shot_observations: tuple[AnalysisEvidence, ...] = ()
     interaction_observations: tuple[InteractionObservation, ...] = ()
     undetermined_reason: str | None = None
 
@@ -731,7 +689,6 @@ class BasicAnalysis:
             "reusable_methods",
             "structure",
             "persuasion_chain",
-            "shot_observations",
             "interaction_observations",
         ):
             if not isinstance(getattr(self, field_name), tuple):
@@ -759,11 +716,6 @@ class BasicAnalysis:
                 for item in getattr(self, field_name)
             ):
                 raise ValueError(f"{field_name} 必须由非空文本组成")
-        if any(
-            not isinstance(item, AnalysisEvidence)
-            for item in self.shot_observations
-        ):
-            raise ValueError("镜头观察必须使用结构化依据")
         if self.data_maturity is not None and not isinstance(
             self.data_maturity, DataMaturity
         ):

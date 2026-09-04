@@ -13,7 +13,6 @@ from .domain import (
     EvidenceType,
     InteractionMetric,
     InteractionObservationType,
-    MediaReadStatus,
     OpeningAnnotation,
     OpeningKind,
     OpeningTagStatus,
@@ -22,7 +21,6 @@ from .domain import (
     SourceConstraint,
     SourceFactKind,
     SourceInformation,
-    SourceLimitation,
 )
 
 
@@ -34,7 +32,6 @@ class CandidateValueSignal(str, Enum):
     NOVEL_TOPIC_OR_STRUCTURE = "novel_topic_or_structure"
     CLEAR_TRAFFIC_HOOK = "clear_traffic_hook"
     REUSABLE_CONVERSION_STRUCTURE = "reusable_conversion_structure"
-    NOTABLE_SHOT_PERFORMANCE = "notable_shot_performance"
 
 
 class ProjectFitDimension(str, Enum):
@@ -213,7 +210,10 @@ _UNSUPPORTED_PERFORMANCE_CLAIMS = (
     "高消耗",
     "高投放",
 )
-_VISUAL_CLAIM_FRAGMENTS = ("第一画面", "首帧", "镜头", "画面")
+_VISUAL_CLAIM_FRAGMENTS = (
+    "第一画面",
+    "首帧",
+)
 _UNSUPPORTED_PERFORMANCE_PATTERNS = (
     re.compile(
         r"(?:近|最近).{0,4}(?:天|日).{0,8}"
@@ -241,10 +241,27 @@ _VISUAL_CLAIM_PATTERNS = (
         r"(?:前|开头|起始)[零一二三四五六七八九十百两\d]+(?:秒|帧).{0,8}"
         r"(?:出现|展示|露出|呈现|看见|看到)"
     ),
-)
-_NEUTRAL_VISUAL_BOUNDARY_PATTERN = re.compile(
-    r"^(?:仅|只)(?:可)?(?:复用|参考|借鉴|验证)"
-    r"(?:视觉|画面|镜头|首帧|第一画面)(?:结构|形式|方法|节奏|逻辑)$"
+    re.compile(r"(?:人物|产品|商品|肢体|手部|身体).{0,4}动作"),
+    re.compile(
+        r"(?:红色|蓝色|绿色|暖色|冷色|明亮|暗色).{0,4}"
+        r"(?:背景|画面|色调|灯光)"
+    ),
+    re.compile(r"(?<!项目)背景.{0,6}(?:简洁|干净|突出|衬托|增强|营造|吸睛)"),
+    re.compile(r"字幕.{0,4}(?:样式|字体|颜色|排版|醒目)"),
+    re.compile(
+        r"(?:采用|使用|通过|配合|结合|适合).{0,8}"
+        r"(?:构图|剪辑|运镜|景别|特写|机位|转场|灯光|光影|色调|"
+        r"表情|布景|光线|滤镜|景深|字幕)"
+    ),
+    re.compile(
+        r"(?:视觉|构图|剪辑|运镜|景别|特写|机位|转场|灯光|光影|色调|"
+        r"表情|布景|光线|滤镜|景深|字幕).{0,8}"
+        r"(?:冲击|效果|吸睛|突出|强|自然|流畅|高级|醒目|柔和|"
+        r"营造|感染力|丰富|简洁|增强|鲜艳|节奏)"
+    ),
+    re.compile(r"服装.{0,8}(?:吸睛|鲜艳|画面|造型|醒目|视觉效果)"),
+    re.compile(r"道具.{0,8}(?:丰富|吸睛|画面|醒目|视觉效果)"),
+    re.compile(r"色彩.{0,8}(?:高级|鲜艳|画面|吸睛|醒目|视觉效果)"),
 )
 _SOURCE_SPECIFIC_PATTERNS = (
     re.compile(
@@ -282,8 +299,9 @@ def _contains_visual_claim(value: str) -> bool:
     ) or any(pattern.search(normalized) for pattern in _VISUAL_CLAIM_PATTERNS)
 
 
-def _is_neutral_visual_boundary(value: str) -> bool:
-    return bool(_NEUTRAL_VISUAL_BOUNDARY_PATTERN.fullmatch(_normalized_text(value)))
+def is_visual_claim(value: str) -> bool:
+    """判断文本是否包含本期禁止输出或跨项目传播的视觉分析。"""
+    return _contains_visual_claim(value)
 
 
 def _contains_source_specific_claim(value: str) -> bool:
@@ -388,15 +406,16 @@ def is_reusable_method_safe(
     if any(
         _contains_source_specific_claim(value)
         or _contains_unsupported_performance_claim(value)
+        or _contains_visual_claim(value)
         for value in method_values
     ):
         return False
     if any(
-        _contains_unsupported_performance_claim(value)
+        _has_unsupported_claim(value, visual_is_readable=False)
         and not _claim_roles_are_valid(
             value,
             role="limitation",
-            visual_is_readable=True,
+            visual_is_readable=False,
         )
         for value in boundary_values
     ):
@@ -427,7 +446,7 @@ def _validate_generated_claims(
         if _contains_unsupported_performance_claim(value):
             raise ValueError("分析器输出包含当前输入无法支持的效果或趋势结论")
         if not visual_is_readable and _contains_visual_claim(value):
-            raise ValueError("分析器输出包含没有可读画面支持的视觉结论")
+            raise ValueError("分析器输出包含本期不支持的视觉结论")
 
 
 def _has_unsupported_claim(value: str, *, visual_is_readable: bool) -> bool:
@@ -512,6 +531,8 @@ def _validate_source_information_roles(
     visual_is_readable: bool,
 ) -> None:
     for assumption in source_information.assumptions:
+        if not visual_is_readable and _contains_visual_claim(assumption.statement):
+            raise ValueError("本期不支持把视觉结论作为假设输出")
         has_unsupported_claim = _has_unsupported_claim(
             assumption.statement,
             visual_is_readable=visual_is_readable,
@@ -554,16 +575,13 @@ def _validate_limitation_role(
 
 
 def _boundary_claim_is_valid(value: str, *, visual_is_readable: bool) -> bool:
-    effective_visual_readable = visual_is_readable or _is_neutral_visual_boundary(
-        value
-    )
     return not _has_unsupported_claim(
         value,
-        visual_is_readable=effective_visual_readable,
+        visual_is_readable=visual_is_readable,
     ) or _claim_roles_are_valid(
         value,
         role="limitation",
-        visual_is_readable=effective_visual_readable,
+        visual_is_readable=visual_is_readable,
     )
 
 
@@ -583,12 +601,14 @@ def _validate_boundary_claims(
 
 
 def _evidence_is_bound(item: AnalysisEvidence, analysis: BasicAnalysis) -> bool:
+    if item.evidence_type == EvidenceType.TITLE:
+        title = _normalized_text(analysis.content.title or "")
+        detail = _normalized_text(item.detail)
+        return bool(title and detail and detail in title)
     if item.evidence_type == EvidenceType.TRANSCRIPT:
         transcript = _normalized_text(analysis.content.transcript or "")
         detail = _normalized_text(item.detail)
         return bool(transcript and detail and detail in transcript)
-    if item.evidence_type == EvidenceType.VISUAL:
-        return item.locator in analysis.content.media_read_result.evidence_refs
     return False
 
 
@@ -628,9 +648,7 @@ def enforce_project_assessment_boundaries(
     analysis: BasicAnalysis,
 ) -> ProjectAssessment:
     """阻断来源商品片段或无来源证据的正文结构跨项目传播。"""
-    visual_is_readable = (
-        analysis.content.media_read_result.status == MediaReadStatus.READABLE
-    )
+    visual_is_readable = False
     _validate_generated_claims(
         (
             assessment.conclusion,
@@ -692,9 +710,7 @@ def enforce_project_assessment_boundaries(
 def enforce_analysis_boundaries(analysis: BasicAnalysis) -> BasicAnalysis:
     """清理分析器输出中不能由实际证据支持的确定性结论。"""
     _validate_interaction_evidence(analysis)
-    visual_is_readable = (
-        analysis.content.media_read_result.status == MediaReadStatus.READABLE
-    )
+    visual_is_readable = False
     _validate_generated_claims(
         (
             analysis.topic,
@@ -708,11 +724,11 @@ def enforce_analysis_boundaries(analysis: BasicAnalysis) -> BasicAnalysis:
         ),
         visual_is_readable=visual_is_readable,
     )
-    if not visual_is_readable and any(
+    if any(
         _contains_visual_claim(fact.statement)
         for fact in analysis.source_information.facts
     ):
-        raise ValueError("来源事实包含没有可读画面支持的视觉结论")
+        raise ValueError("来源事实包含本期不支持的视觉结论")
     _validate_source_information_roles(
         analysis.source_information,
         visual_is_readable=visual_is_readable,
@@ -752,30 +768,14 @@ def enforce_analysis_boundaries(analysis: BasicAnalysis) -> BasicAnalysis:
     has_transcript_input = bool(
         analysis.content.transcript and analysis.content.transcript.strip()
     )
-    readable_visual_refs = (
-        set(analysis.content.media_read_result.evidence_refs)
-        if analysis.content.media_read_result.status == MediaReadStatus.READABLE
-        else set()
-    )
     opening = analysis.opening
     bound_opening_evidence = tuple(
         item
         for item in opening.evidence
-        if (
-            item.evidence_type != EvidenceType.TRANSCRIPT
-            or has_transcript_input
-        )
-        and (
-            item.evidence_type != EvidenceType.VISUAL
-            or item.locator in readable_visual_refs
-        )
+        if item.evidence_type == EvidenceType.TRANSCRIPT and has_transcript_input
     )
-    expected_opening_evidence = {
-        OpeningKind.LANGUAGE: EvidenceType.TRANSCRIPT,
-        OpeningKind.FIRST_FRAME: EvidenceType.VISUAL,
-    }.get(opening.kind)
     opening_has_matching_evidence = any(
-        item.evidence_type == expected_opening_evidence
+        item.evidence_type == EvidenceType.TRANSCRIPT
         for item in bound_opening_evidence
     )
     opening_has_bound_input = (
@@ -785,9 +785,6 @@ def enforce_analysis_boundaries(analysis: BasicAnalysis) -> BasicAnalysis:
             opening.fragment
             and opening.fragment.strip() in (analysis.content.transcript or "")
         )
-        and bool(opening.applicable_boundaries)
-        or opening.kind == OpeningKind.FIRST_FRAME
-        and bool(readable_visual_refs)
         and bool(opening.applicable_boundaries)
     )
     opening_contains_source_limit = bool(
@@ -809,7 +806,10 @@ def enforce_analysis_boundaries(analysis: BasicAnalysis) -> BasicAnalysis:
     opening_contains_unsupported_claim = bool(
         (
             opening.fragment
-            and _contains_unsupported_performance_claim(opening.fragment)
+            and _has_unsupported_claim(
+                opening.fragment,
+                visual_is_readable=visual_is_readable,
+            )
         )
         or any(
             not _boundary_claim_is_valid(
@@ -829,48 +829,26 @@ def enforce_analysis_boundaries(analysis: BasicAnalysis) -> BasicAnalysis:
             status=OpeningTagStatus.UNAVAILABLE,
             kind=opening.kind,
             unavailable_reason=(
-                (
-                    "没有非空转写输入，无法判断语言开头"
-                    if not has_transcript_input
+                "没有非空转写输入，无法判断语言开头"
+                if not has_transcript_input
+                else (
+                    "没有转写证据，无法判断语言开头"
+                    if not opening_has_matching_evidence
                     else (
-                        "没有转写证据，无法判断语言开头"
-                        if not opening_has_matching_evidence
+                        "开头包含本期不支持的视觉、效果或趋势结论"
+                        if opening_contains_unsupported_claim
                         else (
-                            "开头包含输入无法支持的效果或趋势结论"
-                            if opening_contains_unsupported_claim
-                            else (
-                                "开头含来源限定信息，不能跨项目直接使用"
-                                if opening_contains_source_limit
-                                else "开头片段无法回到转写证据或缺少适用边界"
-                            )
+                            "开头含来源限定信息，不能跨项目直接使用"
+                            if opening_contains_source_limit
+                            else "开头片段无法回到转写证据或缺少适用边界"
                         )
                     )
                 )
-                if opening.kind == OpeningKind.LANGUAGE
-                else "没有可读画面证据，无法判断第一画面"
             ),
         )
     elif bound_opening_evidence != opening.evidence:
         opening = replace(opening, evidence=bound_opening_evidence)
 
-    visual_shots = tuple(
-        item
-        for item in analysis.shot_observations
-        if item.evidence_type == EvidenceType.VISUAL
-        and item.locator in readable_visual_refs
-    )
-    opening_has_visual = any(
-        item.evidence_type == EvidenceType.VISUAL
-        for item in opening.evidence
-    )
-    has_visual_evidence = opening_has_visual or bool(visual_shots)
-    limitation = SourceLimitation(
-        statement=(
-            "没有可读画面证据，镜头与第一画面结论受限"
-            if not has_visual_evidence
-            else "缺少视觉依据的镜头或第一画面结论已移除"
-        )
-    )
     source_information = analysis.source_information
     reusable_methods = tuple(
         method
@@ -906,20 +884,9 @@ def enforce_analysis_boundaries(analysis: BasicAnalysis) -> BasicAnalysis:
         )
         else analysis.summary
     )
-    boundary_changed = (
-        opening != analysis.opening
-        or visual_shots != analysis.shot_observations
-        or not has_visual_evidence
-    )
-    if boundary_changed and limitation not in source_information.limitations:
-        source_information = replace(
-            source_information,
-            limitations=source_information.limitations + (limitation,),
-        )
     return replace(
         analysis,
         opening=opening,
-        shot_observations=visual_shots,
         source_information=source_information,
         reusable_methods=reusable_methods,
         topic=topic,

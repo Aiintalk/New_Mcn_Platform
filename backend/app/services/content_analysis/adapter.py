@@ -13,8 +13,6 @@ from .domain import (
     EngagementMetrics,
     EvidenceType,
     LikeBaseline,
-    MediaReadResult,
-    MediaReadStatus,
     ProjectAccountRelation,
     ProjectContextVersion,
     ProjectFact,
@@ -34,6 +32,7 @@ from .engine import (
     AccountSyncResult,
     CrossProjectSignal,
     OfflineRunInput,
+    ReadSource,
     SavedBusinessState,
     SavedLibraryRecord,
     SyncCoverageWindow,
@@ -144,26 +143,6 @@ def _content(data: Mapping[str, Any]) -> ContentRecord:
         favorite_count=_required(metrics_data, "favorite_count"),
         play_count=metrics_data.get("play_count"),
     )
-    media_data = _mapping(
-        _required(data, "media_read_result"),
-        "media_read_result",
-    )
-    evidence_refs = tuple(
-        _text(item, "media_read_result.evidence_refs[]")
-        for item in _sequence(
-            _required(media_data, "evidence_refs"),
-            "media_read_result.evidence_refs",
-        )
-    )
-    media_read_result = MediaReadResult(
-        status=_enum(
-            MediaReadStatus,
-            _required(media_data, "status"),
-            "media_read_result.status",
-        ),
-        evidence_refs=evidence_refs,
-        issue=_text(media_data.get("issue"), "media_read_result.issue", optional=True),
-    )
     return ContentRecord(
         account_id=_text(_required(data, "account_id"), "account_id"),
         source=_enum(ContentSource, _required(data, "source"), "source"),
@@ -174,17 +153,12 @@ def _content(data: Mapping[str, Any]) -> ContentRecord:
         published_at=_timestamp(_required(data, "published_at"), "published_at"),
         captured_at=_timestamp(_required(data, "captured_at"), "captured_at"),
         metrics=metrics,
+        title=_text(data.get("title"), "title", optional=True),
         transcript=_text(data.get("transcript"), "transcript", optional=True),
-        video_reference=_text(
-            data.get("video_reference"),
-            "video_reference",
+        operations_review_url=_text(
+            data.get("operations_review_url"),
+            "operations_review_url",
             optional=True,
-        ),
-        media_read_result=media_read_result,
-        sync_status=_enum(
-            SyncStatus,
-            _required(data, "sync_status"),
-            "sync_status",
         ),
     )
 
@@ -218,6 +192,7 @@ def _sync_issue(value: object) -> SyncIssue | None:
             _required(data, "impact"),
             "issue.impact",
         ),
+        reason=_text(data.get("reason"), "issue.reason", optional=True),
     )
 
 
@@ -234,6 +209,11 @@ def _sync_result(data: Mapping[str, Any]) -> AccountSyncResult:
         coverage_window=_coverage_window(
             _required(data, "coverage_window"),
             "coverage_window",
+        ),
+        read_source=_enum(
+            ReadSource,
+            data.get("read_source", ReadSource.STANDARD_INPUT.value),
+            "read_source",
         ),
     )
 

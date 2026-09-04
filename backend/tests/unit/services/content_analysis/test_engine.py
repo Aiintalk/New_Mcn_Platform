@@ -17,6 +17,7 @@ from app.services.content_analysis.analyzer import (
     CandidateValueSignal,
     ProjectAssessment,
     is_reusable_method_safe,
+    is_visual_claim,
 )
 from app.services.content_analysis.domain import (
     AnalysisEvidence,
@@ -68,13 +69,13 @@ def record(
     account_id: str = "account-001",
     url: str | None = None,
     published_at: datetime = REPORT_DAY,
+    title: str | None = "匿名标题",
     transcript: str | None = "匿名转写",
-    video_reference: str | None = "opaque-video-ref",
+    operations_review_url: str | None = "https://example.invalid/review/work",
     likes: int | None = 10,
     comments: int | None = 2,
     shares: int | None = 1,
     favorites: int | None = 3,
-    sync_status: SyncStatus = SyncStatus.SUCCESS_WITH_CONTENT,
 ) -> ContentRecord:
     return ContentRecord(
         account_id=account_id,
@@ -88,9 +89,9 @@ def record(
             share_count=shares,
             favorite_count=favorites,
         ),
+        title=title,
         transcript=transcript,
-        video_reference=video_reference,
-        sync_status=sync_status,
+        operations_review_url=operations_review_url,
     )
 
 
@@ -195,14 +196,13 @@ def test_project_assessment_rejects_invalid_enum_priority_or_conclusion(
         ProjectAssessment(**values)
 
 
-def test_candidate_value_signals_match_the_six_allowed_business_signals() -> None:
+def test_candidate_value_signals_match_the_five_allowed_business_signals() -> None:
     assert {signal.value for signal in CandidateValueSignal} == {
         "early_data_strength",
         "relative_benchmark_outperformance",
         "novel_topic_or_structure",
         "clear_traffic_hook",
         "reusable_conversion_structure",
-        "notable_shot_performance",
     }
     with pytest.raises(ValueError):
         CandidateValueSignal("project_relevance")
@@ -297,8 +297,8 @@ class RecordingAnalyzer:
             opening=(
                 OpeningAnnotation(
                     status=OpeningTagStatus.UNAVAILABLE,
-                    kind=OpeningKind.FIRST_FRAME,
-                    unavailable_reason="没有可读画面证据",
+                    kind=OpeningKind.LANGUAGE,
+                    unavailable_reason="测试分析器未提取可用语言开头",
                 )
                 if category == ContentCategory.QIANCHUAN
                 else OpeningAnnotation(status=OpeningTagStatus.UNANNOTATED)
@@ -880,7 +880,7 @@ async def test_unsupported_performance_claim_invalidates_analyzer_output(
 
 
 @pytest.mark.asyncio
-async def test_visual_claim_synonym_in_structure_requires_readable_visual() -> None:
+async def test_visual_claim_synonym_in_structure_is_rejected_in_text_only_phase() -> None:
     result = await run_engine(
         CandidateGateAnalyzer(
             analysis_updates={"structure": ("前三秒出现产品",)},
@@ -902,6 +902,179 @@ async def test_visual_claim_synonym_in_structure_requires_readable_visual() -> N
         "基础分析失败" in issue
         for issue in result.reports["project-a"].data_issues
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "visual_claim",
+    (
+        "采用对称构图",
+        "人物动作自然",
+        "使用快节奏剪辑",
+        "运镜流畅",
+        "特写突出商品细节",
+        "暖色灯光营造氛围",
+        "人物表情富有感染力",
+        "转场自然",
+        "红色背景增强信任",
+        "视觉冲击力强",
+        "背景简洁突出主体",
+        "光线柔和",
+        "色彩搭配高级",
+        "滤镜自然",
+        "字幕样式醒目",
+        "服装搭配吸睛",
+        "道具布置丰富",
+        "景深突出人物",
+    ),
+)
+async def test_v18_visual_claims_are_rejected_from_text_analysis_output(
+    visual_claim: str,
+) -> None:
+    result = await run_engine(
+        CandidateGateAnalyzer(analysis_updates={"summary": visual_claim}),
+        sync_results=(
+            AccountSyncResult(
+                "account-001",
+                SyncStatus.SUCCESS_WITH_CONTENT,
+                (record("work-v18-visual-claim"),),
+            ),
+        ),
+        relations=(relation("project-a", "v1"),),
+        contexts=(context("project-a", "v1"),),
+        run_at=RUN_AT,
+    )
+
+    assert result.reports["project-a"].items == ()
+    assert any(
+        "基础分析失败" in issue
+        for issue in result.reports["project-a"].data_issues
+    )
+
+
+@pytest.mark.parametrize(
+    "visual_claim",
+    (
+        "采用对称构图",
+        "人物动作自然",
+        "使用快节奏剪辑",
+        "运镜流畅",
+        "特写突出商品细节",
+        "暖色灯光营造氛围",
+        "人物表情富有感染力",
+        "转场自然",
+        "红色背景增强信任",
+        "视觉冲击力强",
+        "背景简洁突出主体",
+        "光线柔和",
+        "色彩搭配高级",
+        "滤镜自然",
+        "字幕样式醒目",
+        "服装搭配吸睛",
+        "道具布置丰富",
+        "景深突出人物",
+    ),
+)
+def test_saved_visual_method_is_not_reusable_across_projects(
+    visual_claim: str,
+) -> None:
+    method = ReusableMethod(
+        name="来源旧方法",
+        description=visual_claim,
+        method_key="legacy-visual-method",
+        evidence=(
+            AnalysisEvidence(
+                EvidenceType.TRANSCRIPT,
+                "legacy:method",
+                visual_claim,
+            ),
+        ),
+        applicable_boundaries=(SourceConstraint("不得复用来源商品事实"),),
+    )
+
+    assert is_reusable_method_safe(method, SourceInformation()) is False
+
+
+def test_visual_language_fragment_is_not_a_usable_opening() -> None:
+    transcript = "视觉冲击力强"
+    analysis = BasicAnalysis(
+        content=record("work-visual-opening", transcript=transcript),
+        category=ContentCategory.QIANCHUAN,
+        confidence=ConfidenceLevel.HIGH,
+        opening=OpeningAnnotation(
+            status=OpeningTagStatus.AVAILABLE,
+            kind=OpeningKind.LANGUAGE,
+            fragment=transcript,
+            evidence=(
+                AnalysisEvidence(
+                    EvidenceType.TRANSCRIPT,
+                    "transcript:opening",
+                    transcript,
+                ),
+            ),
+            applicable_boundaries=(SourceConstraint("仅复用语言开头"),),
+        ),
+    )
+
+    result = content_analysis.enforce_analysis_boundaries(analysis)
+
+    assert result.opening.status == OpeningTagStatus.UNAVAILABLE
+    assert "视觉" in result.opening.unavailable_reason
+
+
+@pytest.mark.parametrize(
+    "business_action",
+    ("推荐动作快速执行", "下一步动作自然衔接", "行动动作快速落地"),
+)
+def test_nonvisual_business_action_text_is_not_rejected(
+    business_action: str,
+) -> None:
+    method = ReusableMethod(
+        name="执行建议",
+        description=business_action,
+        method_key="business-action",
+        evidence=(
+            AnalysisEvidence(
+                EvidenceType.TRANSCRIPT,
+                "transcript:action",
+                business_action,
+            ),
+        ),
+        applicable_boundaries=(SourceConstraint("按项目节奏执行"),),
+    )
+
+    assert is_reusable_method_safe(method, SourceInformation()) is True
+
+
+@pytest.mark.parametrize(
+    "text_topic",
+    (
+        "讲解服装面料的选择方法",
+        "服务视觉障碍人群的沟通方法",
+        "解释道具租赁的成本结构",
+        "分析色彩心理学的基础概念",
+        "项目背景复杂，需要补充资料",
+        "结合项目背景判断用户需求",
+        "使用服装品类作为案例",
+        "讲解服装搭配技巧",
+    ),
+)
+def test_visual_topic_nouns_are_allowed_without_visual_performance_claims(
+    text_topic: str,
+) -> None:
+    analysis = BasicAnalysis(
+        content=record("work-text-topic", transcript=text_topic),
+        category=ContentCategory.PERSONA,
+        confidence=ConfidenceLevel.HIGH,
+        opening=OpeningAnnotation(status=OpeningTagStatus.UNANNOTATED),
+        topic=text_topic,
+        summary=text_topic,
+    )
+
+    assert is_visual_claim(text_topic) is False
+    result = content_analysis.enforce_analysis_boundaries(analysis)
+
+    assert result.content == analysis.content
 
 
 @pytest.mark.asyncio
@@ -928,71 +1101,9 @@ async def test_unsupported_performance_claim_invalidates_project_assessment_only
 
 
 @pytest.mark.asyncio
-async def test_newer_failed_record_cannot_replace_older_successful_duplicate() -> None:
-    analyzer = RecordingAnalyzer()
-    older_success = replace(
-        record("work-001", transcript="旧成功内容"),
-        captured_at=RUN_AT - timedelta(hours=1),
-    )
-    newer_failed = record(
-        "work-001",
-        transcript="新失败内容",
-        sync_status=SyncStatus.FAILED,
-    )
-
-    result = await run_engine(
-        analyzer,
-        sync_results=(
-            AccountSyncResult(
-                "account-001",
-                SyncStatus.SUCCESS_WITH_CONTENT,
-                (older_success, newer_failed),
-            ),
-        ),
-        relations=(relation("project-a", "v1"),),
-        contexts=(context("project-a", "v1"),),
-        run_at=RUN_AT,
-    )
-
-    report = result.reports["project-a"]
-    assert analyzer.basic_calls == [older_success]
-    assert report.items[0].analysis.content == older_success
-    assert report.sync_results[0].contents == (older_success,)
-    assert "账号 account-001 忽略了 1 条记录级非成功内容" in report.data_issues
-
-
-@pytest.mark.asyncio
-async def test_success_with_content_rejects_payload_with_only_failed_records() -> None:
-    analyzer = RecordingAnalyzer()
-    failed_record = record(
-        "work-failed",
-        sync_status=SyncStatus.FAILED,
-    )
-
-    with pytest.raises(ValueError, match="成功有内容.*成功内容"):
-        await run_engine(
-            analyzer,
-            sync_results=(
-                AccountSyncResult(
-                    "account-001",
-                    SyncStatus.SUCCESS_WITH_CONTENT,
-                    (failed_record,),
-                ),
-            ),
-            relations=(relation("project-a", "v1"),),
-            contexts=(context("project-a", "v1"),),
-            run_at=RUN_AT,
-        )
-
-    assert analyzer.basic_calls == []
-    assert analyzer.project_calls == []
-
-
-@pytest.mark.asyncio
-async def test_partial_sync_uses_and_returns_only_successful_records() -> None:
+async def test_partial_sync_keeps_returned_records_and_marks_incomplete_data() -> None:
     analyzer = RecordingAnalyzer()
     successful = record("work-success")
-    failed = record("work-failed", sync_status=SyncStatus.FAILED)
 
     result = await run_engine(
         analyzer,
@@ -1000,7 +1111,7 @@ async def test_partial_sync_uses_and_returns_only_successful_records() -> None:
             AccountSyncResult(
                 "account-001",
                 SyncStatus.PARTIAL_SUCCESS,
-                (successful, failed),
+                (successful,),
             ),
         ),
         relations=(relation("project-a", "v1"),),
@@ -1016,7 +1127,6 @@ async def test_partial_sync_uses_and_returns_only_successful_records() -> None:
     assert report.sync_results[0].contents == (successful,)
     assert report.data_issues == (
         "账号 account-001 部分同步成功，当前内容可能不完整",
-        "账号 account-001 忽略了 1 条记录级非成功内容",
     )
 
 
@@ -1090,166 +1200,8 @@ async def test_missing_evidence_remains_undetermined_with_reason() -> None:
 
     analysis = result.reports["project-a"].items[0].analysis
     assert analysis.category == ContentCategory.UNDETERMINED
-    assert analysis.undetermined_reason == "缺少转写与可判定证据"
+    assert analysis.undetermined_reason == "缺少转写，本期不做结构化内容分析"
     assert result.reports["project-a"].library_candidates == ()
-
-
-class VisualClaimAnalyzer(RecordingAnalyzer):
-    async def analyze_content(self, content: ContentRecord) -> BasicAnalysis:
-        self.basic_calls.append(content)
-        return BasicAnalysis(
-            content=content,
-            category=ContentCategory.PERSONA,
-            confidence=ConfidenceLevel.MEDIUM,
-            opening=OpeningAnnotation(
-                status=OpeningTagStatus.AVAILABLE,
-                kind=OpeningKind.FIRST_FRAME,
-                fragment="第一画面出现产品",
-                evidence=(AnalysisEvidence(EvidenceType.METADATA, "video", "仅有视频引用字符串"),),
-            ),
-            shot_observations=(AnalysisEvidence(EvidenceType.METADATA, "shot-1", "推测镜头"),),
-        )
-
-
-@pytest.mark.asyncio
-async def test_missing_transcript_continues_and_video_reference_is_not_visual_evidence() -> None:
-    analyzer = VisualClaimAnalyzer()
-    result = await run_engine(
-        analyzer,
-        sync_results=(
-            AccountSyncResult(
-                "account-001",
-                SyncStatus.SUCCESS_WITH_CONTENT,
-                (record("work-001", transcript=None, video_reference="opaque-video-ref"),),
-            ),
-        ),
-        relations=(relation("project-a", "v1"),),
-        contexts=(context("project-a", "v1"),),
-        run_at=RUN_AT,
-    )
-
-    analysis = result.reports["project-a"].items[0].analysis
-    assert len(analyzer.basic_calls) == 1
-    assert analysis.shot_observations == ()
-    assert analysis.opening.status == OpeningTagStatus.UNAVAILABLE
-    assert "没有可读画面证据" in analysis.opening.unavailable_reason
-    assert any("没有可读画面证据" in item.statement for item in analysis.source_information.limitations)
-
-
-class ForgedVisualAnalyzer(RecordingAnalyzer):
-    async def analyze_content(self, content: ContentRecord) -> BasicAnalysis:
-        self.basic_calls.append(content)
-        evidence = AnalysisEvidence(EvidenceType.VISUAL, "frame:0", "分析器自报画面")
-        return BasicAnalysis(
-            content=content,
-            category=ContentCategory.PERSONA,
-            confidence=ConfidenceLevel.HIGH,
-            opening=OpeningAnnotation(
-                status=OpeningTagStatus.AVAILABLE,
-                kind=OpeningKind.FIRST_FRAME,
-                fragment="伪造第一画面",
-                evidence=(evidence,),
-                applicable_boundaries=(SourceConstraint("仅复用画面结构"),),
-            ),
-            shot_observations=(evidence,),
-        )
-
-
-@pytest.mark.asyncio
-async def test_unreadable_video_reference_cannot_be_upgraded_by_analyzer_visual_claim() -> None:
-    assert hasattr(content_analysis, "MediaReadResult")
-    media_result = content_analysis.MediaReadResult(
-        status=content_analysis.MediaReadStatus.UNREADABLE,
-        issue="解析失败",
-    )
-    unreadable = replace(
-        record("work-unreadable", video_reference="opaque-video-ref"),
-        media_read_result=media_result,
-    )
-
-    result = await run_engine(
-        ForgedVisualAnalyzer(),
-        sync_results=(
-            AccountSyncResult(
-                "account-001",
-                SyncStatus.SUCCESS_WITH_CONTENT,
-                (unreadable,),
-            ),
-        ),
-        relations=(relation("project-a", "v1"),),
-        contexts=(context("project-a", "v1"),),
-        run_at=RUN_AT,
-    )
-
-    analysis = result.reports["project-a"].items[0].analysis
-    assert analysis.opening.status == OpeningTagStatus.UNAVAILABLE
-    assert analysis.shot_observations == ()
-
-
-@pytest.mark.asyncio
-async def test_unreadable_media_issue_is_sanitized_before_report_output() -> None:
-    raw_issue = "Bearer media-secret-token /private/source.mov"
-    unreadable = replace(
-        record("work-unreadable-secret"),
-        media_read_result=content_analysis.MediaReadResult(
-            status=content_analysis.MediaReadStatus.UNREADABLE,
-            issue=raw_issue,
-        ),
-    )
-
-    result = await run_engine(
-        RecordingAnalyzer(),
-        sync_results=(
-            AccountSyncResult(
-                "account-001",
-                SyncStatus.SUCCESS_WITH_CONTENT,
-                (unreadable,),
-            ),
-        ),
-        relations=(relation("project-a", "v1"),),
-        contexts=(context("project-a", "v1"),),
-        run_at=RUN_AT,
-    )
-
-    saved_issue = (
-        result.reports["project-a"]
-        .items[0]
-        .analysis.content.media_read_result.issue
-    )
-    assert saved_issue == "媒体不可读，详见上游媒体解析日志"
-    assert "Bearer" not in saved_issue
-    assert "/private/" not in saved_issue
-
-
-@pytest.mark.asyncio
-async def test_verified_visual_locator_can_support_shot_and_first_frame_output() -> None:
-    readable = replace(
-        record("work-readable", video_reference="opaque-video-ref"),
-        media_read_result=content_analysis.MediaReadResult(
-            status=content_analysis.MediaReadStatus.READABLE,
-            evidence_refs=("frame:0",),
-        ),
-    )
-
-    result = await run_engine(
-        ForgedVisualAnalyzer(),
-        sync_results=(
-            AccountSyncResult(
-                "account-001",
-                SyncStatus.SUCCESS_WITH_CONTENT,
-                (readable,),
-            ),
-        ),
-        relations=(relation("project-a", "v1"),),
-        contexts=(context("project-a", "v1"),),
-        run_at=RUN_AT,
-    )
-
-    analysis = result.reports["project-a"].items[0].analysis
-    assert analysis.opening.status == OpeningTagStatus.AVAILABLE
-    assert analysis.shot_observations == (
-        AnalysisEvidence(EvidenceType.VISUAL, "frame:0", "分析器自报画面"),
-    )
 
 
 class UnrelatedTranscriptOpeningAnalyzer(RecordingAnalyzer):
@@ -1304,102 +1256,8 @@ class TranscriptOpeningAnalyzer(RecordingAnalyzer):
         )
 
 
-class MixedEvidenceAnalyzer(RecordingAnalyzer):
-    async def analyze_content(self, content: ContentRecord) -> BasicAnalysis:
-        self.basic_calls.append(content)
-        return BasicAnalysis(
-            content=content,
-            category=ContentCategory.PERSONA,
-            confidence=ConfidenceLevel.MEDIUM,
-            opening=OpeningAnnotation(
-                status=OpeningTagStatus.AVAILABLE,
-                kind=OpeningKind.FIRST_FRAME,
-                fragment="仅凭元数据猜测第一画面",
-                evidence=(AnalysisEvidence(EvidenceType.METADATA, "video", "引用存在"),),
-            ),
-            shot_observations=(
-                AnalysisEvidence(EvidenceType.VISUAL, "4-6s", "可读画面中的镜头"),
-                AnalysisEvidence(EvidenceType.METADATA, "7-9s", "元数据猜测的镜头"),
-            ),
-        )
-
-
-class MismatchedOpeningAnalyzer(RecordingAnalyzer):
-    def __init__(self, kind: OpeningKind, evidence_type: EvidenceType) -> None:
-        super().__init__()
-        self.kind = kind
-        self.evidence_type = evidence_type
-
-    async def analyze_content(self, content: ContentRecord) -> BasicAnalysis:
-        self.basic_calls.append(content)
-        return BasicAnalysis(
-            content=content,
-            category=ContentCategory.PERSONA,
-            confidence=ConfidenceLevel.MEDIUM,
-            opening=OpeningAnnotation(
-                status=OpeningTagStatus.AVAILABLE,
-                kind=self.kind,
-                fragment="证据类型与开头类型不匹配",
-                evidence=(AnalysisEvidence(self.evidence_type, "0-3s", "开头证据"),),
-            ),
-            shot_observations=(
-                AnalysisEvidence(EvidenceType.VISUAL, "4-6s", "其他时间段画面"),
-                AnalysisEvidence(EvidenceType.TRANSCRIPT, "4-6s", "其他时间段转写"),
-            ),
-        )
-
-
-class InputlessEvidenceAnalyzer(RecordingAnalyzer):
-    def __init__(self, kind: OpeningKind) -> None:
-        super().__init__()
-        self.kind = kind
-
-    async def analyze_content(self, content: ContentRecord) -> BasicAnalysis:
-        self.basic_calls.append(content)
-        evidence_type = (
-            EvidenceType.TRANSCRIPT
-            if self.kind == OpeningKind.LANGUAGE
-            else EvidenceType.VISUAL
-        )
-        evidence = AnalysisEvidence(evidence_type, "0-3s", "分析器自报依据")
-        return BasicAnalysis(
-            content=content,
-            category=ContentCategory.PERSONA,
-            confidence=ConfidenceLevel.MEDIUM,
-            opening=OpeningAnnotation(
-                status=OpeningTagStatus.AVAILABLE,
-                kind=self.kind,
-                fragment="分析器自报开头",
-                evidence=(evidence,),
-            ),
-            shot_observations=(
-                (evidence,) if self.kind == OpeningKind.FIRST_FRAME else ()
-            ),
-        )
-
-
-class MixedBoundOpeningEvidenceAnalyzer(RecordingAnalyzer):
-    async def analyze_content(self, content: ContentRecord) -> BasicAnalysis:
-        self.basic_calls.append(content)
-        return BasicAnalysis(
-            content=content,
-            category=ContentCategory.PERSONA,
-            confidence=ConfidenceLevel.MEDIUM,
-            opening=OpeningAnnotation(
-                status=OpeningTagStatus.AVAILABLE,
-                kind=OpeningKind.LANGUAGE,
-                fragment="语言开头：先问一个问题",
-                evidence=(
-                    AnalysisEvidence(EvidenceType.TRANSCRIPT, "0-3s", "转写开场"),
-                    AnalysisEvidence(EvidenceType.VISUAL, "frame:0", "无输入的伪视觉证据"),
-                ),
-                applicable_boundaries=(SourceConstraint("仅复用语言结构"),),
-            ),
-        )
-
-
 @pytest.mark.asyncio
-async def test_transcript_only_opening_is_kept_without_visual_evidence() -> None:
+async def test_transcript_only_opening_is_kept_with_text_only_input() -> None:
     result = await run_engine(
         TranscriptOpeningAnalyzer(),
         sync_results=(
@@ -1423,128 +1281,6 @@ async def test_transcript_only_opening_is_kept_without_visual_evidence() -> None
     assert opening.status == OpeningTagStatus.AVAILABLE
     assert opening.kind == OpeningKind.LANGUAGE
     assert opening.fragment == "语言开头：先问一个问题"
-
-
-@pytest.mark.asyncio
-async def test_opening_drops_visual_evidence_when_video_input_is_missing() -> None:
-    result = await run_engine(
-        MixedBoundOpeningEvidenceAnalyzer(),
-        sync_results=(
-            AccountSyncResult(
-                "account-001",
-                SyncStatus.SUCCESS_WITH_CONTENT,
-                (
-                    record(
-                        "work-001",
-                        transcript="语言开头：先问一个问题，然后展开匿名内容",
-                        video_reference=None,
-                    ),
-                ),
-            ),
-        ),
-        relations=(relation("project-a", "v1"),),
-        contexts=(context("project-a", "v1"),),
-        run_at=RUN_AT,
-    )
-
-    analysis = result.reports["project-a"].items[0].analysis
-    assert analysis.opening.status == OpeningTagStatus.AVAILABLE
-    assert analysis.opening.evidence == (
-        AnalysisEvidence(EvidenceType.TRANSCRIPT, "0-3s", "转写开场"),
-    )
-    assert analysis.source_information.limitations == (
-        SourceLimitation(statement="没有可读画面证据，镜头与第一画面结论受限"),
-    )
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("kind", "content"),
-    (
-        (OpeningKind.LANGUAGE, record("work-language", transcript=None)),
-        (OpeningKind.FIRST_FRAME, record("work-visual", video_reference=None)),
-    ),
-)
-async def test_analyzer_evidence_without_bound_source_input_is_removed(
-    kind: OpeningKind,
-    content: ContentRecord,
-) -> None:
-    result = await run_engine(
-        InputlessEvidenceAnalyzer(kind),
-        sync_results=(
-            AccountSyncResult(
-                "account-001", SyncStatus.SUCCESS_WITH_CONTENT, (content,)
-            ),
-        ),
-        relations=(relation("project-a", "v1"),),
-        contexts=(context("project-a", "v1"),),
-        run_at=RUN_AT,
-    )
-
-    analysis = result.reports["project-a"].items[0].analysis
-    assert analysis.opening.status == OpeningTagStatus.UNAVAILABLE
-    assert analysis.shot_observations == ()
-    assert analysis.source_information.limitations
-
-
-@pytest.mark.asyncio
-async def test_each_visual_claim_requires_visual_evidence_of_its_own() -> None:
-    verified_media = content_analysis.MediaReadResult(
-        status=content_analysis.MediaReadStatus.READABLE,
-        evidence_refs=("4-6s",),
-    )
-    result = await run_engine(
-        MixedEvidenceAnalyzer(),
-        sync_results=(
-            AccountSyncResult(
-                "account-001",
-                SyncStatus.SUCCESS_WITH_CONTENT,
-                (
-                    replace(
-                        record("work-001"),
-                        media_read_result=verified_media,
-                    ),
-                ),
-            ),
-        ),
-        relations=(relation("project-a", "v1"),),
-        contexts=(context("project-a", "v1"),),
-        run_at=RUN_AT,
-    )
-
-    analysis = result.reports["project-a"].items[0].analysis
-    assert analysis.opening.status == OpeningTagStatus.UNAVAILABLE
-    assert analysis.shot_observations == (
-        AnalysisEvidence(EvidenceType.VISUAL, "4-6s", "可读画面中的镜头"),
-    )
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("kind", "wrong_evidence"),
-    (
-        (OpeningKind.LANGUAGE, EvidenceType.VISUAL),
-        (OpeningKind.FIRST_FRAME, EvidenceType.TRANSCRIPT),
-    ),
-)
-async def test_opening_kind_requires_its_own_matching_evidence(
-    kind: OpeningKind, wrong_evidence: EvidenceType
-) -> None:
-    result = await run_engine(
-        MismatchedOpeningAnalyzer(kind, wrong_evidence),
-        sync_results=(
-            AccountSyncResult(
-                "account-001", SyncStatus.SUCCESS_WITH_CONTENT, (record("work-001"),)
-            ),
-        ),
-        relations=(relation("project-a", "v1"),),
-        contexts=(context("project-a", "v1"),),
-        run_at=RUN_AT,
-    )
-
-    opening = result.reports["project-a"].items[0].analysis.opening
-    assert opening.status == OpeningTagStatus.UNAVAILABLE
-    assert opening.kind == kind
 
 
 def test_available_opening_requires_explicit_kind() -> None:
@@ -2134,9 +1870,9 @@ async def test_opportunities_are_capped_library_candidate_is_atomic_and_metrics_
     assert qianchuan.stable_key == "platform_content_id:work-0"
     assert qianchuan.body_benchmark == "问题—方法—证明"
     assert qianchuan.opening_status == OpeningTagStatus.UNAVAILABLE
-    assert qianchuan.opening_kind == OpeningKind.FIRST_FRAME
+    assert qianchuan.opening_kind == OpeningKind.LANGUAGE
     assert qianchuan.opening_fragment is None
-    assert qianchuan.opening_unavailable_reason == "没有可读画面证据"
+    assert qianchuan.opening_unavailable_reason == "测试分析器未提取可用语言开头"
     assert qianchuan.source_information.facts == (
         SourceFact(statement="来源商品宣称有效", source="匿名来源"),
     )
@@ -2547,11 +2283,7 @@ async def test_missing_stable_identity_forms_independent_candidates_without_fake
     report = result.reports["project-a"]
     assert analyzer.basic_calls == [first, second]
     assert len(report.items) == 2
-    assert len(report.library_candidates) == 2
-    assert [candidate.stable_key for candidate in report.library_candidates] == [
-        None,
-        None,
-    ]
+    assert report.library_candidates == ()
 
 
 @pytest.mark.asyncio
@@ -2571,7 +2303,7 @@ async def test_source_claims_never_become_project_facts_and_report_keeps_epistem
     )
     assert item.analysis.source_information.judgments
     assert item.analysis.source_information.assumptions == ()
-    assert item.analysis.source_information.limitations
+    assert item.analysis.source_information.limitations == ()
     assert item.assessment.confidence == ConfidenceLevel.HIGH
 
 
@@ -2861,6 +2593,58 @@ async def test_cross_project_methods_require_saved_library_entries_and_strip_sou
     assert candidate.is_strong is True
     assert candidate.auto_written_project_ids == ()
     assert not hasattr(candidate, "source_information")
+
+
+@pytest.mark.asyncio
+async def test_empty_daily_does_not_include_existing_cross_project_candidates() -> None:
+    method = reusable_method("problem-proof", "问题到证明", "先问题后证明")
+    result = await run_engine(
+        RecordingAnalyzer(),
+        sync_results=(
+            AccountSyncResult(
+                "account-a",
+                SyncStatus.SUCCESS_WITHOUT_CONTENT,
+                (),
+            ),
+            AccountSyncResult(
+                "account-b",
+                SyncStatus.SUCCESS_WITHOUT_CONTENT,
+                (),
+            ),
+        ),
+        relations=(
+            relation("project-a", "v1", "account-a"),
+            relation("project-b", "v1", "account-b"),
+        ),
+        contexts=(context("project-a", "v1"), context("project-b", "v1")),
+        saved_library_records=(
+            SavedLibraryRecord(
+                "project-a",
+                "saved-work-a",
+                (method,),
+                source_information=SourceInformation(),
+                signals=(CrossProjectSignal.STRONG_ENGAGEMENT,),
+                scenarios=("匿名口播",),
+            ),
+            SavedLibraryRecord(
+                "project-b",
+                "saved-work-b",
+                (method,),
+                source_information=SourceInformation(),
+                signals=(CrossProjectSignal.NOVEL_CONTENT_METHOD,),
+                scenarios=("匿名讲解",),
+            ),
+        ),
+        run_at=RUN_AT,
+    )
+
+    assert len(result.cross_project_candidates) == 1
+    for report in result.reports.values():
+        assert report.is_empty_daily is True
+        assert report.no_content_summary is not None
+        assert report.no_content_summary.cross_project_candidate_count == 0
+        assert report.cross_project_candidates == ()
+        assert "跨项目机会新增 0 条" in report.summary
 
 
 @pytest.mark.asyncio
@@ -3865,6 +3649,36 @@ async def test_saved_source_fragment_cannot_leak_through_cross_project_scenario(
     assert result.cross_project_candidates == ()
 
 
+@pytest.mark.asyncio
+async def test_saved_visual_scenario_cannot_leak_across_projects() -> None:
+    method = reusable_method("problem-proof", "问题到证明", "先问题后证明")
+    result = await run_engine(
+        RecordingAnalyzer(),
+        sync_results=(
+            AccountSyncResult(
+                "account-001",
+                SyncStatus.SUCCESS_WITH_CONTENT,
+                (record("work-001"),),
+            ),
+        ),
+        relations=(relation("project-a", "v1"), relation("project-b", "v1")),
+        contexts=(context("project-a", "v1"), context("project-b", "v1")),
+        saved_library_records=tuple(
+            SavedLibraryRecord(
+                project_id=project_id,
+                content_key=f"{project_id}-source",
+                reusable_methods=(method,),
+                source_information=SourceInformation(),
+                scenarios=("适合对称构图与快节奏剪辑",),
+            )
+            for project_id in ("project-a", "project-b")
+        ),
+        run_at=RUN_AT,
+    )
+
+    assert result.cross_project_candidates == ()
+
+
 def test_source_fragment_in_opening_boundary_makes_opening_unavailable() -> None:
     transcript = "先问痛点"
     analysis = BasicAnalysis(
@@ -4011,7 +3825,7 @@ def test_explicit_prohibition_is_valid_source_and_method_boundary() -> None:
 
 
 @pytest.mark.parametrize("boundary_field", ("method", "source", "opening"))
-def test_unreadable_visual_fact_cannot_hide_in_analysis_boundary(
+def test_unsupported_visual_fact_cannot_hide_in_analysis_boundary(
     boundary_field: str,
 ) -> None:
     transcript = "先问题后证明"
@@ -4063,7 +3877,7 @@ def test_unreadable_visual_fact_cannot_hide_in_analysis_boundary(
         content_analysis.enforce_analysis_boundaries(analysis)
 
 
-def test_unreadable_visual_fact_cannot_hide_in_body_boundary() -> None:
+def test_unsupported_visual_fact_cannot_hide_in_body_boundary() -> None:
     transcript = "先问题后证明"
     analysis = BasicAnalysis(
         content=record("work-body-visual-boundary", transcript=transcript),
@@ -4223,6 +4037,36 @@ def test_effect_hypothesis_is_allowed_only_in_explicit_assumption_role() -> None
     result = content_analysis.enforce_analysis_boundaries(analysis)
 
     assert result.source_information.assumptions == analysis.source_information.assumptions
+
+
+def test_visual_hypothesis_is_rejected_even_when_marked_unverified() -> None:
+    analysis = BasicAnalysis(
+        content=record("work-visual-hypothesis"),
+        category=ContentCategory.PERSONA,
+        confidence=ConfidenceLevel.LOW,
+        opening=OpeningAnnotation(status=OpeningTagStatus.UNANNOTATED),
+        source_information=SourceInformation(
+            assumptions=(SourceAssumption("可能采用对称构图，仍待视频验证"),),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="视觉"):
+        content_analysis.enforce_analysis_boundaries(analysis)
+
+
+def test_visual_absence_is_allowed_as_an_explicit_limitation() -> None:
+    limitation = SourceLimitation("缺少视频画面，无法判断构图")
+    analysis = BasicAnalysis(
+        content=record("work-visual-limitation"),
+        category=ContentCategory.PERSONA,
+        confidence=ConfidenceLevel.LOW,
+        opening=OpeningAnnotation(status=OpeningTagStatus.UNANNOTATED),
+        source_information=SourceInformation(limitations=(limitation,)),
+    )
+
+    result = content_analysis.enforce_analysis_boundaries(analysis)
+
+    assert result.source_information.limitations == (limitation,)
 
 
 @pytest.mark.parametrize(
@@ -4933,7 +4777,7 @@ def test_engine_result_rejects_mutable_nested_collections() -> None:
         (EvidenceType.METADATA, "真实转写证据"),
     ),
 )
-def test_reusable_method_requires_actual_transcript_or_verified_visual_evidence(
+def test_reusable_method_requires_actual_transcript_evidence(
     evidence_type,
     detail,
 ) -> None:
@@ -4959,14 +4803,14 @@ def test_reusable_method_requires_actual_transcript_or_verified_visual_evidence(
 
 
 @pytest.mark.asyncio
-async def test_library_candidate_requires_video_traceability() -> None:
+async def test_library_candidate_does_not_require_operations_review_link() -> None:
     result = await run_engine(
         RecordingAnalyzer(),
         sync_results=(
             AccountSyncResult(
                 "account-001",
                 SyncStatus.SUCCESS_WITH_CONTENT,
-                (record("work-no-video", video_reference=None),),
+                (record("work-no-video", operations_review_url=None),),
             ),
         ),
         relations=(relation("project-a", "v1"),),
@@ -4974,11 +4818,14 @@ async def test_library_candidate_requires_video_traceability() -> None:
         run_at=RUN_AT,
     )
 
-    assert result.reports["project-a"].library_candidates == ()
+    candidates = result.reports["project-a"].library_candidates
+    assert [candidate.stable_key for candidate in candidates] == [
+        "platform_content_id:work-no-video"
+    ]
 
 
 @pytest.mark.asyncio
-async def test_library_candidate_requires_all_project_context_fit_dimensions() -> None:
+async def test_library_candidate_allows_one_valid_project_fit_dimension() -> None:
     result = await run_engine(
         CandidateGateAnalyzer(
             assessment_updates={
@@ -5002,7 +4849,16 @@ async def test_library_candidate_requires_all_project_context_fit_dimensions() -
         run_at=RUN_AT,
     )
 
-    assert result.reports["project-a"].library_candidates == ()
+    candidates = result.reports["project-a"].library_candidates
+    assert [candidate.stable_key for candidate in candidates] == [
+        "platform_content_id:work-one-fit-dimension"
+    ]
+    assert candidates[0].assessment.fit_reasons == (
+        ProjectFitReason(
+            ProjectFitDimension.PROJECT_PERSONA,
+            "只判断了项目人设",
+        ),
+    )
 
 
 @pytest.mark.asyncio
