@@ -220,7 +220,7 @@ M1 基层阶段先建表预留，供后续 persona-writer 选择达人使用。
 | `task_no` | VARCHAR(64) | 是 | 展示编号，例如 `#20844` |
 | `tool_code` | VARCHAR(64) | 是 | 工具编码 |
 | `tool_name` | VARCHAR(128) | 是 | 工具名称冗余字段 |
-| `status` | VARCHAR(32) | 是 | `pending` / `processing` / `success` / `failed` / `cancelled` |
+| `status` | VARCHAR(32) | 是 | `not_run` / `pending` / `processing` / `success` / `failed` / `cancelled`；`not_run` 仅表示因必要配置缺失而未启动，不等同于失败或取消 |
 | `input_payload` | JSONB | 否 | 输入参数脱敏后记录 |
 | `result_summary` | JSONB | 否 | 结果摘要 |
 | `error_code` | VARCHAR(128) | 否 | 错误码 |
@@ -241,7 +241,13 @@ pending → processing → success
 pending → processing → failed
 pending → cancelled
 processing → cancelled
+pending → failed       （超过任务自己的截止时间）
+processing → failed    （超过任务自己的截止时间）
 ```
+
+`not_run` 在任务实例未真正开始时直接写入，是独立的终态业务语义。配置补齐后应创建新的任务实例，不把原 `not_run` 记录改写为 `pending`、`failed` 或 `cancelled`。
+
+用户对失败任务执行手动重试时，必须创建一条新的 `pending` 任务并关联原任务；原失败记录不可复用。平台内部自动重试属于同一任务实例，只追加 `task_logs`，不得重置原任务截止时间。
 
 不允许：
 
@@ -654,4 +660,3 @@ CREATE INDEX idx_ai_call_logs_user_feature ON ai_call_logs(user_id, feature);
 8. 不允许任务型操作跳过 `task_jobs`。
 9. 不允许最终产出不写 `outputs`。
 10. 不允许导出文件不写 `files`。
-

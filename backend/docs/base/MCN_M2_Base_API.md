@@ -3072,3 +3072,195 @@ Response.data：
 ```
 
 没有可用报告时返回 `RESOURCE_NOT_FOUND`；提取无可用事实时成功返回空 `filled_fields`。提取成功后即写 OperationLog：`action=fill_kol_persona_facts`，包括没有新字段可填的成功重试；detail 只含达人编号、报告编号和字段名，不记录正文。提取失败写同一报告编号的 `persona_fact_sync_failed`，供详情按最新结果展示当前状态。
+
+---
+
+## 32. 智能体任务配置 V1.6 阶段二（内容分析）
+
+> 基础路径：`/api/admin/agent-tasks/content-analysis`。鉴权：仅已完成改密的 `admin`；`operator` 一律返回 `PERMISSION_DENIED`。全部非流式响应使用标准信封。阶段二通过进程内注入的执行器调用内容分析能力，任务配置模块不读取飞书表、不复制飞书行，也不使用模块 HTTP 回调。
+
+### 32.1 固定任务与状态合同
+
+页面仍只有两个固定任务：
+
+| `task_code` | 名称 | 固定触发说明 | 分析窗口 |
+|---|---|---|---|
+| `daily` | 每日项目对标内容分析 | 每日北京时间 00:00 | 刚结束业务日及其前 2 日，右端排他的 3 个完整自然日，项目级 |
+| `weekly` | 账号人设内容基准更新 | 每周一北京时间 01:00 | 刚结束业务日及其前 29 日，右端排他的 30 个完整自然日，按内容对标账号去重 |
+
+接口统一返回 `not_run`、`queued`、`running`、`success`、`failed`、`cancelled`。其中数据库 `pending` 映射为 `queued`，`processing` 映射为 `running`；`not_run` 独立表示必要配置缺失，不能映射为失败或取消。
+
+每个真正启动的运行有独立 `deadline_at = triggered_at + 12 小时`；`not_run` 未运行记录不生成 `deadline_at`。监控查询会同时校验专属 `tool_code` 与 `input_payload.agent_code='content-analysis'`，只把已超过截止时间且仍为 `pending/processing` 的本智能体记录收敛为 `failed` 并追加 `task_logs` 超时记录；该收敛不触发任何真实 Agent。晚到结果不得把超时失败改回成功。
+
+### GET `/api/admin/agent-tasks/content-analysis/overview`
+
+返回智能体信息、固定任务、当前项目范围统计与最近运行摘要。
+
+Response `data`：
+
+```json
+{
+  "agent_code": "content-analysis",
+  "agent_name": "内容分析",
+  "selected_project_count": 2,
+  "scope_counts": {"selected_ready": 1, "selected_missing": 1, "unselected": 3},
+  "status_summary": {"today_completed": 0, "current_running": 0, "failed_last_7_days": 0},
+  "config_updated_by": 1,
+  "config_updated_by_name": "管理员",
+  "config_updated_at": "2026-09-03T10:00:00+08:00",
+  "report_root_ref": "folder-reference",
+  "tasks": [
+    {"task_code": "daily", "name": "每日项目对标内容分析", "schedule": "每日 00:00", "window_days": 3, "latest_formal_run": null, "next_fixed_run": "2026-09-04T00:00:00+08:00"},
+    {"task_code": "weekly", "name": "账号人设内容基准更新", "schedule": "每周一 01:00", "window_days": 30, "latest_formal_run": null, "next_fixed_run": "2026-09-07T01:00:00+08:00"}
+  ],
+  "report_root_ref_configured": true,
+  "delivery_target": "feishu_document"
+}
+```
+
+### GET `/api/admin/agent-tasks/content-analysis/projects`
+
+分页返回全部入驻成功项目的选择与可运行状态。入驻成功沿用现有全局口径：`persona`、`content_plan` 均非空。查询参数：`page`、`page_size`、`keyword`、`scope_status`；`page_size` 最大 100。
+
+每项包含 `project_id`、`project_name`、`project`（项目与红人展示摘要）、`selected`、`scope_status`、内容对标账号总数/可识别数/关系状态、项目上下文完整性、`missing_required`、`optional_context_missing`、`updated_at`。`scope_status` 仅允许：
+
+- `selected_ready`：已选且必要配置通过；非必需上下文缺失时仍可运行，并在 `optional_context_missing` 说明。
+- `selected_missing`：已选但内容对标账号等当前任务必要配置缺失。
+- `unselected`：未选择。
+
+内容对标账号只有 `account_type='content'` 且去除首尾空白后的 `sec_uid` 非空才算可识别。数据库关系只用于运行前预检，不代表飞书运行时关系有效。
+
+### GET `/api/admin/agent-tasks/content-analysis/projects/{project_id}/input`
+
+只读返回单个入驻成功项目的输入上下文。`modules` 中每项包含 `key`、`label`、`required`、`status`、`source`、`updated_at`、`value`、`missing_reason`；`status` 为 `ready`、`missing` 或 `input_limited`。其他非必需上下文缺失时还返回具体的 `missing_reasons` 数组，便于逐项说明缺失但不阻断运行。至少覆盖项目基础信息、人格、内容规划、内容对标账号、其他非必需上下文、内容数据、历史分析和正式结果位置。
+
+### GET `/api/admin/agent-tasks/content-analysis/weekly-accounts`
+
+分页返回周任务测试可选择的有效内容对标账号。查询参数：`page`、`page_size`、`keyword`、`project_id`；`page_size` 最大 100。测试候选来自全部入驻成功且必要数据库预检通过的项目，不要求项目已加入持续自动运行范围；可选 `project_id` 只把候选限制到该合格项目。关系必须满足 `account_type='content'` 且去除首尾空白后 `sec_uid` 非空，再按精确、区分大小写的规范化 `sec_uid` 跨项目去重并确定性排序。每项返回 `account_key`、可空展示名和升序去重的 `project_ids`；不得混入未入驻、非内容关系、空账号或其他项目上下文正文。正式自动周调度不调用本接口，仍只汇总已勾选且预检通过的项目。
+
+### PUT `/api/admin/agent-tasks/content-analysis/config`
+
+Request：`{"selected_project_ids": [1, 2], "report_root_ref": "folder-reference"}`。整体替换 `content-analysis` 的当前项目范围，数组去重；`report_root_ref` 是内容分析智能体级共享飞书报告根目录引用，可暂不配置，不按项目保存，也不允许测试运行临时覆盖。全空白引用必须去空白后保存为 `null`，不能视为已配置。任一项目不存在、已软删或未达到现有入驻成功标准时整次请求失败，不做部分保存。首次保存与并发更新按 `agent_code` 原子写入。Response `data` 返回项目 ID 数组、`report_root_ref`、`updated_by`、`updated_by_name`、`updated_at`。成功写 OperationLog：`action=update_agent_task_config`，detail 仅含智能体编码、项目 ID 和 `report_root_ref_configured` 布尔值，严禁记录目录引用原文。
+
+### GET `/api/admin/agent-tasks/content-analysis/runs`
+
+分页返回明确属于 `content-analysis` 的执行记录；查询同时校验专属 `tool_code` 与 `input_payload.agent_code`。查询参数：`page`、`page_size`、`task_code`、`status`、`project_id`、`account_key`、`run_type`、`started_from`、`started_to`；`page_size` 最大 100。每日记录按单项目执行对象，周记录包括账号执行对象及内部的 `weekly_batch_finalize`（周批次收尾）对象；账号对象带本次范围内的 `project_ids`，收尾对象带批次编号、批次数量、已选项目范围和收尾版本。每项至少包含 `execution`、四层结果 `database_precheck` / `feishu_relation` / `internal_result` / `delivery`、`failure_stage`、重试关联及时间字段；`internal_result.internal_result_id` 存在时作为只读内部结构化结果编号返回，`delivery.document_url` 存在且为合法 HTTP/HTTPS 地址时作为飞书结果文档链接返回。当前没有内部结果详情页接口，不得为编号伪造可点击链接。筛选、计数与分页在数据库完成。历史响应中的账号执行对象只返回稳定哈希 `account_key_hash`，不返回原始 `account_key`；原值只允许周账号候选接口用于管理员选择。收尾对象不能冒充账号对象，其失败不改写账号任务状态。
+
+### GET `/api/admin/agent-tasks/content-analysis/runs/{run_id}`
+
+返回单条内容分析记录、`execution` 执行对象、四层结果、脱敏输入快照、原任务/后续重试任务双向关联和按时间升序的 `task_logs`。列表与详情都按相同规则展示只读内部结构化结果编号和飞书文档链接。顶层执行对象、输入快照和结果摘要中的账号标识都只返回同一规则生成的 `account_key_hash`。日志与接口不得暴露完整 `sec_uid`、报告目录引用、项目上下文正文或飞书行。非内容分析任务或载荷智能体归属不匹配时返回 `RESOURCE_NOT_FOUND`。
+
+### POST `/api/admin/agent-tasks/content-analysis/test-runs`
+
+每日测试 Request：`{"task_code": "daily", "project_id": 1, "request_id": "..."}`；周测试 Request：`{"task_code": "weekly", "account_key": "...", "request_id": "..."}`。一次只允许一个执行对象；每日项目和周账号都不要求已加入持续自动运行范围，但必须来自入驻成功且必要数据库预检通过的项目。周测试由全部合格项目关系派生该账号的升序去重 `project_ids`，不得接受客户端传项目列表。`request_id` 去除首尾空白后必须为 1 至 128 个字符；同一 `task_code + run_type=test + request_id` 的串行或并发重复请求必须返回同一 `TaskJob`，且执行器只调用一次，不同请求编号仍创建不同任务。重复请求可各记一条脱敏审计，但不得记录完整账号或目录引用。
+
+测试信封 `run_type='test'`，允许保存带测试隔离标识的平台结构化结果（包括测试域 `Output`），并写入共享报告根目录下确定性的“测试报告”子目录；不得写正式业务投影或正式目录，包括正式日报、项目内容库、跨项目机会和账号基准。测试目录失败不得回退正式目录。测试使用注入的执行器，仓库测试必须使用 fake，禁止真实飞书、模型和生产数据库调用。
+
+共享报告根目录未配置时，周账号候选仍可浏览，但日/周测试均只创建 `not_run` 记录，`database_precheck.reason_code='REPORT_ROOT_REF_MISSING'`，后三层为 `skipped`，不调用执行器。页面必须提前说明该阻断条件。
+
+成功写 OperationLog：`action=create_agent_task_test_run`。
+
+### POST `/api/admin/agent-tasks/content-analysis/runs/{run_id}/retry`
+
+Request：`{"request_id": "..."}`，去除首尾空白后必须为 1 至 128 个字符。只允许对单条 `failed` 内容分析记录手动重试；同一原任务、同一 `request_id` 在并发请求下也幂等返回同一条新任务。新任务继承原执行对象、业务日期、分析窗口、测试/正式投递范围、`internal_result_key` 和 `document_key`，以重试触发时间生成新的 12 小时截止时间。投递失败，或 `failure_stage='timeout'` 且已有内部结果编号和投递身份时，`retry.mode='delivery_only'` 并调用 `redeliver(envelope, internal_result_id, delivery_identity)`；其他失败为 `retry.mode='full'` 并调用 `execute(envelope)`。仅投递调用抛异常、运行资源不可用或返回非法合同结果时，仍保持输入和内部执行层 `skipped`、`failed/delivery` 与两项重试身份，后续不得升级为完整重跑。原记录没有非空报告根目录时拒绝重试，不使用当前新配置替换旧投递上下文；管理员需先配置根目录，再等待新自动任务或另行发起新测试。原记录保持失败。成功写 OperationLog：`action=retry_agent_task_run`，日志不得记录完整账号标识或目录引用。
+
+### 32.2 任务信封 2.0、自动触发与四层结果
+
+进程内执行器协议固定为两个异步方法：`execute(envelope)` 与 `redeliver(envelope, internal_result_id, delivery_identity)`；两者都必须是真正的异步方法，不得增加模块 HTTP 回调。信封 `contract_version='2.0'`，包含：`task_identity`、`task_code`、`run_type`、刚结束的 `business_date`、`analysis_window={start,end,timezone:'Asia/Shanghai',end_exclusive:true}`、`triggered_at`、`deadline_at`、`retry`、`database_precheck`、`delivery_target`、`execution` 与 `idempotency={run_key,internal_result_key,document_key}`。标准构造层必须在序列化前将所有入口的 `triggered_at` 与派生或显式 `deadline_at` 统一转换为 `Asia/Shanghai`；转换不改变时间点、业务日期、3/30 日窗口或 12 小时时长。执行器缺失或不符合完整合同，测试和重试接口统一返回 HTTP 503 标准信封，调度不创建后台任务，禁止回退为阶段一伪执行。
+
+- 日任务 `execution={object_type:'project',project_id}`。
+- 周任务 `execution={object_type:'account',account_key,project_ids,weekly_batch_id,batch_size,batch_position}`；正式自动批次只使用已勾选且预检通过项目，同批账号按去除首尾空白后的精确 `sec_uid` 去重并确定性排序，逐个顺序执行，共享一个 `document_key`，单账号失败不阻断后续账号。
+- 正式周批全部账号进入终态后，必须再通过同一 `execute(envelope)` 创建并执行一个 `execution={object_type:'weekly_batch_finalize',weekly_batch_id,batch_size,project_ids,finalize_version}` 的周批次收尾任务；`batch_size` 为非负整数，`project_ids` 必须是非空的已选项目编号数组。存在至少一个已选项目但无可计算账号时仍创建 `batch_size=0` 的空批收尾；完全没有已选项目时不创建账号任务、收尾任务或周报。最后一个或全部账号失败时也不能跳过收尾。收尾信封不得携带账号、内容、关系明细或项目长文本；测试运行一次只测一个账号，不创建收尾任务。创建任意正式自动收尾任务前，任务配置服务必须以完整锁名 `content-analysis:weekly-batch:{weekly_batch_id}` 和 PostgreSQL 键 `hashtextextended(:lock_name, 0)` 取得事务级咨询锁；同一事务内重新读取终态快照、确定最新 `finalize_version`、执行幂等检查、创建 `TaskJob` 并提交，提交后释放锁，再调用执行器。该锁与内容分析执行收尾时持有的同键会话级锁共享锁空间，保证旧版执行完成后才允许新版本建账。
+- 正式自动任务只有部署开关开启且配置的系统账号存在、启用、未软删且角色为 `admin` 时才运行；否则 tick 关闭失败并记系统配置错误，禁止回退使用其他管理员创建任务。导入应用且开关关闭时不得启动该调度工作。
+- 正式日/周自动任务的非空 `run_key` 受数据库部分唯一索引保护；测试与手动重试不占用该唯一范围。
+- 正式自动任务的 `internal_result_key` 与默认 `document_key` 保持既有业务日/执行对象逻辑键。测试任务的三键进入确定性测试命名空间，`internal_result_key` 与 `document_key` 均包含规范化 `request_id`，保证同一请求重送稳定、不同请求分离，且不与同对象同业务日的正式任务冲突。手动重试与内部重试继承原任务的内部结果键和文档键。
+- 平台内部重试沿用同一 `TaskJob` 与原截止时间；手动重试新建 `TaskJob` 与新截止时间。
+- 自动触发先在同一短事务中持久化本批全部账号 `TaskJob`、完整信封与运行键；项目必要配置或共享报告根目录缺失的执行对象直接落为 `not_run`，根目录缺失时不得调用执行器。未勾选项目仍不创建正式自动任务；周固定时点完全没有已选项目时也不得创建空收尾。补偿扫描使用固定到期时点计算业务日期和窗口，但以实际恢复时刻记录触发时间并生成新的 12 小时截止时间，不能补建即过期；进程恢复还须先领取已持久化的正式自动 `pending` 任务，不因当前项目或账号范围变化丢弃原队列。事务提交后，日任务由彼此隔离的受管理后台工作协程领取，周账号任务按 `batch_position` 由单个受管理批次协程顺序领取。全部声明账号进入终态后，再创建并领取收尾任务；有已选项目但零账号时直接按非空项目范围创建零批量收尾。收尾读取同一数据库时必须严格限定内容分析周任务、正式域、批次和账号对象，多次尝试按账号确定性采用最新有效终态；零账号快照必须保持空集合，不得误读其他批次或测试域，最终统计只有成功、无内容、失败且 `pending=0`。领取使用 `pending -> processing` 条件更新；长执行不阻塞调度循环扫描下一固定时点或执行超时收敛。应用关闭时必须取消并等待本模块调度与执行协程，测试和手动重试仍在请求内执行。
+
+周批次收尾不读取飞书输入表、项目上下文或模型，不重跑账号分析，也不重复写项目内容库、跨项目机会或账号基准。它只根据严格限定的终态快照生成新的不可变内部汇总结果，并用该业务窗口既有 `document_key` 创建或更新唯一公司账号基准周报；失败账号只允许携带账号哈希和脱敏原因码。收尾使用包含终态版本的独立 `internal_result_key`，相同终态快照的并发或重复收尾幂等返回同一任务。收尾内部成功但投递失败时，手动重试仍调用 `redeliver` 且复用原结果与文档身份；某账号后续重试改变最终状态时，创建新收尾版本并复用同一周报文档，不重跑其他账号。
+
+`result_summary` 固定保存四层：`database_precheck`、`feishu_relation`、`internal_result`、`delivery`，另有 `failure_stage`。映射必须为：项目必要配置缺失或报告根目录未配置为 `not_run`，对应原因分别保存且后三层跳过；飞书完整读取后无有效关系也为 `not_run`；关系/内容表鉴权、字段或分页失败为 `failed/data_source`；无视频但内部空结果与日报投递成功为 `success`；内部成功但投递失败为 `failed/delivery` 并保留 `internal_result_id`、`delivery_identity`；分析或内部持久化失败分别为 `failed/analysis`、`failed/internal_result`；12 小时超时为 `failed/timeout`。收尾对象的数据库预检通过、飞书关系层固定 `skipped`，内部结果和投递仍按同一严格合同映射。超时后的迟到结果不得覆盖终态或写入正式业务位置。
+
+执行器回传必须通过禁止额外字段的严格四层校验，包括状态闭集、每种状态允许的精确字段、必需身份字段及层间一致性；普通日报或账号任务不得以输入 `skipped` 配合内部和投递成功形成假成功。仅在任务侧已经绑定原内部结果和文档身份的仅投递重试中，才允许保持输入与内部执行层 `skipped`，同时携带两项身份供连续补投。非法、缺字段、额外字段或互相矛盾的回传安全收敛为 `failed/analysis` 与 `EXECUTOR_CONTRACT_INVALID`，不得保存外来额外数据或形成假成功。测试与手动重试在调用长耗时执行器前先提交任务、`processing` 状态、开始日志和管理员 `OperationLog`；自动任务则先整批提交为持久队列，再在独立短事务中条件领取并提交 `processing` 与开始日志。执行结果统一在后续事务中按旧状态条件更新，使任务可被其他会话观察和超时收敛。自动调度不写管理员 `OperationLog`。
+---
+
+## 33. 内容分析项目库（M2 Sprint28）
+
+接口前缀：`/api/tools/content-analysis/library`。鉴权：已改密的 `operator` / `admin`。所有响应使用标准信封。
+
+### GET `/api/tools/content-analysis/library`
+
+按项目、主分类和可用状态分页读取内容分析项目库。`project_id`、`category`（`persona` / `qianchuan`）必填；`availability` 为 `enabled` / `disabled`，默认 `enabled`；`page` 默认 1，`page_size` 默认 20、最大 100。不得跨项目返回记录。
+
+Response `data`：
+
+```json
+{
+  "items": [{
+    "id": 1,
+    "project_id": 1001,
+    "kol_reference_id": 9,
+    "title": "候选标题",
+    "category": "qianchuan",
+    "ingestion_source": "analysis",
+    "platform": "unknown",
+    "source_platform_note": "来源平台未知",
+    "account_id": "匿名账号编号",
+    "platform_content_id": "匿名作品编号",
+    "external_url": null,
+    "analysis": {},
+    "project_assessment": {},
+    "latest_metrics": {},
+    "confidence": "medium",
+    "priority": 1,
+    "opening_status": "unannotated",
+    "opening_fragment": null,
+    "opening_unavailable_reason": null,
+    "availability": "enabled"
+  }],
+  "pagination": {"page": 1, "page_size": 20, "total": 1}
+}
+```
+
+### POST `/api/tools/content-analysis/library`
+
+运营把一条千川正文人工加入明确项目。Request：
+
+```json
+{
+  "project_id": 1001,
+  "title": "人工候选标题",
+  "transcript": "人工候选正文",
+  "platform_content_id": null,
+  "external_url": null
+}
+```
+
+`transcript` 必填且必须是可用正文；`title` 可选，缺失时使用“人工千川正文”作为展示标题；两个稳定身份可选。新记录保存为
+`ingestion_source=manual`、`opening_status=unannotated`，等待后续日报补标。两个外部稳定身份都缺失时，系统使用已持久化项目库记录编号形成仅供内部历史关联的稳定键，不改变接口返回，也不得阻断当前项目或其他项目日报。
+同项目已有相同作品编号或外部链接时合并到原记录，只补齐缺失身份并把当前来源标为人工，
+不覆盖原标题、正文或开头标注。稳定身份去重查询在项目库事务锁内执行，并发的人工/自动写入合并到同一条记录且保持人工来源。写 `OperationLog`；框架参数校验错误也使用标准响应信封。
+
+### PATCH `/api/tools/content-analysis/library/{item_id}/availability`
+
+Request：`{"project_id": 1001, "availability": "disabled"}`。只能操作同一 `project_id` 的候选；写 `OperationLog`，不物理删除内容。停用/恢复路径在首次读取候选前取得与自动项目库刷新相同的事务锁，重建跨项目机会时必须使用最新分析快照。停用记录继续占用作品编号/外部链接稳定身份，避免自动重复新建；后续日报再次采集到同一内容时可刷新分析与互动快照，但不得自动恢复可用状态、标记为在库可复用/跨项目或进入跨项目机会，即使其他可用内容共享同一方法键也不能提升该停用记录；必须由人工恢复后才重新参与复用。
+
+### PATCH `/api/tools/content-analysis/library/{item_id}/opening`
+
+只允许人工补标千川候选。可用时提交 `status=available` 与能在原转写中逐字定位的 `fragment`；不可用时提交 `status=unavailable` 与非空 `unavailable_reason`。开头结果与正文候选保存在同一项目记录，并写 `OperationLog`。人工路径与日报自动刷新/自动补标使用同一事务锁，自动结果不得在旧快照上覆盖已提交的人工标注。
+
+### 进程内执行合同
+
+任务配置模块不通过 HTTP 调用内容分析，而只调用同一后端进程内的 `execute(envelope)` 与 `redeliver(envelope, internal_result_id, delivery_identity)`。调用方不直接操作内容分析领域仓库。`execute` 可完整运行或完整重试；`redeliver` 只读取已保存结果并重试飞书投递，不重复模型分析或业务入库。每日项目和周度账号的人工仅投递重试必须先核验本次重试任务保存的 `request_id`、来源失败任务、既有内部结果、原投递目标与正式/测试域；测试域还必须精确绑定原 `test_subdirectory`。一次人工补投再次投递失败时，后续补投沿任务配置保存的来源链逐跳核验上述身份并定位同一个不可变内部结果，不生成新分析结果；周账号补投后的周批收尾同样读取该原结果。仅投递调用即使在信封/参数解析、运行资源创建或原任务来源校验阶段失败，四层结果也必须保持 `failure_stage=delivery`、飞书关系/内容层 `skipped`、内部结果 `skipped`、投递 `failed`，不得伪装成内部分析失败并诱导完整重试。完整执行在信封解析、运行资源、系统配置或重试来源核验阶段尚未读取飞书就失败时，飞书关系/内容层也必须为 `skipped`，不得报成已就绪。
+
+信封运行类型只接受 `auto`、`test`、`manual_retry`、`retry` 和任务配置内部调度使用的 `internal_retry`。重试必须保留并校验 `retry.mode`，只接受 `full`（完整重试）或 `delivery_only`（仅投递重试）；后者只能调用 `redeliver`，不得进入 `execute`。`internal_retry` 映射为内部重试并保留原任务编号、业务窗口和截止时间，触发来源记为系统；执行侧还必须以当前 `TaskJob` 已保存输入核对任务类型、执行对象、正式/测试域、测试子目录和三层幂等键，任一漂移按 `EXECUTOR_CONTRACT_INVALID` 失败关闭。`manual_retry` 与 `retry` 是同义的用户触发类型；每日项目与周度账号的 `full` 人工重试必须同时绑定当前重试 `TaskJob` 和失败原任务，继承原执行对象、业务窗口、正式/测试域、测试子目录、内部结果键和文档键，禁止把测试结果提升到正式域或移到另一测试目录。`retry_of_task_id`、`mode` 和 `request_id` 按运行类型严格闭合：自动任务三项均为空；测试任务只带非空 `request_id`；内部重试只带当前任务编号和合法模式；人工重试必须带正整数来源任务编号、合法模式和非空文本 `request_id`。其他运行类型一律按合同错误拒绝。根对象、任务身份、分析窗口、数据库预检、交付目标、重试、幂等键和三种执行对象均使用精确字段闭集；任一未知字段，或把其他执行分支的字段、内容明细、关系明细、项目长文本混入信封，均失败关闭。
+
+任务配置最终注册长生命周期的内容分析运行入口时，必须使用资源提供器：应用通过统一 `Settings` 从标准 `.env` 或进程环境读取内容分析配置并显式注入提供器；每次 `execute` 或 `redeliver` 调用独占一个数据库会话和一个有明确关闭责任的飞书网络客户端，调用结束统一回滚未提交事务并关闭资源。单次调用内的数据读取、模型日志、持久化和投递共享同一个数据库会话；不同并发任务不得共享会话。配置或资源创建失败返回脱敏的四层失败结果，不在构造或导入阶段联网。
+
+正式日报目录由内容分析执行侧使用数据库项目名称和稳定项目编号派生为
+`项目日报/{project_id}-{project_name}`；测试运行固定进入 `测试报告`，不得回退正式目录。
+周任务有两种执行对象：账号实例 `account` 只更新 `account:{sec_uid}` 区块；全部账号实例进入终态后，`weekly_batch_finalize` 收尾实例通过同一个 `execute(envelope)` 入口读取本批次最新账号终态，只更新唯一 `batch-summary` 公司汇总区块。飞书文档键和业务区块键分别使用哈希派生的稳定标记，并且只把正文第一、第二行的专用标记视为文档与区块身份；任务信封中的 `document_key` 禁止换行。账号文本或业务键即使包含类似标记也不能冒充其他文档/公司汇总区块。收尾不读取飞书输入、项目上下文或模型，不写项目库、跨项目机会和账号基准。账号重试改变终态后使用新的分析/结果幂等键再次收尾，生成新不可变汇总结果，并复用同一个周报 `document_key` 更新原文档；相同收尾请求保持幂等。收尾投递失败仍只调用 `redeliver`。
+
+收尾信封使用 `task_code=weekly`、`execution.object_type=weekly_batch_finalize`，携带 `weekly_batch_id`、非负整数 `batch_size`、非空且排序去重的 `project_ids`，以及非空的终态快照版本 `finalize_version`；不得携带内容、关系明细或项目长文本。该版本必须进入不可变结果和任务来源回执，完整内部重试也必须与原任务精确一致。至少有一个已选项目、但本周没有账号实例时，`batch_size=0`，仍生成待处理/成功/无内容/失败/可计算账号均为 0 的空周报；没有已选项目时，任务配置侧不创建账号任务、收尾任务或正式周报。收尾实例只允许正式隔离域；测试运行仍只能执行一个账号实例，不能构造测试域收尾。投递失败必须使用 `delivery_only + redeliver`，并核验原任务确为同批次、同 `finalize_version` 的投递失败收尾且内部结果编号一致；来源或版本无效按 `EXECUTOR_CONTRACT_INVALID` 失败关闭，使调用侧保持仅投递重试语义。非投递阶段失败的已有收尾任务可使用 `manual_retry + full + execute` 完整重试，但执行侧必须同时绑定本次人工重试 `TaskJob` 和来源失败任务，并显式拒绝把既有 `delivery_only` 失败升级为完整执行。自动收尾执行、系统内部或人工触发的完整收尾重试以及补投，均先取得周批次锁，再在任何结果读取或投递前以同批次最新自动收尾任务的 `finalize_version` 为权威版本，不按重试编号或版本字符串大小判断；过期自动任务不得读取旧结果或覆盖新周报。人工重试使用新的运行键，但继续绑定原内部结果键和文档键；仅投递可复用已保存结果，不因运行键变化误拒绝。收尾四层结果必须把 `feishu_relation` 标为 `skipped`，内部结果和投递仍使用既有封闭状态。执行侧对同一分析键先使用受截止时间约束的进程内单飞锁，再与同一周批次、报告目录各级前缀和文档键一样使用 PostgreSQL 会话级 advisory lock；同一任务的嵌套分析/投递锁复用一个独立连接，非阻塞轮询受任务截止时间约束，并按连接池容量预留业务连接。锁持续到完整分析/收尾投递结束，不会被业务会话中途提交释放，从而避免连接池饥饿、多进程重复分析、过期汇总覆盖、重复建目录或重复建文档。正式项目库的自动刷新、跨项目机会首次查询/写入以及人工开头补标在读取候选前取同一公司级事务锁，保证全局方法键唯一且人工开头不与最新自动分析字段互相覆盖。日报模型分析结束后必须在同一项目库事务锁内重新读取当前可用状态与待补标集合，再冻结结构化结果并持久化；模型运行期间新增后又停用的同身份内容不得留在当次新增候选，待自动补标内容若被停用只跳过该条，不得回滚整份日报。
+
+收尾仅依据每个最新账号终态所绑定的内部结果编号，读取并校验对应 `content_analysis_results` 与 `outputs.content_json`：任务、账号、项目范围、业务窗口、正式/测试域和结果状态必须一致。公司汇总保留成功、无内容、失败三类任务计数，另以已保存基准 `status=available` 且样本数大于 0 计算“可计算账号数”。成功或无内容账号栏目展示稳定账号号、终态、关联项目、样本数、平均点赞、中位数、最高/最低点赞、基准更新时间和不可计算原因；失败账号只展示 `sha256` 账号哈希、关联项目、终态时间和脱敏原因码，不把原始稳定账号号写入结构化周批结果或飞书周报。成功任务若没有可计算的人设样本，仍计入成功或无内容任务计数，但不计入可计算账号。任一内部结果身份或基准结构不一致时收尾失败关闭，不重读飞书或调用模型。

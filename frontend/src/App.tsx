@@ -24,6 +24,7 @@ const UsersPage = lazy(() => import('./pages/admin/UsersPage'));
 const KolsPage = lazy(() => import('./pages/admin/KolsPage'));
 const WorkspaceConfigPage = lazy(() => import('./pages/admin/WorkspaceConfigPage'));
 const AdminTasksPage = lazy(() => import('./pages/admin/AdminTasksPage'));
+const AgentTaskConfigPage = lazy(() => import('./pages/admin/AgentTaskConfigPage'));
 const AdminOutputsPage = lazy(() => import('./pages/admin/AdminOutputsPage'));
 const ServiceStatusPage = lazy(() => import('./pages/admin/ServiceStatusPage'));
 const ServiceConfigPage = lazy(() => import('./pages/admin/ServiceConfigPage'));
@@ -164,6 +165,7 @@ export default function App() {
                 <Route path="/admin/kols/:kolId/workspace-config" element={<KolWorkspaceConfigPage />} />
                 <Route path="/admin/workspace" element={<WorkspaceConfigPage />} />
                 <Route path="/admin/tasks" element={<AdminTasksPage />} />
+                <Route path="/admin/agent-tasks" element={<AgentTaskConfigPage />} />
                 <Route path="/admin/outputs" element={<AdminOutputsPage />} />
                 <Route path="/admin/system" element={<ServiceStatusPage />} />
                 <Route path="/admin/logs" element={<ExternalLogsPage />} />

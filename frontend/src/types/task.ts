@@ -1,4 +1,4 @@
-export type TaskStatus = 'pending' | 'processing' | 'success' | 'failed' | 'cancelled';
+export type TaskStatus = 'pending' | 'processing' | 'success' | 'failed' | 'cancelled' | 'not_run';
 
 export interface TaskJob {
   id: number;

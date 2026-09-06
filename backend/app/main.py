@@ -2,6 +2,7 @@ import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.routing import APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -9,6 +10,14 @@ from fastapi.responses import JSONResponse
 from app.core.config import settings
 from app.core.seed import seed_initial_data
 from app.services.kol_scheduler import tikhub_refresh_scheduler
+from app.services.agent_task_scheduler import (
+    shutdown_content_analysis_scheduler,
+    start_content_analysis_scheduler,
+)
+from app.services.agent_task_execution_contract import register_content_analysis_executor
+from app.services.content_analysis.runtime_factory import (
+    build_content_analysis_runtime_provider,
+)
 from app.routers import health
 from app.routers.auth import router as auth_router
 from app.routers.admin_users import router as admin_users_router
@@ -74,6 +83,8 @@ from app.routers import admin_retrospective, operator_retrospective
 from app.routers import admin_kol_workspace
 from app.routers.external_kols import router as external_kols_router
 from app.routers.external_recording_anchors import router as external_recording_anchors_router
+from app.routers.admin_agent_tasks import router as admin_agent_tasks_router
+from app.routers.content_analysis_library import router as content_analysis_library_router
 from app.evaluation.routers.admin_evaluation import router as admin_eval_router
 from app.evaluation.routers.operator_evaluation import router as operator_eval_router
 
@@ -111,6 +122,14 @@ async def http_exception_handler(request: Request, exc: HTTPException):
     return JSONResponse(
         status_code=exc.status_code,
         content={"success": False, "code": code, "message": message, "data": None},
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_exception_handler(request: Request, exc: RequestValidationError):
+    return JSONResponse(
+        status_code=422,
+        content={"success": False, "code": "VALIDATION_ERROR", "message": "请求参数校验失败", "data": None},
     )
 
 # ---------------------------------------------------------------------------
@@ -197,6 +216,8 @@ app.include_router(operator_retrospective.router, prefix="/api")
 app.include_router(admin_kol_workspace.router, prefix="/api")
 app.include_router(external_kols_router, prefix="/api")
 app.include_router(external_recording_anchors_router, prefix="/api")
+app.include_router(admin_agent_tasks_router, prefix="/api")
+app.include_router(content_analysis_library_router, prefix="/api")
 app.include_router(admin_eval_router, prefix="/api")
 app.include_router(operator_eval_router, prefix="/api")
 
@@ -206,7 +227,17 @@ app.include_router(operator_eval_router, prefix="/api")
 async def startup_lifespan(app: FastAPI):
     await seed_initial_data()
     asyncio.create_task(tikhub_refresh_scheduler())
-    yield
+    content_analysis_provider = build_content_analysis_runtime_provider(
+        settings.content_analysis_runtime_values()
+    )
+    register_content_analysis_executor(content_analysis_provider)
+    content_analysis_task = start_content_analysis_scheduler()
+    try:
+        yield
+    finally:
+        await shutdown_content_analysis_scheduler(content_analysis_task)
+        register_content_analysis_executor(None)
+        await content_analysis_provider.aclose()
 
 
 app.lifespan_context = startup_lifespan

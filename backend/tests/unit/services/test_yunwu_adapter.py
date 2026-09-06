@@ -126,6 +126,7 @@ async def test_chat_handles_empty_choices_in_non_stream_response():
     fake_resp = _FakeNonStreamResponse({
         "choices": [],
         "usage": {"prompt_tokens": 10},
+        "private_payload": "must-not-leak",
     })
     fake_client = _FakeNonStreamClient(fake_resp)
 
@@ -146,3 +147,8 @@ async def test_chat_handles_empty_choices_in_non_stream_response():
     # 错误信息包含 provider 标识，便于运维定位
     assert "siliconflow" in str(exc_info.value)
     assert "empty choices" in str(exc_info.value)
+    assert "must-not-leak" not in str(exc_info.value)
+    assert all(
+        "must-not-leak" not in str(call.args[0].error_message)
+        for call in mock_db.add.call_args_list
+    )

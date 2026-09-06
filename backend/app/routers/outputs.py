@@ -2,18 +2,31 @@ import math
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Request
-from sqlalchemy import select, update
+from sqlalchemy import exists, select, update
 
 from app.core.database import AsyncSessionLocal
 from app.core.response import ApiResponse, ErrorCode, error_response, success_response
 from app.middlewares.auth import require_admin, require_password_changed
 from app.models.log import OperationLog
+from app.models.content_analysis import ContentAnalysisResult
 from app.models.output import Output
 from app.models.user import User
 
 router = APIRouter()
 
 _PAGE_SIZE_ALLOWED = {10, 20, 50}
+_IMMUTABLE_CONTENT_ANALYSIS_TOOLS = {
+    "content_analysis_daily",
+    "content_analysis_weekly",
+}
+
+
+def _formal_output_filter():
+    """测试型内容分析结果不得出现在正式产出中心。"""
+    return ~exists().where(
+        ContentAnalysisResult.output_id == Output.id,
+        ContentAnalysisResult.is_test.is_(True),
+    )
 
 
 def _ts(dt) -> str | None:
@@ -74,6 +87,7 @@ async def list_outputs(
         q = select(Output).where(
             Output.created_by == current_user.id,
             Output.deleted_at.is_(None),
+            _formal_output_filter(),
         )
         if tool_code:
             q = q.where(Output.tool_code == tool_code)
@@ -101,7 +115,11 @@ async def get_output(
 ):
     async with AsyncSessionLocal() as session:
         output = (await session.execute(
-            select(Output).where(Output.id == output_id, Output.deleted_at.is_(None))
+            select(Output).where(
+                Output.id == output_id,
+                Output.deleted_at.is_(None),
+                _formal_output_filter(),
+            )
         )).scalar_one_or_none()
 
     if output is None or output.created_by != current_user.id:
@@ -122,11 +140,20 @@ async def delete_output(
 ):
     async with AsyncSessionLocal() as session:
         output = (await session.execute(
-            select(Output).where(Output.id == output_id, Output.deleted_at.is_(None))
+            select(Output).where(
+                Output.id == output_id,
+                Output.deleted_at.is_(None),
+                _formal_output_filter(),
+            )
         )).scalar_one_or_none()
 
         if output is None or output.created_by != current_user.id:
             return error_response(ErrorCode.PERMISSION_DENIED, "无权限访问")
+        if output.tool_code in _IMMUTABLE_CONTENT_ANALYSIS_TOOLS:
+            return error_response(
+                ErrorCode.PERMISSION_DENIED,
+                "内容分析结构化结果为不可变业务事实，不能通过产出中心删除",
+            )
 
         now = datetime.now(tz=timezone.utc)
         await session.execute(
@@ -163,7 +190,10 @@ async def admin_list_outputs(
         page_size = 20
 
     async with AsyncSessionLocal() as session:
-        q = select(Output).where(Output.deleted_at.is_(None))
+        q = select(Output).where(
+            Output.deleted_at.is_(None),
+            _formal_output_filter(),
+        )
         if tool_code:
             q = q.where(Output.tool_code == tool_code)
         if user_id:
@@ -198,7 +228,11 @@ async def admin_get_output(
 ):
     async with AsyncSessionLocal() as session:
         output = (await session.execute(
-            select(Output).where(Output.id == output_id, Output.deleted_at.is_(None))
+            select(Output).where(
+                Output.id == output_id,
+                Output.deleted_at.is_(None),
+                _formal_output_filter(),
+            )
         )).scalar_one_or_none()
 
     if output is None:
@@ -219,11 +253,20 @@ async def admin_delete_output(
 ):
     async with AsyncSessionLocal() as session:
         output = (await session.execute(
-            select(Output).where(Output.id == output_id, Output.deleted_at.is_(None))
+            select(Output).where(
+                Output.id == output_id,
+                Output.deleted_at.is_(None),
+                _formal_output_filter(),
+            )
         )).scalar_one_or_none()
 
         if output is None:
             return error_response(ErrorCode.OUTPUT_NOT_FOUND, "产出不存在")
+        if output.tool_code in _IMMUTABLE_CONTENT_ANALYSIS_TOOLS:
+            return error_response(
+                ErrorCode.PERMISSION_DENIED,
+                "内容分析结构化结果为不可变业务事实，不能通过产出中心删除",
+            )
 
         now = datetime.now(tz=timezone.utc)
         await session.execute(

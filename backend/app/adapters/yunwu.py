@@ -179,9 +179,7 @@ async def chat(
         # 部分服务商结尾返回 choices:[]（仅含 usage），需防御空数组
         choices = data.get("choices") or []
         if not choices:
-            raise RuntimeError(
-                f"chat failed [{provider}]: empty choices in response: {str(data)[:200]}"
-            )
+            raise RuntimeError("empty choices in response")
         content = choices[0].get("message", {}).get("content", "")
         usage         = data.get("usage") or {}
         input_tokens  = usage.get("prompt_tokens")

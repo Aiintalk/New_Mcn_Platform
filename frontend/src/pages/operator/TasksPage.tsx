@@ -7,8 +7,8 @@ import type { PagedData } from '../../types/api';
 import type { IntakeSubmission } from '../../types/intake';
 
 function statusBadge(s: TaskStatus) {
-  const m: Record<TaskStatus,string> = {pending:'badge-gray',processing:'badge-warning',success:'badge-success',failed:'badge-danger',cancelled:'badge-gray'};
-  const l: Record<TaskStatus,string> = {pending:'待处理',processing:'处理中',success:'成功',failed:'失败',cancelled:'已取消'};
+  const m: Record<TaskStatus,string> = {pending:'badge-gray',processing:'badge-warning',success:'badge-success',failed:'badge-danger',cancelled:'badge-gray',not_run:'badge-gray'};
+  const l: Record<TaskStatus,string> = {pending:'待处理',processing:'处理中',success:'成功',failed:'失败',cancelled:'已取消',not_run:'未运行'};
   return <span className={`badge ${m[s]}`}>{l[s]}</span>;
 }
 function dotClass(s: string) { return s==='success'?'success':s==='failed'?'failed':s==='processing'?'processing':'pending'; }
@@ -102,6 +102,8 @@ export default function TasksPage() {
                     <option value="processing">处理中</option>
                     <option value="success">成功</option>
                     <option value="failed">失败</option>
+                    <option value="cancelled">已取消</option>
+                    <option value="not_run">未运行</option>
                   </select>
                   <span className="filter-count">共 {total} 条</span>
                 </div>

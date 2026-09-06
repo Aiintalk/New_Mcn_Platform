@@ -23,6 +23,7 @@ const GROUPS: NavGroup[] = [
       { path: '/admin/users',     label: '用户管理' },
       { path: '/admin/kols',      label: '红人管理' },
       { path: '/admin/workspace', label: '工具配置' },
+      { path: '/admin/agent-tasks', label: '智能体任务配置' },
       { path: '/admin/tasks',     label: '任务记录' },
       { path: '/admin/outputs',   label: '产出记录' },
     ],

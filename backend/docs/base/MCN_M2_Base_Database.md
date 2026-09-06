@@ -1323,3 +1323,101 @@ CREATE INDEX idx_kol_benchmarks_sec_uid ON kol_benchmarks(sec_uid) WHERE sec_uid
 - 检测到已有业务表但没有账本时，执行器拒绝猜测；运维必须先核对结构，再显式传 `--baseline-through N`。
 - 基线之后若有迁移已由旧流程人工执行，必须先逐项核对结构，再用 `--adopt-existing 文件名` 单独登记；禁止直接扩大基线跳过中间文件。
 - 现网首次接管以 `049` 为基线前，必须确认 049 的唯一约束等前置结构真实存在；随后 050 及之后迁移由账本顺序执行。
+
+---
+
+## 38. agent_task_configs 智能体任务配置（V1.6 阶段二）
+
+### 38.1 用途
+
+保存每个智能体持续生效的项目选择范围。阶段一只启用 `agent_code='content-analysis'`，但数据按智能体隔离，未来智能体不得共享或覆盖其项目范围。
+
+### 38.2 字段说明
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | BIGSERIAL | 是 | 主键 |
+| `agent_code` | VARCHAR(64) | 是 | 智能体编码，UNIQUE；阶段一固定 `content-analysis` |
+| `selected_project_ids` | JSONB | 是 | 项目 ID 数组，默认 `[]`；只允许保存未软删且同时具备 `persona`、`content_plan` 的入驻成功项目 |
+| `report_root_ref` | TEXT | 否 | 内容分析智能体共享飞书报告根目录引用；不按项目保存，不写入操作日志；全空白输入由应用归一为 `NULL`，未配置时不得调用执行器 |
+| `updated_by` | BIGINT FK users | 否 | 最近修改管理员；用户删除时 `ON DELETE SET NULL` |
+| `created_at` | TIMESTAMPTZ | 是 | 创建时间 |
+| `updated_at` | TIMESTAMPTZ | 是 | 更新时间 |
+
+约束与索引：
+
+- `UNIQUE(agent_code)`，同一智能体只有一份当前生效配置。
+- `CHECK (jsonb_typeof(selected_project_ids) = 'array')`。
+- 应用层保存前对项目 ID 去重，并拒绝不存在、已软删或未达到现有入驻成功标准的项目。
+
+迁移文件：`058_agent_task_configs.sql`；阶段二新增字段由 `059_agent_task_config_stage2.sql` 负责。
+
+### 38.3 复用 task_jobs / task_logs 的内容分析合同
+
+阶段二不新增执行记录表或状态。内容分析运行继续写入 `task_jobs`，步骤与状态说明写入 `task_logs`：
+
+- `tool_code` 固定为 `content-analysis-daily` 或 `content-analysis-weekly`。
+- `input_payload` 保存任务信封 2.0 的稳定子集：`agent_code`、`task_code`、`run_type`、`business_date`、右端排他的上海自然日窗口、触发/截止时间、执行对象、重试信息、数据库预检、交付目标及三类幂等键；不得保存飞书行或完整项目上下文。
+- 日任务执行对象为单个 `project_id`；周账号执行对象为规范化 `account_key`、升序去重 `project_ids`、`weekly_batch_id`、`batch_size`、`batch_position`。正式周批全部账号进入终态后，另建 `object_type='weekly_batch_finalize'` 的内部收尾对象，只保存 `weekly_batch_id`、非负整数 `batch_size`、非空已选 `project_ids` 与确定性 `finalize_version`，不保存账号、内容、关系明细或项目长文本。存在已选项目但零账号时允许 `batch_size=0`；完全没有已选项目时不建账号任务或收尾任务。
+- `result_summary` 固定保存 `execution`、`database_precheck`、`feishu_relation`、`internal_result`、`delivery`、`failure_stage`。账号对象的 `execution` 只保存 `account_key_hash` 及批次/项目范围，不重复保存原始 `account_key`；原始账号键只保留在内部 `input_payload` 供执行和筛选。投递失败必须保留内部结果编号与投递身份，以支持仅投递重试。
+- 内容分析任务继续保持 `output_id IS NULL`；平台结构化结果由注入执行器持有，任务配置模块不另写 `outputs`。
+- 报告根目录属于执行必要配置：自动日/周与测试任务缺失时保存为 `not_run`，`database_precheck.reason_code='REPORT_ROOT_REF_MISSING'`，飞书关系、内部结果与投递层均为 `skipped`。周测试账号候选查询不以根目录为过滤条件。
+- 自动触发先用一个短事务把本批全部任务信封和运行键持久化为 `pending`，必要配置缺失实例直接保存为 `not_run`；提交完成后，日实例彼此隔离领取，周实例按 `batch_position` 顺序领取。领取通过条件更新把 `pending` 改为 `processing` 并提交开始日志，长执行不得占用调度扫描会话。测试与手动重试仍在请求内提交 `processing`、开始日志和管理员 `OperationLog` 后同步调用执行器。执行结果统一在后续事务中按原状态条件更新；自动调度不写管理员 `OperationLog`。
+- 周账号原始 `account_key` 只保存在内部任务载荷供执行和筛选；运行列表、详情、输入快照与结果摘要的公开序列化统一改为稳定哈希，不能回传原值。`account_name` 按外部历史数据可能为空处理。
+- 周批次收尾查询必须同时限定内容分析周任务、`delivery_target.scope='formal'`、同一 `weekly_batch_id` 与账号执行对象，排除测试、其他批次和收尾自身；同一账号多次尝试按最新任务记录确定性取终态。只有声明账号全部终态后才能创建收尾；有已选项目但零账号时查询必须返回空账号集合，汇总固定为成功、无内容、失败均为零且 `pending=0`，不得误收其他域记录。失败明细只保存账号哈希与脱敏原因码。
+- 正式自动周批次收尾的创建与内容分析执行共享完整锁名 `content-analysis:weekly-batch:{weekly_batch_id}` 及 PostgreSQL 键 `hashtextextended(:lock_name, 0)`。任务配置创建侧使用 `pg_advisory_xact_lock`（事务级咨询锁），内容分析执行侧使用同键会话级咨询锁；创建侧必须在锁内重新读取终态快照并确定最新 `finalize_version`，完成运行键幂等检查、`TaskJob` 创建和提交后才释放锁与调用执行器。创建异常必须回滚，由事务自动释放锁，禁止留下旧版校验通过后被新版并发覆盖周报的窗口。
+
+状态兼容沿用 M1 `task_jobs.status` 字段，不增加状态列或独立状态表：
+
+| 存储状态 | 内容分析页面语义 | 说明 |
+|---|---|---|
+| `not_run` | 未运行 / 配置缺失 | 必要配置缺失，实例未真正开始；结果摘要保存具体缺失原因（包括 `CONFIG_MISSING` 或 `REPORT_ROOT_REF_MISSING`），不是失败或取消 |
+| `pending` | 排队中 | 已创建，等待执行 |
+| `processing` | 运行中 | 已开始执行 |
+| `success` | 成功 | 正式任务要求内部结构化结果和飞书投递均成功；测试任务只表示隔离测试结果成功 |
+| `failed` | 失败 | 执行错误或超过该任务自己的 12 小时截止时间 |
+| `cancelled` | 已取消 | 保留通用任务语义，阶段一页面不提供取消操作 |
+
+每个真正启动的任务以 `input_payload.deadline_at` 为唯一截止时间，收敛时必须同时校验 `tool_code` 与 `input_payload.agent_code='content-analysis'`。平台内部自动重试仍使用原 `task_jobs` 与原截止时间，只追加日志；管理员手动重试必须创建新任务，继承原执行对象、业务日期、分析窗口、测试/正式投递范围与文档幂等身份，并从重试触发时生成新的 12 小时截止时间。同一原任务、同一规范化请求编号的手动重试先锁定原任务行，再次查重后才允许创建，确保并发请求只执行一次。
+
+迁移 059 在 `task_jobs` 上建立表达式部分唯一索引：仅当 `tool_code` 为内容分析日/周任务、`agent_code='content-analysis'`、`run_type='auto'`、`task_code` 为 `daily/weekly` 且 `run_key` 去空白后非空时，对 `input_payload->>'run_key'` 保证唯一。正式周批次收尾仍属于周任务和自动运行域，其包含终态版本的独立运行键受同一约束保护；无需新增表、字段、状态或迁移。测试、手动重试和其他工具不受该索引限制。
+
+测试请求不扩大该索引：应用在同一数据库事务内按规范化 `run_key` 获取事务级咨询锁，再查询或创建任务，保证日/周测试的串行与并发重复请求只执行一次；锁和查询不能替代正式自动任务的数据库唯一约束。
+
+正式自动任务沿用既有业务日/执行对象 `internal_result_key` 和默认 `document_key`。测试任务的 `run_key`、`internal_result_key`、`document_key` 均使用包含规范化请求编号的测试命名空间；同一测试请求稳定复用，不同测试请求及正式任务互不冲突。手动重试和内部重试只继承原任务的内部结果键与文档键，不得把当前配置的新目录或新键写进旧投递身份；原任务根目录为空时拒绝手动重试。
+
+周批次收尾使用与账号结果分离、包含终态摘要版本的不可变 `internal_result_key`，但继续复用该业务窗口唯一周报 `document_key`。相同终态版本的重复或并发收尾返回同一任务；账号重试改变最终状态后，先取得上述共享批次锁并在同一创建事务内重算版本，再创建新的收尾任务和内部结果版本、更新原周报文档，不改写旧汇总结果，也不重跑其他账号。收尾投递失败的重试继承原内部结果键和文档键，只允许重新投递。
+
+四层结果映射：数据库预检缺失为 `not_run` 且后三层 `skipped`；飞书关系完整读取但缺少有效关系为 `not_run` 且 `failure_stage` 为空；数据源、分析、内部持久化、投递和超时失败分别写 `failure_stage=data_source/analysis/internal_result/delivery/timeout`。执行器回传写库前必须通过禁止额外字段的结构、枚举、身份字段和层间一致性校验；非法回传只保存 `EXECUTOR_CONTRACT_INVALID` 安全摘要。任何执行器回传只允许在任务仍为 `pending/processing` 时条件更新，避免迟到结果覆盖超时或其他终态。仅投递重试抛异常或返回非法合同结果时，仍保存 `failed/delivery`、原内部结果编号和投递身份，后续继续仅投递。
+---
+
+## 39. 内容分析运行持久化（M2 Sprint28）
+
+迁移文件：`060_content_analysis_runtime.sql`。该迁移必须在 `059_agent_task_config_stage2.sql` 之后按账本顺序执行。只新增以下五张表；完整不可变结构化正文继续保存在 `outputs.content_json`，`content_analysis_results` 提供专业索引。
+
+### 39.1 `content_analysis_results`
+
+记录任务、执行对象、业务日期、右端排他窗口、上下文版本、来源读取回执、内部结果状态、三层幂等键中的分析/结果键、`output_id` 和 `is_test`。每日记录只含一个 `project_id`；周账号记录只含一个 `sec_uid` 及关联项目快照；`weekly_batch_finalize` 周批次收尾记录的 `project_id/sec_uid` 均为空，`related_project_ids` 保存非空已选项目范围，非空 `finalize_version` 同时保存在不可变正文及 `source_receipts.task_jobs`，用于绑定本次终态快照。每次重新收尾使用新的结果键生成不可变版本。收尾按账号任务保存的内部结果编号严格关联本表和对应 `outputs.content_json` 基准正文，不依赖可变的账号基准投影反推历史结果；零账号批次保存计数全为 0 的不可变汇总正文。`result_key` 与 `output_id` 均唯一。
+
+### 39.2 `content_analysis_deliveries`
+
+按唯一 `document_key` 保存目标目录、飞书文档身份、链接、`pending/success/failed` 状态、尝试次数、脱敏错误和关联内部结果编号。投递失败不删除内部结果；仅投递重试复用本文档身份。
+
+### 39.3 `content_analysis_library_items`
+
+与 `kol_references` 一对一扩展，保存项目编号、可空账号、来源平台、可空作品编号/外部链接双稳定身份、分类、`analysis/manual` 加入来源、完整基础分析、项目适配、最新四项互动、可信度、优先级、开头标注及 `enabled/disabled` 可用状态。作品编号和外部链接均在项目范围内唯一，不跨项目合并。人工记录允许暂时没有稳定身份与 `latest_result_id`，但必须依附明确项目和原始 `kol_references` 正文；自动分析记录必须至少有一个稳定身份。
+
+### 39.4 `content_analysis_cross_project_opportunities`
+
+按规范化 `method_key` 唯一保存方法、适用边界、来源证据和最新结果编号。记录属于公司级机会池，不自动复制到项目库。
+
+### 39.5 `content_analysis_account_baselines`
+
+按 `sec_uid + window_start + window_end` 唯一保存 30 个完整自然日的人设点赞均值、中位数、样本数、最高、最低及关联项目快照；不可计算时五项统计为空、样本数为 0，并保存明确原因。
+
+### 39.6 写入与隔离规则
+
+- 正式运行在一个事务中写 `outputs`、结果索引及本次业务投影；结果键命中时不重复写。
+- 测试运行只写带 `is_test=true` 的结果索引和对应结构化 `Output`，项目库、跨项目机会和账号基准必须零写入。
+- 投递状态独立提交，允许内部结果成功后只重试投递；周账号区块与 `weekly_batch_finalize` 汇总区块在同一批次共享文档键和文档身份，不同周批次不得复用同一文档键。分析键、周批次、报告目录前缀和文档键由独立连接持有的数据库会话级 advisory lock 串行化，锁在完整执行或投递结束后显式释放，不受业务事务中途提交影响；项目库与跨项目机会的并发变更使用业务会话内的事务级 advisory lock，保证冻结结果基于锁内重读的最新可用状态。
+- 本迁移不创建 `content_analysis_basic_analyses` 或 `content_analysis_library_events`。

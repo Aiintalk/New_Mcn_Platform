@@ -1,8 +1,35 @@
 """Integration tests for operator_persona_review and admin_persona_review routers."""
+from uuid import uuid4
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from sqlalchemy import text as sa_text
+
+from app.models.task import TaskJob
+
+
+async def _create_persona_task(test_session, user_id: int) -> int:
+    task = TaskJob(
+        task_no=f"persona_review_test_{uuid4().hex}",
+        tool_code="persona-review",
+        tool_name="人设脚本复盘",
+        status="success",
+        created_by=user_id,
+    )
+    test_session.add(task)
+    await test_session.commit()
+    await test_session.refresh(task)
+    return int(task.id)
+
+
+@pytest.fixture
+async def operator_persona_task_id(test_session, operator_user) -> int:
+    return await _create_persona_task(test_session, operator_user.id)
+
+
+@pytest.fixture
+async def admin_persona_task_id(test_session, admin_user) -> int:
+    return await _create_persona_task(test_session, admin_user.id)
 
 
 @pytest.fixture(autouse=True)
@@ -199,10 +226,21 @@ class TestSave:
         assert resp.status_code == 400
 
     @pytest.mark.asyncio
-    async def test_save_title_format_no_excel(self, test_client, operator_token, test_session):
+    async def test_save_title_format_no_excel(
+        self,
+        test_client,
+        operator_token,
+        operator_persona_task_id,
+        test_session,
+    ):
         resp = await test_client.post(
             "/api/tools/persona-review/save",
-            json={"task_id": 1, "report": "复盘内容", "script_count": 5, "has_excel": False},
+            json={
+                "task_id": operator_persona_task_id,
+                "report": "复盘内容",
+                "script_count": 5,
+                "has_excel": False,
+            },
             headers={"Authorization": f"Bearer {operator_token}"},
         )
         output_id = resp.json()["data"]["output_id"]
@@ -213,10 +251,21 @@ class TestSave:
         assert row[0] == "人设脚本复盘_5条视频_仅脚本"
 
     @pytest.mark.asyncio
-    async def test_save_title_format_with_excel(self, test_client, operator_token, test_session):
+    async def test_save_title_format_with_excel(
+        self,
+        test_client,
+        operator_token,
+        operator_persona_task_id,
+        test_session,
+    ):
         resp = await test_client.post(
             "/api/tools/persona-review/save",
-            json={"task_id": 1, "report": "复盘内容", "script_count": 3, "has_excel": True},
+            json={
+                "task_id": operator_persona_task_id,
+                "report": "复盘内容",
+                "script_count": 3,
+                "has_excel": True,
+            },
             headers={"Authorization": f"Bearer {operator_token}"},
         )
         output_id = resp.json()["data"]["output_id"]
@@ -243,11 +292,22 @@ class TestOutputs:
         assert isinstance(data["data"]["total"], int)
 
     @pytest.mark.asyncio
-    async def test_outputs_only_own_records(self, test_client, operator_token, admin_token):
+    async def test_outputs_only_own_records(
+        self,
+        test_client,
+        operator_token,
+        admin_token,
+        admin_persona_task_id,
+    ):
         """operator 只能看自己的产出，不看 admin 的"""
         await test_client.post(
             "/api/tools/persona-review/save",
-            json={"task_id": 1, "report": "admin的报告", "script_count": 1, "has_excel": False},
+            json={
+                "task_id": admin_persona_task_id,
+                "report": "admin的报告",
+                "script_count": 1,
+                "has_excel": False,
+            },
             headers={"Authorization": f"Bearer {admin_token}"},
         )
         resp = await test_client.get(

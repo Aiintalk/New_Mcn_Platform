@@ -4,8 +4,8 @@ import { adminGetTasks, adminGetTask } from '../../api/tasks';
 import type { TaskJob, TaskDetail, TaskStatus } from '../../types/task';
 import type { PagedData } from '../../types/api';
 function statusBadge(s: TaskStatus) {
-  const m: Record<TaskStatus,string> = {pending:'badge-gray',processing:'badge-warning',success:'badge-success',failed:'badge-danger',cancelled:'badge-gray'};
-  const l: Record<TaskStatus,string> = {pending:'待处理',processing:'处理中',success:'成功',failed:'失败',cancelled:'已取消'};
+  const m: Record<TaskStatus,string> = {pending:'badge-gray',processing:'badge-warning',success:'badge-success',failed:'badge-danger',cancelled:'badge-gray',not_run:'badge-gray'};
+  const l: Record<TaskStatus,string> = {pending:'待处理',processing:'处理中',success:'成功',failed:'失败',cancelled:'已取消',not_run:'未运行'};
   return <span className={`badge ${m[s]}`}>{l[s]}</span>;
 }
 export default function AdminTasksPage() {
@@ -32,7 +32,7 @@ export default function AdminTasksPage() {
       <div className="card">
         <div className="filter-bar">
           <select className="filter-select" value={status} onChange={e => { setStatus(e.target.value); setPage(1); }}>
-            <option value="">全部状态</option><option value="pending">待处理</option><option value="processing">处理中</option><option value="success">成功</option><option value="failed">失败</option>
+            <option value="">全部状态</option><option value="pending">待处理</option><option value="processing">处理中</option><option value="success">成功</option><option value="failed">失败</option><option value="cancelled">已取消</option><option value="not_run">未运行</option>
           </select>
           <span className="filter-count">共 {total} 条</span>
         </div>

@@ -563,6 +563,156 @@
   padding: 0;
 }
 
+/* ---------- Agent task configuration ---------- */
+.agent-task-identity {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  margin-bottom: var(--sp-2);
+  background: var(--bg-card);
+  border: 1px solid var(--brand-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+}
+
+.agent-task-identity > span,
+.agent-task-identity small,
+.agent-task-secondary,
+.agent-task-muted,
+.agent-task-save-meta {
+  color: var(--gray-500);
+  font-size: 12px;
+}
+
+.agent-task-identity > strong {
+  color: var(--gray-900);
+  font-size: 14px;
+}
+
+.agent-task-identity small { margin-left: auto; }
+
+.agent-task-stage-note,
+.agent-task-controlled-notice,
+.agent-task-drawer-note,
+.agent-task-drawer-result {
+  padding: var(--sp-3);
+  margin-bottom: var(--sp-4);
+  background: var(--brand-light);
+  border: 1px solid var(--brand-border);
+  border-radius: var(--radius-sm);
+  color: var(--gray-700);
+  font-size: 13px;
+}
+
+.agent-task-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-5);
+}
+
+.agent-task-summary-action {
+  text-align: left;
+  font-family: var(--font-sans);
+  cursor: pointer;
+}
+
+.agent-task-summary-action:hover { border-color: var(--brand-border); }
+
+.agent-task-card {
+  margin-bottom: var(--sp-4);
+  padding: var(--sp-5);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.agent-task-card-head { margin-bottom: var(--sp-4); }
+.agent-task-card-head p { margin-top: var(--sp-1); color: var(--gray-500); font-size: 12px; }
+
+.agent-task-definition-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-4);
+}
+
+.agent-task-definition {
+  padding: var(--sp-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-muted);
+}
+
+.agent-task-definition-kicker {
+  margin-bottom: var(--sp-2);
+  color: var(--brand-dark);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.agent-task-definition h3 { color: var(--gray-900); font-size: 15px; margin-bottom: var(--sp-4); }
+.agent-task-definition dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-3); }
+.agent-task-definition dt,
+.agent-task-input-module dt,
+.agent-task-detail-grid span { color: var(--gray-500); font-size: 11px; }
+.agent-task-definition dd,
+.agent-task-input-module dd { margin: var(--sp-1) 0 0; color: var(--gray-700); font-size: 12px; }
+
+.agent-task-project-card .card-header,
+.agent-task-monitor-card .card-header { gap: var(--sp-4); }
+.agent-task-project-card .card-header > div,
+.agent-task-monitor-card .card-header > div { min-width: 0; }
+.agent-task-project-card .card-header .agent-task-muted,
+.agent-task-monitor-card .card-header .agent-task-muted { margin-top: var(--sp-1); }
+
+.agent-task-table-scroll { overflow-x: auto; }
+.agent-task-table-scroll .ant-table { min-width: 940px; }
+.agent-task-secondary { margin-top: var(--sp-1); line-height: 1.45; }
+.agent-task-reason { margin-top: var(--sp-1); color: var(--danger); font-size: 12px; }
+.agent-task-save-meta { padding: 0 var(--sp-5) var(--sp-4); }
+
+.agent-task-run-filters { align-items: flex-end; }
+.agent-task-date { display: flex; flex-direction: column; gap: var(--sp-1); color: var(--gray-500); font-size: 11px; }
+.agent-task-date input,
+.agent-task-field select { min-height: 34px; padding: 0 var(--sp-2); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-card); color: var(--gray-700); font-family: var(--font-sans); }
+
+.agent-task-input-module {
+  padding: var(--sp-4) 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.agent-task-input-module > div:first-child { display: flex; align-items: center; gap: var(--sp-2); }
+.agent-task-input-module dl { display: grid; gap: var(--sp-2); margin-top: var(--sp-3); }
+.agent-task-input-value { margin: 0; white-space: pre-wrap; word-break: break-word; color: var(--gray-700); font-family: var(--font-sans); font-size: 12px; line-height: 1.6; }
+
+.agent-task-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-5);
+}
+
+.agent-task-detail-grid > div { display: grid; gap: var(--sp-1); }
+.agent-task-detail-grid strong { color: var(--gray-800); font-size: 13px; }
+
+.agent-task-field { display: grid; gap: var(--sp-2); margin-top: var(--sp-4); color: var(--gray-700); font-size: 13px; }
+
+@media (max-width: 1100px) {
+  .agent-task-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .agent-task-identity { align-items: flex-start; flex-wrap: wrap; }
+  .agent-task-identity small { width: 100%; margin-left: 0; }
+}
+
+@media (max-width: 760px) {
+  .agent-task-definition-grid,
+  .agent-task-definition dl,
+  .agent-task-detail-grid { grid-template-columns: 1fr; }
+  .agent-task-project-card .card-header,
+  .agent-task-monitor-card .card-header { align-items: flex-start; flex-direction: column; }
+}
+
 .section-gap {
   margin-bottom: var(--sp-6);
 }

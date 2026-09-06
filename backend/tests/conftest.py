@@ -14,6 +14,7 @@ This file provides:
 - auth_headers: ready-to-use Authorization header dict
 """
 import os
+import re
 import uuid
 from contextlib import AsyncExitStack
 from datetime import datetime, timezone
@@ -22,12 +23,25 @@ from unittest.mock import patch
 import pytest
 import pytest_asyncio
 from passlib.context import CryptContext
+from sqlalchemy import delete, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from app.core.database import Base
 from app.core.security import create_access_token
 import app.models  # noqa: F401 — register all models so Base.metadata.create_all covers every table
+from app.models.content_analysis import (
+    ContentAnalysisAccountBaseline,
+    ContentAnalysisCrossProjectOpportunity,
+    ContentAnalysisDelivery,
+    ContentAnalysisLibraryItem,
+    ContentAnalysisResult,
+)
+from app.models.kol import Kol
+from app.models.log import OperationLog
+from app.models.material_library import KolReference
+from app.models.output import Output
+from app.models.task import TaskJob
 from app.models.user import User
 
 # ---------------------------------------------------------------------------
@@ -37,6 +51,12 @@ TEST_DB_URL = os.getenv(
     "TEST_DB_URL",
     "postgresql+asyncpg://mcn_user:admin123@localhost:5432/mcn_test",
 )
+TEST_DB_SCHEMA = os.getenv("TEST_DB_SCHEMA")
+if TEST_DB_SCHEMA is not None and not re.fullmatch(
+    r"[A-Za-z_][A-Za-z0-9_]*",
+    TEST_DB_SCHEMA,
+):
+    raise ValueError("TEST_DB_SCHEMA 只能使用安全的数据库标识符")
 
 _pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 _DEFAULT_PASSWORD = "Test@123456"
@@ -81,6 +101,7 @@ _SESSION_LOCAL_PATCH_TARGETS = [
     "app.routers.operator_script_review.AsyncSessionLocal",
     "app.routers.operator_retrospective.AsyncSessionLocal",
     "app.routers.operator_qianchuan_preview.AsyncSessionLocal",
+    "app.services.agent_task_scheduler.AsyncSessionLocal",
     # AIGC 评测 Phase 3：runner 后台执行 run（持 session 写库）+ scheduler 自动/定时触发建 run
     "app.evaluation.services.runner.AsyncSessionLocal",
     "app.evaluation.services.scheduler.AsyncSessionLocal",
@@ -94,10 +115,142 @@ _SESSION_LOCAL_PATCH_TARGETS = [
 # ---------------------------------------------------------------------------
 
 
+async def _cleanup_content_analysis_test_rows(
+    session: AsyncSession,
+    user_ids: tuple[int, ...],
+) -> None:
+    """只清理当前测试用户创建的 Sprint28 已提交测试数据。"""
+    await session.rollback()
+    if not user_ids:
+        return
+    task_rows = (
+        await session.execute(
+            select(TaskJob.id, TaskJob.input_payload).where(
+                TaskJob.task_no.like("ca_s28_%"),
+                TaskJob.created_by.in_(user_ids),
+            )
+        )
+    ).all()
+    task_ids = [row.id for row in task_rows]
+    project_ids = list(
+        (
+            await session.scalars(
+                select(Kol.id).where(
+                    Kol.name.like("cov_ca_%"),
+                    Kol.created_by.in_(user_ids),
+                )
+            )
+        ).all()
+    )
+    if not task_ids and not project_ids:
+        return
+
+    result_ids = (
+        list(
+            (
+                await session.scalars(
+                    select(ContentAnalysisResult.id).where(
+                        ContentAnalysisResult.task_id.in_(task_ids)
+                    )
+                )
+            ).all()
+        )
+        if task_ids
+        else []
+    )
+    item_filters = []
+    if result_ids:
+        item_filters.append(ContentAnalysisLibraryItem.latest_result_id.in_(result_ids))
+    if project_ids:
+        item_filters.append(ContentAnalysisLibraryItem.project_id.in_(project_ids))
+    item_rows = (
+        (
+            await session.execute(
+                select(
+                    ContentAnalysisLibraryItem.id,
+                    ContentAnalysisLibraryItem.kol_reference_id,
+                ).where(or_(*item_filters))
+            )
+        ).all()
+        if item_filters
+        else []
+    )
+    item_ids = [row.id for row in item_rows]
+    reference_ids = [row.kol_reference_id for row in item_rows]
+    document_keys = []
+    for row in task_rows:
+        payload = row.input_payload
+        if not isinstance(payload, dict):
+            continue
+        idempotency = payload.get("idempotency")
+        if isinstance(idempotency, dict):
+            document_key = idempotency.get("document_key")
+            if isinstance(document_key, str) and document_key:
+                document_keys.append(document_key)
+
+    if item_ids:
+        await session.execute(
+            delete(OperationLog).where(
+                OperationLog.target_type == "content_analysis_library_item",
+                OperationLog.target_id.in_(item_ids),
+            )
+        )
+    if result_ids:
+        await session.execute(
+            delete(ContentAnalysisCrossProjectOpportunity).where(
+                ContentAnalysisCrossProjectOpportunity.latest_result_id.in_(result_ids)
+            )
+        )
+        await session.execute(
+            delete(ContentAnalysisAccountBaseline).where(
+                ContentAnalysisAccountBaseline.latest_result_id.in_(result_ids)
+            )
+        )
+    if item_filters:
+        await session.execute(
+            delete(ContentAnalysisLibraryItem).where(or_(*item_filters))
+        )
+    if reference_ids:
+        await session.execute(
+            delete(KolReference).where(KolReference.id.in_(reference_ids))
+        )
+    if document_keys:
+        await session.execute(
+            delete(ContentAnalysisDelivery).where(
+                ContentAnalysisDelivery.document_key.in_(document_keys)
+            )
+        )
+    if result_ids:
+        await session.execute(
+            delete(ContentAnalysisResult).where(ContentAnalysisResult.id.in_(result_ids))
+        )
+    if task_ids:
+        await session.execute(delete(Output).where(Output.task_id.in_(task_ids)))
+        await session.execute(delete(TaskJob).where(TaskJob.id.in_(task_ids)))
+    if project_ids:
+        await session.execute(delete(Kol).where(Kol.id.in_(project_ids)))
+    await session.commit()
+
+
 @pytest_asyncio.fixture(scope="session")
 async def test_engine():
     """Session-scoped async engine for the test database."""
-    engine = create_async_engine(TEST_DB_URL, poolclass=NullPool)
+    if TEST_DB_SCHEMA:
+        bootstrap = create_async_engine(TEST_DB_URL, poolclass=NullPool)
+        async with bootstrap.begin() as conn:
+            await conn.execute(
+                text(f'CREATE SCHEMA IF NOT EXISTS "{TEST_DB_SCHEMA}"')
+            )
+        await bootstrap.dispose()
+    engine = create_async_engine(
+        TEST_DB_URL,
+        poolclass=NullPool,
+        connect_args=(
+            {"server_settings": {"search_path": TEST_DB_SCHEMA}}
+            if TEST_DB_SCHEMA
+            else {}
+        ),
+    )
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -131,9 +284,19 @@ async def test_session(test_engine):
     try:
         yield session
     finally:
-        for p in patches:
-            p.stop()
-        await session.close()
+        try:
+            cleanup_user_ids = tuple(
+                sorted(session.info.get("content_analysis_test_user_ids", ()))
+            )
+            await session.close()
+            async with session_factory() as cleanup_session:
+                await _cleanup_content_analysis_test_rows(
+                    cleanup_session,
+                    cleanup_user_ids,
+                )
+        finally:
+            for p in patches:
+                p.stop()
 
 
 # ---------------------------------------------------------------------------
@@ -156,6 +319,7 @@ async def admin_user(test_session) -> User:
     test_session.add(user)
     await test_session.commit()
     await test_session.refresh(user)
+    test_session.info.setdefault("content_analysis_test_user_ids", set()).add(user.id)
     return user
 
 
@@ -174,6 +338,7 @@ async def operator_user(test_session) -> User:
     test_session.add(user)
     await test_session.commit()
     await test_session.refresh(user)
+    test_session.info.setdefault("content_analysis_test_user_ids", set()).add(user.id)
     return user
 
 

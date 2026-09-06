@@ -44,6 +44,14 @@ from app.models.values_writer import ValuesWriterConfig
 from app.models.qianchuan_script_review import QianchuanScriptReviewConfig
 from app.models.retrospective import RetrospectiveConfig, RetrospectiveSession
 from app.models.kol_workspace_config import KolWorkspaceConfig
+from app.models.agent_task_config import AgentTaskConfig
+from app.models.content_analysis import (
+    ContentAnalysisAccountBaseline,
+    ContentAnalysisCrossProjectOpportunity,
+    ContentAnalysisDelivery,
+    ContentAnalysisLibraryItem,
+    ContentAnalysisResult,
+)
 from app.evaluation.models import (
     EvalCaseJob,
     EvalCaseResult,
@@ -111,6 +119,12 @@ __all__ = [
     "RetrospectiveConfig",
     "RetrospectiveSession",
     "KolWorkspaceConfig",
+    "AgentTaskConfig",
+    "ContentAnalysisAccountBaseline",
+    "ContentAnalysisCrossProjectOpportunity",
+    "ContentAnalysisDelivery",
+    "ContentAnalysisLibraryItem",
+    "ContentAnalysisResult",
     "EvalCaseJob",
     "EvalCaseResult",
     "EvalDimension",

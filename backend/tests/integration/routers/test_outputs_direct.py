@@ -128,6 +128,37 @@ async def test_delete_output_not_own_denied(test_session, operator_user, admin_u
     assert resp.success is False
 
 
+@pytest.mark.asyncio
+async def test_content_analysis_output_cannot_be_deleted_through_generic_routes(
+    test_session,
+    operator_user,
+    admin_user,
+):
+    output = await _seed_output(
+        test_session,
+        operator_user.id,
+        tool_code="content_analysis_daily",
+    )
+
+    operator_response = await delete_output(
+        output_id=output.id,
+        request=_make_request(),
+        current_user=operator_user,
+    )
+    admin_response = await admin_delete_output(
+        output_id=output.id,
+        request=_make_request(),
+        current_user=admin_user,
+    )
+    await test_session.refresh(output)
+
+    assert operator_response.success is False
+    assert operator_response.code == "PERMISSION_DENIED"
+    assert admin_response.success is False
+    assert admin_response.code == "PERMISSION_DENIED"
+    assert output.deleted_at is None
+
+
 # ---------------------------------------------------------------------------
 # GET /admin/outputs
 # ---------------------------------------------------------------------------

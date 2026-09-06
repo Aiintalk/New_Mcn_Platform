@@ -26,6 +26,7 @@ from app.models.user import User
 from app.models.kol import Kol
 from app.models.log import OperationLog
 from app.models.material_library import KolReference, MaterialLibraryConfig
+from app.models.content_analysis import ContentAnalysisLibraryItem
 from app.models.kol_intake import (
     KolIntakeSubmission,
     KolIntakeLink,
@@ -101,6 +102,19 @@ async def _get_active_reference(
             KolReference.deleted_at.is_(None),
         )
     )).scalar_one_or_none()
+
+
+async def _is_content_analysis_reference(
+    db: AsyncSession,
+    ref_id: int,
+) -> bool:
+    return (
+        await db.scalar(
+            select(ContentAnalysisLibraryItem.id).where(
+                ContentAnalysisLibraryItem.kol_reference_id == ref_id
+            )
+        )
+    ) is not None
 
 
 async def _read_document_with_limit(file: UploadFile, max_bytes: int) -> bytes | None:
@@ -390,6 +404,11 @@ async def update_reference(
     ref = await _get_active_reference(db, kol_id, ref_id)
     if not ref:
         return error_response(ErrorCode.RESOURCE_NOT_FOUND, "素材不存在")
+    if await _is_content_analysis_reference(db, ref_id):
+        return error_response(
+            ErrorCode.PERMISSION_DENIED,
+            "内容分析候选必须通过内容分析项目库接口维护",
+        )
 
     changes = []
     for field in (
@@ -486,6 +505,11 @@ async def upload_reference_video(
     ref = await _get_active_reference(db, kol_id, ref_id)
     if not ref:
         return error_response(ErrorCode.RESOURCE_NOT_FOUND, "素材不存在")
+    if await _is_content_analysis_reference(db, ref_id):
+        return error_response(
+            ErrorCode.PERMISSION_DENIED,
+            "内容分析候选必须通过内容分析项目库接口维护",
+        )
     if not (file.content_type or "").startswith("video/"):
         return error_response(ErrorCode.VALIDATION_ERROR, "请上传视频文件")
 
@@ -599,6 +623,11 @@ async def delete_reference(
     ref = await _get_active_reference(db, kol_id, ref_id)
     if not ref:
         return error_response(ErrorCode.RESOURCE_NOT_FOUND, "素材不存在")
+    if await _is_content_analysis_reference(db, ref_id):
+        return error_response(
+            ErrorCode.PERMISSION_DENIED,
+            "内容分析候选必须通过内容分析项目库接口维护",
+        )
 
     video_oss_key = ref.video_oss_key
     ref.deleted_at = func.now()
